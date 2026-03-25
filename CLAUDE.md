@@ -448,6 +448,11 @@ git push origin main
 - [ ] CHANGELOG.md 已添加新版本条目
 - [ ] README.md 已更新（命令表 + 使用说明 + 底部版本号）
 - [ ] CLAUDE.md 已更新（Last Updated + 变更记录 + 受影响章节）
+- [ ] **⚠ 若修改了 `codeagent-wrapper/` 下的 Go 代码，必须同步 bump 两处版本号：**
+  - [ ] `codeagent-wrapper/main.go` → `version = "x.y.z"`
+  - [ ] `src/utils/installer.ts` → `EXPECTED_BINARY_VERSION = 'x.y.z'`
+  - [ ] 交叉编译 6 平台 binary 并上传 GitHub Release（`gh release upload preset --clobber`）
+  - 两边版本必须一致，否则用户 update 时无法触发 binary 重新下载
 - [ ] `pnpm typecheck` 通过（tsc --noEmit，不可跳过）
 - [ ] `pnpm build` 通过
 - [ ] `pnpm test` 通过
