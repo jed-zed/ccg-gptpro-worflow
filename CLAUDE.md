@@ -2,13 +2,16 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-03-26 (v1.7.97)
+**Last Updated**: 2026-03-26 (v1.7.98)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-03-26 (v1.7.98)
+- 🐛 **Gemini `resume latest` 模板修正**：Gemini stream-json 不输出 SESSION_ID，所有模板改为 Gemini 用 `resume latest`
 
 ### 2026-03-26 (v1.7.97)
 - 🐛 **Gemini `-p -` 显示修正**：`Command:` 行显示真实任务文本而非 `-p -`，消除误导
