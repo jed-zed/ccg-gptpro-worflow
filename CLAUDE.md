@@ -2,13 +2,19 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-03-31 (v2.0.0)
+**Last Updated**: 2026-03-31 (v2.1.0)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-03-31 (v2.1.0)
+- ✨ **模型路由可配置**（Issue #121）：init Step 2/4 选前端/后端模型（gemini/codex/claude），Gemini 型号可选
+- ✨ **菜单模型路由配置**：`6. 配置模型路由`，切换后自动重装模板
+- 🔄 **20+ 模板去硬编码**：`--backend gemini`/`--backend codex` 替换为 `{{FRONTEND_PRIMARY}}`/`{{BACKEND_PRIMARY}}`
+- 🔄 **`{{GEMINI_MODEL_FLAG}}` 安装时替换**：不再留给运行时解释
 
 ### 2026-03-31 (v2.0.0)
 - ✨ **Skill Registry 机制**：SKILL.md frontmatter 驱动自动命令生成，新增技能只需写一个 SKILL.md
@@ -280,17 +286,16 @@ npx ccg-workflow menu
 
 ---
 
-## 固定配置
+## 固定 / 可配置项
 
-v1.7.0 起，以下配置不再支持自定义：
-
-| 项目 | 固定值 | 原因 |
-|------|--------|------|
-| 语言 | 中文 | 所有模板为中文 |
-| 前端模型 | Gemini | 擅长 UI/CSS/组件 |
-| 后端模型 | Codex | 擅长逻辑/算法/调试 |
-| 协作模式 | smart | 最佳实践 |
-| 命令数量 | 28 个 | 全部安装 |
+| 项目 | 默认值 | 可配置 | 说明 |
+|------|--------|--------|------|
+| 语言 | 中文 | ✗ | 所有模板为中文 |
+| 前端模型 | Gemini | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6 |
+| 后端模型 | Codex | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6 |
+| Gemini 型号 | gemini-3.1-pro-preview | ✓ (v2.1.0+) | 选 gemini 时可配 |
+| 协作模式 | smart | ✗ | 最佳实践 |
+| 命令数量 | 28 个 | ✗ | 全部安装 |
 
 ---
 
