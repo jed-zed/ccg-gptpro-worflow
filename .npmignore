@@ -18,6 +18,8 @@ templates/commands/plan.md
 *.swp
 *.swo
 *~
+__pycache__/
+*.pyc
 .DS_Store
 .vscode
 .idea

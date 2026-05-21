@@ -4,6 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 function findProjectRoot(startDir) {
   let dir = startDir || process.cwd();
@@ -55,6 +56,151 @@ function readFileSafe(filePath) {
 
 function readJsonSafe(filePath) {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return null; }
+}
+
+function taskProjectRoot(taskDir) {
+  const resolved = path.resolve(taskDir);
+  const tasksDir = path.dirname(resolved);
+  const ccgDir = path.dirname(tasksDir);
+  return path.dirname(ccgDir);
+}
+
+function evidencePath(taskDir) {
+  return path.join(taskDir, 'evidence.json');
+}
+
+function normalizeEvidenceItem(item) {
+  const source = item || {};
+  return {
+    id: String(source.id || `${source.provider || 'unknown'}-${source.role || 'evidence'}-${source.artifactFile || ''}`),
+    provider: String(source.provider || 'unknown'),
+    role: String(source.role || 'unknown'),
+    policy: String(source.policy || 'optional'),
+    available: source.available !== false,
+    artifactFile: String(source.artifactFile || source.response_file || ''),
+    artifactSha256: String(source.artifactSha256 || source.response_sha256 || ''),
+    artifactChars: Number(source.artifactChars ?? source.response_chars ?? 0),
+    summary: String(source.summary || ''),
+    sessionId: source.sessionId ? String(source.sessionId) : null,
+    round: Number(source.round || 1),
+    createdAt: String(source.createdAt || source.created_at || new Date().toISOString()),
+  };
+}
+
+function normalizeEvidence(evidence) {
+  const rawItems = Array.isArray(evidence?.items) ? evidence.items : [];
+  return {
+    schemaVersion: Number(evidence?.schemaVersion || 1),
+    items: rawItems.map(normalizeEvidenceItem).sort((a, b) =>
+      `${a.provider}|${a.role}|${a.id}`.localeCompare(`${b.provider}|${b.role}|${b.id}`),
+    ),
+  };
+}
+
+function legacyGeminiEvidence(taskDir) {
+  const task = readJsonSafe(path.join(taskDir, 'task.json'));
+  const legacy = task?.gemini_evidence || task?.gemini_gate;
+  if (!legacy) return [];
+  const artifactFile = legacy.response_file || legacy.artifactFile || '';
+  return [normalizeEvidenceItem({
+    id: `legacy-gemini-${legacy.role || 'gate'}`,
+    provider: 'gemini',
+    role: legacy.role || 'gate',
+    policy: legacy.policy || (legacy.required ? 'required' : 'optional'),
+    available: legacy.available !== false,
+    artifactFile,
+    artifactSha256: legacy.response_sha256 || legacy.artifactSha256 || '',
+    artifactChars: legacy.response_chars || legacy.artifactChars || 0,
+    summary: legacy.summary || '',
+    createdAt: legacy.createdAt || legacy.created_at || new Date().toISOString(),
+  })];
+}
+
+function readEvidence(taskDir) {
+  const filePath = evidencePath(taskDir);
+  const evidence = readJsonSafe(filePath);
+  if (!evidence) {
+    return normalizeEvidence({ schemaVersion: 1, items: legacyGeminiEvidence(taskDir) });
+  }
+  const normalized = normalizeEvidence(evidence);
+  const existingKeys = new Set(normalized.items.map(item => `${item.provider}|${item.role}|${item.artifactFile}`));
+  for (const item of legacyGeminiEvidence(taskDir)) {
+    const key = `${item.provider}|${item.role}|${item.artifactFile}`;
+    if (!existingKeys.has(key)) normalized.items.push(item);
+  }
+  return normalizeEvidence(normalized);
+}
+
+function writeEvidence(taskDir, evidence) {
+  const normalized = normalizeEvidence(evidence);
+  fs.writeFileSync(evidencePath(taskDir), JSON.stringify(normalized, null, 2) + '\n', 'utf-8');
+  return normalized;
+}
+
+function appendEvidenceItem(taskDir, item) {
+  const evidence = readEvidence(taskDir);
+  const normalized = normalizeEvidenceItem(item);
+  const key = `${normalized.provider}|${normalized.sessionId || ''}|${normalized.round}|${normalized.id}`;
+  evidence.items = evidence.items.filter(existing =>
+    `${existing.provider}|${existing.sessionId || ''}|${existing.round}|${existing.id}` !== key,
+  );
+  evidence.items.push(normalized);
+  return writeEvidence(taskDir, evidence);
+}
+
+function resolveArtifactPath(taskDir, artifactFile) {
+  if (!artifactFile) return null;
+  if (path.isAbsolute(artifactFile)) return path.resolve(artifactFile);
+  if (artifactFile.startsWith('.ccg/')) return path.resolve(taskProjectRoot(taskDir), artifactFile);
+  return path.resolve(taskDir, artifactFile);
+}
+
+function sha256File(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function validateEvidence(taskDir, requirement) {
+  const req = requirement || {};
+  const provider = String(req.provider || '');
+  const role = String(req.role || '');
+  const policy = String(req.policy || 'required');
+  const evidence = readEvidence(taskDir);
+  const matches = evidence.items.filter(item =>
+    (!provider || item.provider === provider) && (!role || item.role === role),
+  );
+  if (matches.length === 0) {
+    return policy === 'required'
+      ? { ok: false, reason: 'missing_required_evidence' }
+      : { ok: true, reason: 'optional_evidence_missing' };
+  }
+  const item = matches[matches.length - 1];
+  if (!item.available) {
+    return policy === 'required'
+      ? { ok: false, reason: 'required_evidence_unavailable', item }
+      : { ok: true, reason: 'optional_evidence_unavailable', item };
+  }
+  const artifactPath = resolveArtifactPath(taskDir, item.artifactFile);
+  if (!artifactPath || !fs.existsSync(artifactPath)) {
+    return { ok: false, reason: 'artifact_missing', item };
+  }
+  const text = fs.readFileSync(artifactPath, 'utf-8').trim();
+  if (policy === 'required' && !text) {
+    return { ok: false, reason: 'artifact_empty', item };
+  }
+  if (item.artifactSha256 && sha256File(artifactPath) !== item.artifactSha256) {
+    return { ok: false, reason: 'artifact_hash_mismatch', item };
+  }
+  return { ok: true, item };
+}
+
+function composeEvidenceSummary(taskDir, filter) {
+  const evidence = readEvidence(taskDir);
+  const provider = filter?.provider;
+  const role = filter?.role;
+  return evidence.items
+    .filter(item => (!provider || item.provider === provider) && (!role || item.role === role))
+    .map(item => `- ${item.provider}/${item.role}: ${item.available ? 'available' : 'unavailable'} - ${item.summary || item.artifactFile}`)
+    .join('\n');
 }
 
 function readContextJsonl(taskDir) {
@@ -178,6 +324,12 @@ module.exports = {
   getActiveTask,
   readFileSafe,
   readJsonSafe,
+  readEvidence,
+  writeEvidence,
+  validateEvidence,
+  normalizeEvidenceItem,
+  appendEvidenceItem,
+  composeEvidenceSummary,
   readContextJsonl,
   detectTechStack,
   getGitInfo,

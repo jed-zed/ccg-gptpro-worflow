@@ -30,6 +30,8 @@
     "templates/commands/",
     "templates/commands-legacy/",
     "templates/engine/",
+    "!templates/engine/**/__pycache__/**",
+    "!templates/engine/**/*.pyc",
     "templates/hooks/",
     "templates/spec/",
     "templates/codex/",

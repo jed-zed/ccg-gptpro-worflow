@@ -27,6 +27,14 @@ $ARGUMENTS
 - 以 `commit` 开头 → 加载 `git-action` 策略
 - 以 `rollback` / `回滚` 开头 → 加载 `git-action` 策略
 - 以 `review` / `审查` 开头 → 加载 `review-audit` 策略
+- 命中 `gptpro-plan` / `GPT Pro plan` / `GPT Pro 规划` / `GPT Pro 计划` → 加载 `/ccg:gptpro-plan` 手动规划证据流程
+- 命中 `gptpro-review` / `GPT Pro review` / `GPT Pro 审查` / `GPT Pro 复核` → 加载 `/ccg:gptpro-review` 手动审查证据流程
+- 命中 `gptpro-exc` / `GPT Pro exc` / `GPT Pro 执行` / `GPT Pro 实现` / `GPT Pro 伴随` → 加载 `/ccg:gptpro-exc` 手动执行伴随流程
+- 以 `gptpro` / `GPT Pro` 开头但未指定子命令时：
+  - 含 `计划` / `规划` / `方案` / `plan` / `design` → `/ccg:gptpro-plan`
+  - 含 `审查` / `复核` / `review` / `audit` / `diff` → `/ccg:gptpro-review`
+  - 含 `执行` / `实现` / `开发` / `修复` / `execute` / `implement` / `fix` / `build` → `/ccg:gptpro-exc`
+  - 仍无法判断时，优先 `/ccg:gptpro-plan`，因为它不会执行产品代码
 - 以 `clean` 开头且含 `branch` → 加载 `git-action` 策略
 
 如果命中逃生舱或快捷路由，跳到 Phase 3。否则继续 Phase 1。
@@ -158,6 +166,16 @@ mkdir -p .ccg/tasks/{task-name}
 ```
 
 ### 加载策略
+
+如果快捷路由选中的是 `/ccg:gptpro-plan`、`/ccg:gptpro-review` 或 `/ccg:gptpro-exc`，不要加载普通策略文件，直接读取对应命令模板并执行其契约：
+
+```text
+Read("~/.claude/commands/ccg/gptpro-plan.md")
+Read("~/.claude/commands/ccg/gptpro-review.md")
+Read("~/.claude/commands/ccg/gptpro-exc.md")
+```
+
+只读取被选中的那一个命令文件。GPT Pro 是手动证据流程，不是 `codeagent-wrapper` 后端。
 
 ```
 Read("~/.claude/.ccg/engine/strategies/{selected-strategy}.md")

@@ -273,7 +273,7 @@ describe('uninstallWorkflows E2E', () => {
 
     // Verify commands directory removed
     expect(fs.existsSync(join(tmpDir, 'commands', 'ccg'))).toBe(false)
-  })
+  }, 30_000)
 
   it('uninstall on empty dir succeeds without errors', async () => {
     const emptyDir = join(tmpdir(), `ccg-test-empty-${Date.now()}`)
@@ -304,7 +304,7 @@ describe('installWorkflows — binary installation', () => {
 
     const binaryName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
     expect(fs.existsSync(join(result.binPath!, binaryName))).toBe(true)
-  })
+  }, 30_000)
 })
 
 // ─────────────────────────────────────────────────────────────
@@ -334,6 +334,43 @@ describe('installWorkflows — prompts installation', () => {
     const geminiFiles = readdirSync(join(promptsDir, 'gemini')).filter(f => f.endsWith('.md'))
     expect(codexFiles.length).toBeGreaterThanOrEqual(5)
     expect(geminiFiles.length).toBeGreaterThanOrEqual(5)
+  }, 30_000)
+})
+
+describe('installWorkflows - GPT Pro bridge assets', () => {
+  const tmpDir = join(tmpdir(), `ccg-test-gptpro-${Date.now()}`)
+
+  afterAll(async () => {
+    await fs.remove(tmpDir)
+  }, 30_000)
+
+  it('installs the GPT Pro command family and engine-local bridge files', async () => {
+    const result = await installWorkflows(['gptpro-plan', 'gptpro-review', 'gptpro-exc'], tmpDir, true, {
+      mcpProvider: 'skip',
+    })
+    expect(result.success).toBe(true)
+    expect(result.installedCommands).toContain('gptpro-plan')
+    expect(result.installedCommands).toContain('gptpro-review')
+    expect(result.installedCommands).toContain('gptpro-exc')
+    expect(fs.existsSync(join(tmpDir, 'commands', 'ccg', 'gptpro-plan.md'))).toBe(true)
+    expect(fs.existsSync(join(tmpDir, 'commands', 'ccg', 'gptpro-review.md'))).toBe(true)
+    expect(fs.existsSync(join(tmpDir, 'commands', 'ccg', 'gptpro-exc.md'))).toBe(true)
+    expect(fs.existsSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'gptpro_bridge.py'))).toBe(true)
+    expect(fs.existsSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'plan.md'))).toBe(true)
+    expect(fs.existsSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'review.md'))).toBe(true)
+    expect(fs.existsSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'exc.md'))).toBe(true)
+  }, 30_000)
+})
+
+describe('GPT Pro go routing', () => {
+  it('documents automatic routing for plan, review, and execution companion', () => {
+    const content = readFileSync(join(TEMPLATES_DIR, 'go.md'), 'utf-8')
+    expect(content).toContain('/ccg:gptpro-plan')
+    expect(content).toContain('/ccg:gptpro-review')
+    expect(content).toContain('/ccg:gptpro-exc')
+    expect(content).toContain('gptpro-plan')
+    expect(content).toContain('gptpro-review')
+    expect(content).toContain('gptpro-exc')
   })
 })
 

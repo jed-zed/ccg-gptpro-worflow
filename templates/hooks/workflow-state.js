@@ -21,7 +21,9 @@ try {
   }
 
   const turns = trackTurn(task.dir, task.currentPhase, task.nextAction);
-  const loop = detectLoop(turns, 3);
+  const manualWaitGates = new Set(['manual_gptpro_waiting']);
+  const isManualWait = manualWaitGates.has(task.gate);
+  const loop = isManualWait ? null : detectLoop(turns, 3);
 
   const lines = [
     '<ccg-state>',
@@ -35,6 +37,10 @@ try {
   }
 
   lines.push(`Next: ${task.nextAction || 'Continue current phase'}`);
+
+  if (isManualWait) {
+    lines.push('Manual wait: GPT Pro response must be saved before continuing.');
+  }
 
   if (loop) {
     lines.push('');

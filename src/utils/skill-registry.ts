@@ -9,7 +9,7 @@
  */
 
 import fs from 'fs-extra'
-import { basename, join, relative, sep } from 'pathe'
+import { join, relative, sep } from 'pathe'
 
 // ═══════════════════════════════════════════════════════
 // Types

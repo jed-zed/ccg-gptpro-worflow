@@ -6,9 +6,8 @@ import ora from 'ora'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { i18n, initI18n } from '../i18n'
-import { createDefaultConfig, ensureCcgDir, getCcgDir, readCcgConfig, writeCcgConfig } from '../utils/config'
-import { getAllCommandIds, getCoreCommandIds, installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryDownloadWarning, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
-import { isWindows } from '../utils/platform'
+import { createDefaultConfig, ensureCcgDir, readCcgConfig, writeCcgConfig } from '../utils/config'
+import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryDownloadWarning, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 
 /**
@@ -231,7 +230,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
   let geminiModel = 'gemini-3.1-pro-preview'
   const mode: CollaborationMode = 'smart'
   let selectedWorkflows = getCoreCommandIds()
-  let installMode: 'v3' | 'legacy' = 'v3'
+  let _installMode: 'v3' | 'legacy' = 'v3'
 
   // Non-interactive mode: preserve existing config
   if (options.skipPrompt) {
@@ -248,7 +247,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
       )
       if (hadLegacy) {
         selectedWorkflows = getAllCommandIds()
-        installMode = 'legacy'
+        _installMode = 'legacy'
       }
     }
   }
@@ -678,7 +677,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
         ],
         default: 'v3',
       }])
-      installMode = versionMode
+      _installMode = versionMode
       if (versionMode === 'legacy') {
         selectedWorkflows = getAllCommandIds()
         const { includeImpeccable } = await inquirer.prompt([{
