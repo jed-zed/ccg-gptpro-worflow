@@ -305,6 +305,7 @@ describe('GPT Pro manual bridge', () => {
       'try:',
       '    post({"Content-Type": "application/json"}, json.dumps({"response": "spoof"}).encode("utf-8"))',
       '    token = session.status()["preview_token"]',
+      '    post_declared_length({"Content-Type": "application/json", "X-CCG-GPTPRO-Token": token}, -1)',
       '    post_declared_length({"Content-Type": "application/json", "X-CCG-GPTPRO-Token": token}, mod.MAX_RESPONSE_BYTES + 1)',
       '    post({"Content-Type": "application/json", "X-CCG-GPTPRO-Token": token}, json.dumps({"response": "Manual response"}).encode("utf-8"))',
       'finally:',
@@ -312,6 +313,6 @@ describe('GPT Pro manual bridge', () => {
       '    server.server_close()',
     ].join('\n')
     const result = runPython(PYTHON!, ['-c', serverScript, BRIDGE, statusFile], root)
-    expect(result.trim().split(/\r?\n/)).toEqual(['403', '413', '200'])
+    expect(result.trim().split(/\r?\n/)).toEqual(['403', '400', '413', '200'])
   })
 })

@@ -1119,6 +1119,9 @@ def start_server(session: BridgeSession, open_browser: bool = False, port: int =
                 except ValueError:
                     self.send_json({"ok": False, "error": "Invalid Content-Length"}, status=400)
                     return
+                if length < 0:
+                    self.send_json({"ok": False, "error": "Invalid Content-Length"}, status=400)
+                    return
                 if length > MAX_RESPONSE_BYTES:
                     self.send_json({"ok": False, "error": "Response too large"}, status=413)
                     return
