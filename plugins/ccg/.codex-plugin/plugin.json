@@ -1,0 +1,55 @@
+{
+  "name": "ccg",
+  "version": "3.1.0",
+  "description": "Codex-native CCG workflow planner, executor, Git/context, spec, team, quality gates, and manual GPT Pro evidence layer. Codex creates Chinese plans, orchestrates Gemini, applies code, verifies changes, and reports results.",
+  "author": {
+    "name": "jed-zed",
+    "email": "noreply@example.com",
+    "url": "https://github.com/jed-zed"
+  },
+  "homepage": "https://github.com/jed-zed/ccg-gptpro-worflow",
+  "repository": "https://github.com/jed-zed/ccg-gptpro-worflow",
+  "license": "MIT",
+  "keywords": [
+    "ccg",
+    "codex",
+    "gemini",
+    "workflow",
+    "planning",
+    "plan-execution"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "CCG GPT Pro Workflow",
+    "shortDescription": "Run CCG workflows with Codex, Gemini, Claude-side compatibility, and manual GPT Pro evidence",
+    "longDescription": "A Codex-native plugin wrapper for the GPT Pro-enhanced CCG fork. Codex owns planning, implementation, and verification, Gemini can provide bounded read-only evidence, and GPT Pro is exposed as a manual high-value evidence layer for planning, review, and execution companion flows. Includes cache diagnostics, hardened snapshots, high-frequency CCG commands, Git/context helpers, spec workflows, team workflows, and local quality/security gates.",
+    "developerName": "jed-zed",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/jed-zed/ccg-gptpro-worflow",
+    "privacyPolicyURL": "https://github.com/jed-zed/ccg-gptpro-worflow",
+    "termsOfServiceURL": "https://github.com/jed-zed/ccg-gptpro-worflow",
+    "defaultPrompt": [
+      "/ccg:doctor",
+      "/ccg:go Add the requested feature",
+      "/ccg:gptpro-plan Add the requested feature",
+      "/ccg:gptpro-review Review the current change",
+      "/ccg:gptpro-exc Pair on this implementation",
+      "/ccg:plan Add the requested feature",
+      "/ccg:execute .codex/ccg/plans/task.md",
+      "/ccg:feat Add the requested feature",
+      "/ccg:frontend Improve this UI",
+      "/ccg:backend Implement the backend task",
+      "/ccg:debug Fix this failure",
+      "/ccg:gemini-preview Review this plan",
+      "/ccg:verify-change"
+    ],
+    "brandColor": "#2563EB",
+    "screenshots": []
+  }
+}

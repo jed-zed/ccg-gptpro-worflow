@@ -9,9 +9,13 @@ export default antfu({
   ignores: [
     '.ccg/**',
     '.codex/**',
+    '.agents/plugins/**',
+    '.claude-plugin/**',
+    '.codex-plugin/**',
     'dist/**',
     'docs/**',
     'node_modules/**',
+    'plugins/**',
     'templates/**',
   ],
 }, {
