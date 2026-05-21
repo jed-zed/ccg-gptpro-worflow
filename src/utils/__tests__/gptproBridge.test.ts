@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -54,6 +55,38 @@ function parseOutputPath(output: string, key: string): string {
   return line.slice(key.length + 1).trim()
 }
 
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+function writeGeminiGateEvidence(taskDir: string, artifactFile: string, response: string): void {
+  fs.writeJsonSync(join(taskDir, 'evidence.json'), {
+    schemaVersion: 1,
+    items: [{
+      id: 'gemini-gate-1',
+      provider: 'gemini',
+      role: 'gate',
+      policy: 'required',
+      available: true,
+      artifactFile,
+      artifactSha256: sha256(response),
+      artifactChars: response.length,
+      summary: 'Gemini gate evidence is available.',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }],
+  })
+}
+
+function runPythonFailure(python: PythonCommand, args: string[], cwd?: string): string {
+  try {
+    runPython(python, args, cwd)
+  }
+  catch (error: any) {
+    return String(error.stderr || error.message || error)
+  }
+  throw new Error('Expected Python command to fail')
+}
+
 const PACKAGE_ROOT = findPackageRoot()
 const BRIDGE = join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'gptpro', 'gptpro_bridge.py')
 const TMP_ROOT = join(tmpdir(), `ccg-gptpro-bridge-${Date.now()}`)
@@ -84,6 +117,7 @@ describe('GPT Pro manual bridge', () => {
     const geminiResponse = 'Gemini gate evidence: review the packaging path.'
     writeFileSync(join(evidenceDir, 'gemini.md'), geminiResponse, 'utf-8')
     writeFileSync(join(evidenceDir, 'gemini-summary.md'), 'Gemini says packaging must be checked.', 'utf-8')
+    writeGeminiGateEvidence(taskDir, 'evidence/gemini.md', geminiResponse)
 
     const output = runPython(PYTHON!, [
       BRIDGE,
@@ -135,14 +169,16 @@ describe('GPT Pro manual bridge', () => {
     expect(roundStatus.response_sha256).toMatch(/^[a-f0-9]{64}$/)
 
     const evidence = fs.readJsonSync(join(taskDir, 'evidence.json'))
-    expect(evidence.items).toHaveLength(1)
-    expect(evidence.items[0]).toMatchObject({
+    const gptproEvidence = evidence.items.find((item: any) => item.provider === 'gptpro')
+    expect(evidence.items).toHaveLength(2)
+    expect(gptproEvidence).toMatchObject({
       provider: 'gptpro',
       role: 'review',
       available: true,
       artifactFile: expect.stringContaining('round-1/response.md'),
     })
-    expect(evidence.items[0].artifactSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(gptproEvidence.artifactSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(gptproEvidence.artifactChars).toBe('Manual GPT Pro response\n'.length)
   })
 
   maybeIt('rejects an empty saved response', () => {
@@ -151,7 +187,9 @@ describe('GPT Pro manual bridge', () => {
     const evidenceDir = join(taskDir, 'evidence')
     fs.ensureDirSync(evidenceDir)
     fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'empty-task', status: 'in_progress' })
-    writeFileSync(join(evidenceDir, 'gemini.md'), 'Gemini evidence', 'utf-8')
+    const geminiResponse = 'Gemini evidence'
+    writeFileSync(join(evidenceDir, 'gemini.md'), geminiResponse, 'utf-8')
+    writeGeminiGateEvidence(taskDir, 'evidence/gemini.md', geminiResponse)
 
     const output = runPython(PYTHON!, [
       BRIDGE,
@@ -183,5 +221,97 @@ describe('GPT Pro manual bridge', () => {
       'sys.exit(1)',
     ].join('\n')
     runPython(PYTHON!, ['-c', emptyScript, BRIDGE, statusFile], root)
+  })
+
+  maybeIt('rejects plan/review sessions without canonical Gemini gate evidence', () => {
+    const root = join(TMP_ROOT, 'missing-canonical-gemini')
+    const taskDir = join(root, '.ccg', 'tasks', 'missing-gate-task')
+    const evidenceDir = join(taskDir, 'evidence')
+    fs.ensureDirSync(evidenceDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'missing-gate-task', status: 'in_progress' })
+    writeFileSync(join(evidenceDir, 'gemini.md'), 'Gemini evidence without canonical item', 'utf-8')
+
+    const stderr = runPythonFailure(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/missing-gate-task',
+      '--prompt',
+      'Review canonical evidence enforcement.',
+      '--gemini-response-file',
+      join(evidenceDir, 'gemini.md'),
+      '--gemini-summary',
+      'Gemini evidence is available.',
+    ], root)
+    expect(stderr).toContain('Canonical Gemini gate evidence file not found')
+  })
+
+  maybeIt('protects preview write endpoints with a token and response size limit', () => {
+    const root = join(TMP_ROOT, 'preview-protection')
+    const taskDir = join(root, '.ccg', 'tasks', 'preview-task')
+    const evidenceDir = join(taskDir, 'evidence')
+    fs.ensureDirSync(evidenceDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'preview-task', status: 'in_progress' })
+    const geminiResponse = 'Gemini gate evidence for preview protection.'
+    writeFileSync(join(evidenceDir, 'gemini.md'), geminiResponse, 'utf-8')
+    writeGeminiGateEvidence(taskDir, 'evidence/gemini.md', geminiResponse)
+
+    const output = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/preview-task',
+      '--prompt',
+      'Review preview protection.',
+      '--gemini-response-file',
+      join(evidenceDir, 'gemini.md'),
+      '--gemini-summary',
+      'Gemini evidence is available.',
+    ], root)
+    const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
+    const serverScript = [
+      'import http.client, importlib.util, json, pathlib, sys',
+      'spec = importlib.util.spec_from_file_location("gptpro_bridge", sys.argv[1])',
+      'mod = importlib.util.module_from_spec(spec)',
+      'sys.modules["gptpro_bridge"] = mod',
+      'spec.loader.exec_module(mod)',
+      'session = mod.load_session(pathlib.Path(sys.argv[2]).parent)',
+      'server, url = mod.start_server(session, port=0)',
+      'port = server.server_address[1]',
+      'def post(headers, body):',
+      '    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)',
+      '    conn.request("POST", "/save-response", body=body, headers=headers)',
+      '    response = conn.getresponse()',
+      '    print(response.status)',
+      '    response.read()',
+      '    conn.close()',
+      'def post_declared_length(headers, length):',
+      '    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)',
+      '    conn.putrequest("POST", "/save-response")',
+      '    for key, value in headers.items():',
+      '        conn.putheader(key, value)',
+      '    conn.putheader("Content-Length", str(length))',
+      '    conn.endheaders()',
+      '    response = conn.getresponse()',
+      '    print(response.status)',
+      '    response.read()',
+      '    conn.close()',
+      'try:',
+      '    post({"Content-Type": "application/json"}, json.dumps({"response": "spoof"}).encode("utf-8"))',
+      '    token = session.status()["preview_token"]',
+      '    post_declared_length({"Content-Type": "application/json", "X-CCG-GPTPRO-Token": token}, mod.MAX_RESPONSE_BYTES + 1)',
+      '    post({"Content-Type": "application/json", "X-CCG-GPTPRO-Token": token}, json.dumps({"response": "Manual response"}).encode("utf-8"))',
+      'finally:',
+      '    server.shutdown()',
+      '    server.server_close()',
+    ].join('\n')
+    const result = runPython(PYTHON!, ['-c', serverScript, BRIDGE, statusFile], root)
+    expect(result.trim().split(/\r?\n/)).toEqual(['403', '413', '200'])
   })
 })

@@ -167,4 +167,40 @@ describe('task evidence helpers', () => {
     expect(taskUtils.validateEvidence(taskDir, { provider: 'gemini', role: 'gate' }))
       .toMatchObject({ ok: false, reason: 'artifact_hash_mismatch' })
   })
+
+  it('validates a matching evidence item instead of the lexicographic last item', () => {
+    const { taskDir } = makeTask('valid-before-bad')
+    fs.ensureDirSync(join(taskDir, 'evidence'))
+    const response = 'valid gate response'
+    writeFileSync(join(taskDir, 'evidence', 'gemini-valid.md'), response, 'utf-8')
+    writeFileSync(join(taskDir, 'evidence', 'gemini-bad.md'), 'changed bytes', 'utf-8')
+    taskUtils.writeEvidence(taskDir, {
+      schemaVersion: 1,
+      items: [
+        {
+          id: 'a-valid-gate',
+          provider: 'gemini',
+          role: 'gate',
+          policy: 'required',
+          available: true,
+          artifactFile: 'evidence/gemini-valid.md',
+          artifactSha256: sha256(response),
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'z-bad-gate',
+          provider: 'gemini',
+          role: 'gate',
+          policy: 'required',
+          available: true,
+          artifactFile: 'evidence/gemini-bad.md',
+          artifactSha256: sha256('original bytes'),
+          createdAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(taskUtils.validateEvidence(taskDir, { provider: 'gemini', role: 'gate' }))
+      .toMatchObject({ ok: true, item: { id: 'a-valid-gate' } })
+  })
 })

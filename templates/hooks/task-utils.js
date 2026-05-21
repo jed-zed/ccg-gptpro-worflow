@@ -159,21 +159,22 @@ function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-function validateEvidence(taskDir, requirement) {
-  const req = requirement || {};
-  const provider = String(req.provider || '');
-  const role = String(req.role || '');
-  const policy = String(req.policy || 'required');
-  const evidence = readEvidence(taskDir);
-  const matches = evidence.items.filter(item =>
-    (!provider || item.provider === provider) && (!role || item.role === role),
-  );
-  if (matches.length === 0) {
-    return policy === 'required'
-      ? { ok: false, reason: 'missing_required_evidence' }
-      : { ok: true, reason: 'optional_evidence_missing' };
-  }
-  const item = matches[matches.length - 1];
+function evidenceTimestamp(item) {
+  const timestamp = Date.parse(item.createdAt || '');
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function compareEvidenceAge(a, b) {
+  const roundA = Number.isFinite(Number(a.round)) ? Number(a.round) : 0;
+  const roundB = Number.isFinite(Number(b.round)) ? Number(b.round) : 0;
+  if (roundA !== roundB) return roundA - roundB;
+  const timeA = evidenceTimestamp(a);
+  const timeB = evidenceTimestamp(b);
+  if (timeA !== timeB) return timeA - timeB;
+  return `${a.sessionId || ''}|${a.id || ''}`.localeCompare(`${b.sessionId || ''}|${b.id || ''}`);
+}
+
+function validateEvidenceArtifact(taskDir, item, policy) {
   if (!item.available) {
     return policy === 'required'
       ? { ok: false, reason: 'required_evidence_unavailable', item }
@@ -191,6 +192,30 @@ function validateEvidence(taskDir, requirement) {
     return { ok: false, reason: 'artifact_hash_mismatch', item };
   }
   return { ok: true, item };
+}
+
+function validateEvidence(taskDir, requirement) {
+  const req = requirement || {};
+  const provider = String(req.provider || '');
+  const role = String(req.role || '');
+  const policy = String(req.policy || 'required');
+  const evidence = readEvidence(taskDir);
+  const matches = evidence.items.filter(item =>
+    (!provider || item.provider === provider) && (!role || item.role === role),
+  );
+  if (matches.length === 0) {
+    return policy === 'required'
+      ? { ok: false, reason: 'missing_required_evidence' }
+      : { ok: true, reason: 'optional_evidence_missing' };
+  }
+  const validations = matches.map(item => ({ item, validation: validateEvidenceArtifact(taskDir, item, policy) }));
+  const validMatches = validations.filter(({ validation }) => validation.ok);
+  if (validMatches.length > 0) {
+    validMatches.sort((a, b) => compareEvidenceAge(a.item, b.item));
+    return validMatches[validMatches.length - 1].validation;
+  }
+  validations.sort((a, b) => compareEvidenceAge(a.item, b.item));
+  return validations[validations.length - 1].validation;
 }
 
 function composeEvidenceSummary(taskDir, filter) {

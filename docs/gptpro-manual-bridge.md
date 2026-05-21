@@ -45,6 +45,8 @@ the prompt to ChatGPT Pro manually and saves the response in the preview page.
 After the response is saved, the bridge:
 
 - rejects empty responses;
+- rejects preview writes without the per-session token;
+- rejects responses larger than 2 MiB;
 - writes the exact response bytes to `response.md`;
 - records character count and SHA-256 in `status.json`;
 - appends a GPT Pro item to `evidence.json`.
@@ -70,6 +72,7 @@ role=gate
 policy=required
 available=true
 artifactFile exists and is non-empty
+artifactSha256 matches the exact artifact bytes
 ```
 
 For GPT Pro responses, the bridge writes:

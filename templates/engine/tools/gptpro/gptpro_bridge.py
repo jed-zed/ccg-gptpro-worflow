@@ -14,6 +14,7 @@ import hashlib
 import html
 import json
 import re
+import secrets
 import socket
 import subprocess
 import sys
@@ -29,6 +30,7 @@ from urllib.parse import urlsplit, urlunsplit
 PROVIDER = "chatgpt-pro-manual"
 MANUAL_QUESTIONS_EXPECTED = 1
 MANUAL_QUESTIONS_MAX = 2
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 ENDPOINTS = ("GET /", "GET /state", "POST /save-response", "POST /mark-copied")
 BOUNDARIES = (
@@ -41,6 +43,7 @@ GEMINI_EVIDENCE_ROLES = ("gate", "frontend-prototype", "frontend-review")
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 SCP_LIKE_REMOTE_PATTERN = re.compile(r"^(?:([^@/:\\]+)@)?([A-Za-z0-9.-]+):(.+)$")
+LOCAL_PREVIEW_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def utc_now() -> str:
@@ -110,6 +113,132 @@ def default_evidence_file(task_dir: Path | None, evidence_file: str = "") -> Pat
     if task_dir is None:
         return None
     return (task_dir / "evidence.json").resolve()
+
+
+def ensure_within_dir(path_value: Path, base_dir: Path, label: str) -> None:
+    try:
+        path_value.resolve().relative_to(base_dir.resolve())
+    except ValueError:
+        raise ValueError(f"{label} must stay inside the active task directory: {path_value}") from None
+
+
+def task_project_root(task_dir: Path) -> Path:
+    return task_dir.resolve().parents[2]
+
+
+def resolve_evidence_artifact(task_dir: Path, artifact_file: str) -> Path:
+    if not artifact_file:
+        raise ValueError("Canonical Gemini gate evidence is missing artifactFile.")
+    candidate = Path(artifact_file).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    if artifact_file.replace("\\", "/").startswith(".ccg/"):
+        return (task_project_root(task_dir) / candidate).resolve()
+    return (task_dir / candidate).resolve()
+
+
+def validate_required_gemini_gate(
+    *,
+    task_dir: Path,
+    evidence_file: Path | None,
+    response_file: Path,
+) -> dict[str, Any]:
+    if evidence_file is None:
+        evidence_file = task_dir / "evidence.json"
+    evidence_file = evidence_file.resolve()
+    if not evidence_file.exists():
+        raise ValueError(f"Canonical Gemini gate evidence file not found: {evidence_file}")
+    try:
+        evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Canonical Gemini gate evidence file is malformed: {evidence_file}") from error
+
+    response_path = response_file.resolve()
+    ensure_within_dir(response_path, task_dir, "Gemini gate response artifact")
+    if not response_path.exists():
+        raise ValueError(f"Gemini gate response artifact not found: {response_path}")
+    response_bytes = response_path.read_bytes()
+    if not response_bytes:
+        raise ValueError(f"Gemini gate response artifact is empty: {response_path}")
+    response_hash = hashlib.sha256(response_bytes).hexdigest()
+
+    candidates = []
+    for item in evidence.get("items") or []:
+        if (
+            item.get("provider") == "gemini"
+            and item.get("role") == "gate"
+            and item.get("policy") == "required"
+            and item.get("available") is True
+        ):
+            candidates.append(item)
+    if not candidates:
+        raise ValueError("Canonical evidence.json is missing required gemini/gate evidence.")
+
+    failures: list[str] = []
+    for item in candidates:
+        try:
+            artifact_path = resolve_evidence_artifact(task_dir, str(item.get("artifactFile") or ""))
+            ensure_within_dir(artifact_path, task_dir, "Gemini gate evidence artifact")
+        except ValueError as error:
+            failures.append(str(error))
+            continue
+        if artifact_path != response_path:
+            failures.append(f"candidate {item.get('id') or '<unknown>'} points to {artifact_path}, not {response_path}")
+            continue
+        if not artifact_path.exists():
+            failures.append(f"Gemini gate evidence artifact not found: {artifact_path}")
+            continue
+        artifact_bytes = artifact_path.read_bytes()
+        if not artifact_bytes:
+            failures.append(f"Gemini gate evidence artifact is empty: {artifact_path}")
+            continue
+        artifact_hash = hashlib.sha256(artifact_bytes).hexdigest()
+        expected_hash = str(item.get("artifactSha256") or "")
+        if not expected_hash:
+            failures.append(f"Gemini gate evidence item {item.get('id') or '<unknown>'} is missing artifactSha256.")
+            continue
+        if artifact_hash != expected_hash:
+            failures.append(f"Gemini gate evidence hash mismatch for {artifact_path}.")
+            continue
+        if artifact_hash != response_hash:
+            failures.append("Gemini gate response file does not match canonical evidence hash.")
+            continue
+        return dict(item)
+
+    detail = "; ".join(failures[:3]) if failures else "no candidate matched the response file"
+    raise ValueError(f"Canonical Gemini gate evidence did not validate: {detail}")
+
+
+def header_hostname(value: str) -> str:
+    raw = value.strip()
+    if not raw:
+        return ""
+    if raw.startswith("["):
+        return raw[1:].split("]", 1)[0].lower()
+    return raw.rsplit(":", 1)[0].lower()
+
+
+def preview_host_allowed(value: str) -> bool:
+    return header_hostname(value) in LOCAL_PREVIEW_HOSTS
+
+
+def preview_origin_allowed(value: str | None) -> bool:
+    if not value:
+        return True
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    return (parsed.hostname or "").lower() in LOCAL_PREVIEW_HOSTS
+
+
+def ensure_preview_token(session: "BridgeSession") -> str:
+    status = session.status()
+    token = str(status.get("preview_token") or "")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        status["preview_token"] = token
+        session.write_status(status)
+    return token
 
 
 def display_path(path: Path, workdir: Path) -> str:
@@ -462,8 +591,8 @@ def read_gemini_evidence(
     if not gemini_path.exists():
         raise ValueError(f"Gemini response file not found: {gemini_path}")
 
-    gemini_text = gemini_path.read_text(encoding="utf-8").strip()
-    if not gemini_text:
+    gemini_raw = gemini_path.read_text(encoding="utf-8")
+    if not gemini_raw.strip():
         raise ValueError(f"Gemini response file is empty: {gemini_path}")
 
     summary_parts: list[str] = []
@@ -486,7 +615,7 @@ def read_gemini_evidence(
         "available": True,
         "response_file": str(gemini_path),
         "response_non_empty": True,
-        "response_chars": len(gemini_text),
+        "response_chars": len(gemini_raw),
         "response_sha256": hashlib.sha256(gemini_bytes).hexdigest(),
         "summary": summary_text,
     }
@@ -622,6 +751,20 @@ def create_session(
     gemini_evidence = normalize_gemini_evidence(gemini_evidence, policy, role)
     if policy == "required" and not gemini_evidence.get("available"):
         raise ValueError("CCG_GEMINI_RESPONSE_FILE is required before GPT Pro bridge session creation.")
+    if policy == "required" and role == "gate":
+        if task_dir_path is None:
+            raise ValueError("Canonical Gemini gate validation requires an active CCG task directory.")
+        response_value = str(gemini_evidence.get("response_file") or "")
+        if not response_value:
+            raise ValueError("Canonical Gemini gate validation requires a Gemini response file.")
+        response_path = Path(response_value).expanduser()
+        if not response_path.is_absolute():
+            response_path = workdir_path / response_path
+        validate_required_gemini_gate(
+            task_dir=task_dir_path,
+            evidence_file=evidence_file_path,
+            response_file=response_path,
+        )
     if project_context is None:
         project_context = detect_project_context(workdir_path)
 
@@ -662,6 +805,7 @@ def create_session(
         "rounds": rounds,
         "workdir": str(workdir_path),
         "manual_copy_required": True,
+        "preview_token": str(status.get("preview_token") or secrets.token_urlsafe(32)),
         "web_automation": False,
         "dom_extraction": False,
         "cookie_storage": False,
@@ -753,7 +897,7 @@ def append_gptpro_evidence(session: BridgeSession, status: dict[str, Any], respo
         "available": True,
         "artifactFile": relative_artifact_path(session.response_file, task_dir),
         "artifactSha256": hashlib.sha256(response_bytes).hexdigest(),
-        "artifactChars": len(response_text.strip()),
+        "artifactChars": len(response_text),
         "summary": f"Manual GPT Pro {session.mode} response saved for {session.round_name}.",
         "sessionId": session_id,
         "round": int(status.get("current_round", 1)),
@@ -776,11 +920,11 @@ def append_gptpro_evidence(session: BridgeSession, status: dict[str, Any], respo
 def save_response(session: BridgeSession, response_text: str) -> None:
     if not response_text.strip():
         raise ValueError("Manual GPT Pro response cannot be empty.")
-    session.response_file.write_text(response_text, encoding="utf-8")
+    response_bytes = response_text.encode("utf-8")
+    session.response_file.write_bytes(response_bytes)
     status = session.status()
     status["rounds"][session.round_name]["response_saved"] = True
-    response_bytes = response_text.encode("utf-8")
-    status["rounds"][session.round_name]["response_chars"] = len(response_text.strip())
+    status["rounds"][session.round_name]["response_chars"] = len(response_text)
     status["rounds"][session.round_name]["response_sha256"] = hashlib.sha256(response_bytes).hexdigest()
     append_gptpro_evidence(session, status, response_text)
     session.write_status(status)
@@ -796,6 +940,7 @@ def render_page(session: BridgeSession) -> bytes:
     state = session.state()
     prompt = html.escape(str(state["prompt"]))
     response_saved = "yes" if state["response_saved"] else "no"
+    preview_token = json.dumps(ensure_preview_token(session))
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -890,16 +1035,23 @@ def render_page(session: BridgeSession) -> bytes:
   </section>
 </main>
 <script>
+const previewToken = {preview_token};
 const promptText = document.getElementById('prompt').innerText;
 document.getElementById('copyPrompt').addEventListener('click', async () => {{
   await navigator.clipboard.writeText(promptText);
-  await fetch('/mark-copied', {{ method: 'POST' }});
+  await fetch('/mark-copied', {{
+    method: 'POST',
+    headers: {{ 'X-CCG-GPTPRO-Token': previewToken }}
+  }});
 }});
 document.getElementById('saveResponse').addEventListener('click', async () => {{
   const response = document.getElementById('response').value;
   const result = await fetch('/save-response', {{
     method: 'POST',
-    headers: {{ 'Content-Type': 'application/json' }},
+    headers: {{
+      'Content-Type': 'application/json',
+      'X-CCG-GPTPRO-Token': previewToken
+    }},
     body: JSON.stringify({{ response }})
   }});
   document.getElementById('saveStatus').innerText = result.ok ? 'response_saved: yes' : 'save failed';
@@ -912,6 +1064,8 @@ document.getElementById('saveResponse').addEventListener('click', async () => {{
 
 
 def start_server(session: BridgeSession, open_browser: bool = False, port: int = 0) -> tuple[ThreadingHTTPServer, str]:
+    preview_token = ensure_preview_token(session)
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: Any) -> None:
             return
@@ -923,6 +1077,18 @@ def start_server(session: BridgeSession, open_browser: bool = False, port: int =
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def validate_write_request(self) -> bool:
+            if not preview_host_allowed(self.headers.get("Host", "")):
+                self.send_json({"ok": False, "error": "Invalid host"}, status=403)
+                return False
+            if not preview_origin_allowed(self.headers.get("Origin")):
+                self.send_json({"ok": False, "error": "Invalid origin"}, status=403)
+                return False
+            if self.headers.get("X-CCG-GPTPRO-Token") != preview_token:
+                self.send_json({"ok": False, "error": "Invalid token"}, status=403)
+                return False
+            return True
 
         def do_GET(self) -> None:
             if self.path in ("/", "/index.html"):
@@ -940,11 +1106,22 @@ def start_server(session: BridgeSession, open_browser: bool = False, port: int =
 
         def do_POST(self) -> None:
             if self.path == "/mark-copied":
+                if not self.validate_write_request():
+                    return
                 mark_copied(session)
                 self.send_json({"ok": True})
                 return
             if self.path == "/save-response":
-                length = int(self.headers.get("Content-Length", "0"))
+                if not self.validate_write_request():
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    self.send_json({"ok": False, "error": "Invalid Content-Length"}, status=400)
+                    return
+                if length > MAX_RESPONSE_BYTES:
+                    self.send_json({"ok": False, "error": "Response too large"}, status=413)
+                    return
                 body = self.rfile.read(length).decode("utf-8") if length else "{}"
                 try:
                     payload = json.loads(body)
@@ -987,7 +1164,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--followup-reason", default="")
     parser.add_argument("--open-preview", action="store_true")
     parser.add_argument("--open-chatgpt", action="store_true")
-    parser.add_argument("--copy-prompt", action="store_true")
+    parser.add_argument("--mark-copy-requested", action="store_true")
     parser.add_argument("--detach-preview", action="store_true")
     parser.add_argument("--print-prompt", action="store_true")
     parser.add_argument("--gemini-response-file", default="")
@@ -1177,7 +1354,7 @@ def main(argv: list[str] | None = None) -> int:
             server, preview_url = start_server(session, open_browser=args.open_preview, port=args.preview_port)
         if args.open_chatgpt:
             webbrowser.open("https://chatgpt.com/")
-        if args.copy_prompt:
+        if args.mark_copy_requested:
             status = session.status()
             status["prompt_copy_requested"] = True
             session.write_status(status)
