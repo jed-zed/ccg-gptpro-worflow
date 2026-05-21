@@ -8,15 +8,22 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 
 $ARGUMENTS
 
-Use this command when Codex/Claude is implementing and wants one manual GPT Pro second opinion for
-implementation sketches, patch ideas, edge cases, or test ideas.
+Use this command when a CCG task needs one manual GPT Pro implementation second opinion after the
+ordinary `/ccg:execute` semantics have completed preflight and routing evidence, but before real
+code landing begins.
 
 ## Contract
 
-Codex/Claude remains the controller, final implementer, reviewer, and verifier. GPT Pro provides
-manual helper evidence only. GPT Pro must not write files or own delivery.
+Run ordinary `/ccg:execute` first through the preflight, plan load, model routing, prototype, or
+analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution
+routing for this installation, including Codex, Claude, Gemini, or any configured helper that
+ordinary execute would use. GPT Pro is fourth evidence: it is appended as a manual second opinion
+after ordinary routing evidence exists and before the ordinary execute owner applies final code.
 
-Gemini behavior is mode-aware:
+GPT Pro provides manual helper evidence only. It must not write files, own delivery, replace routed
+models, or decide that missing Codex, Claude, or Gemini evidence exists.
+
+Gemini behavior still follows ordinary `/ccg:execute` routing:
 
 - Backend-only execution-companion sessions should not run Gemini by default.
 - Frontend/full-stack sessions may run Gemini first for frontend prototype or frontend-review evidence.
@@ -34,10 +41,16 @@ Hard boundaries:
 
 1. Locate the active task under `.ccg/tasks/<task-id>/task.json`.
 2. Resolve execution scope from `$ARGUMENTS`, the active plan, changed files, or task context.
-3. Decide whether Gemini frontend/full-stack evidence is useful:
+3. Run ordinary `/ccg:execute` preflight and model routing up to the point where implementation
+   advice can still change the path safely. Write a concise routing evidence file, for example
+   `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file. The routing evidence
+   must identify the current orchestrator, the routed model evidence that actually exists, the
+   ordinary execute conclusion so far, and any skipped/failed model steps.
+4. Decide whether ordinary routing produced Gemini frontend/full-stack evidence:
    - backend/tooling-only: use `--gemini-policy optional --gemini-evidence-role frontend-prototype`
      without forcing a Gemini run;
-   - frontend/full-stack: run Gemini preview first when useful and pass its response and summary files.
+   - frontend/full-stack: pass the real Gemini response and summary files when ordinary execute
+     produced them.
 
 ## Bridge Creation
 
@@ -45,6 +58,7 @@ Create a concise prompt file with:
 
 - task title, phase, gate, and next action;
 - implementation objective and relevant plan/diff/file excerpts;
+- Base CCG Routing Evidence summary and artifact path;
 - Gemini frontend/full-stack evidence when available;
 - explicit request for implementation sketch, pseudo patch or unified diff if possible, tests to add,
   edge cases, risks, and verification commands.
@@ -61,6 +75,9 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --slug "<task-id>-exc" \
   --gemini-policy optional \
   --gemini-evidence-role frontend-prototype \
+  --routing-evidence-file "<routing-evidence-file>" \
+  --routing-summary-file "<routing-summary-file>" \
+  --require-routing-evidence \
   --detach-preview \
   --open-preview
 ```

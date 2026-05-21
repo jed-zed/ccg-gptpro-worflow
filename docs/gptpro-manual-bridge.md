@@ -1,8 +1,10 @@
 # GPT Pro Manual Bridge
 
-The GPT Pro bridge adds a user-mediated ChatGPT Pro review layer to CCG without automating the
-ChatGPT website. Codex/Claude remains the controller, Gemini remains automated helper evidence,
-and GPT Pro is stored as manual task-local evidence.
+The GPT Pro bridge adds a user-mediated ChatGPT Pro layer to CCG without automating the ChatGPT
+website. It does not create a separate Codex/Gemini/GPT Pro workflow. Instead, `gptpro-plan`,
+`gptpro-review`, and `gptpro-exc` run the matching ordinary plan/review/execute semantics first,
+preserve the current orchestrator and routed model evidence, then append GPT Pro as manual
+task-local evidence.
 
 ## Layout
 
@@ -34,13 +36,24 @@ Canonical evidence is:
 .ccg/tasks/<task-id>/evidence.json
 ```
 
-## Review MVP
+## Command Contract
 
-`/ccg:gptpro-review` is the first supported command.
+- `/ccg:gptpro-plan` = ordinary `/ccg:plan` first, then manual GPT Pro planning second opinion.
+- `/ccg:gptpro-review` = ordinary `/ccg:review` first, then manual GPT Pro review second opinion.
+- `/ccg:gptpro-exc` = ordinary `/ccg:execute` preflight/routing/prototype or analysis evidence
+  first, then manual GPT Pro second opinion before real code landing.
 
-It requires valid Gemini gate evidence before creating the GPT Pro prompt. The command then starts
-the local preview page, sets `task.json.gate` to `manual_gptpro_waiting`, and stops. The user copies
-the prompt to ChatGPT Pro manually and saves the response in the preview page.
+GPT Pro is fourth evidence. It is not a `codeagent-wrapper` backend, is not added to
+`model-router.md`, and must not replace routed Codex, Claude, Gemini, or other configured helper
+evidence.
+
+## Manual Handoff
+
+Plan/review modes still require valid Gemini gate evidence before creating the GPT Pro prompt.
+Execution mode follows ordinary execute routing: backend-only work usually has no Gemini step, while
+frontend/full-stack work may include real Gemini frontend evidence. Every GPT Pro mode now also
+requires Base CCG Routing Evidence so the manual prompt can see what the ordinary command already
+decided.
 
 After the response is saved, the bridge:
 
@@ -59,6 +72,7 @@ After the response is saved, the bridge:
 - No automatic output extraction.
 - No browser cookies, sessions, or account tokens are stored.
 - GPT Pro is not a `codeagent-wrapper` backend and must not be added to normal model routing.
+- GPT Pro must not replace ordinary routed models or claim missing model participation.
 
 ## Evidence Contract
 
@@ -84,6 +98,25 @@ policy=manual
 available=true
 artifactFile=gptpro/<session-id>/round-1/response.md
 artifactSha256=<sha256>
+```
+
+For the ordinary routing evidence passed into GPT Pro prompts, use:
+
+```text
+--routing-evidence-file <routing-evidence-file>
+--routing-summary-file <routing-summary-file>
+--require-routing-evidence
+```
+
+`status.json` records:
+
+```text
+routing_evidence.available=true
+routing_evidence.evidence_file=<path>
+routing_evidence.evidence_sha256=<sha256>
+routing_evidence.evidence_chars=<character-count>
+routing_evidence.summary_file=<path>
+routing_evidence.summary=<concise-summary>
 ```
 
 ## Packaging Check

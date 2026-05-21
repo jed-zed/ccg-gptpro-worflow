@@ -77,6 +77,21 @@ function writeGeminiGateEvidence(taskDir: string, artifactFile: string, response
   })
 }
 
+function writeRoutingEvidence(evidenceDir: string): { evidenceFile: string, summaryFile: string, content: string, summary: string } {
+  const content = [
+    'ordinary /ccg:review first',
+    'current orchestrator: codex',
+    'routed models: codex primary review, gemini gate evidence',
+    'ordinary review conclusion: packaging path needs verification',
+  ].join('\n')
+  const summary = 'Ordinary review route completed with Codex primary review and Gemini gate evidence.'
+  const evidenceFile = join(evidenceDir, 'routing.md')
+  const summaryFile = join(evidenceDir, 'routing-summary.md')
+  writeFileSync(evidenceFile, content, 'utf-8')
+  writeFileSync(summaryFile, summary, 'utf-8')
+  return { evidenceFile, summaryFile, content, summary }
+}
+
 function runPythonFailure(python: PythonCommand, args: string[], cwd?: string): string {
   try {
     runPython(python, args, cwd)
@@ -118,6 +133,7 @@ describe('GPT Pro manual bridge', () => {
     writeFileSync(join(evidenceDir, 'gemini.md'), geminiResponse, 'utf-8')
     writeFileSync(join(evidenceDir, 'gemini-summary.md'), 'Gemini says packaging must be checked.', 'utf-8')
     writeGeminiGateEvidence(taskDir, 'evidence/gemini.md', geminiResponse)
+    const routing = writeRoutingEvidence(evidenceDir)
 
     const output = runPython(PYTHON!, [
       BRIDGE,
@@ -141,6 +157,11 @@ describe('GPT Pro manual bridge', () => {
       join(evidenceDir, 'gemini.md'),
       '--gemini-summary-file',
       join(evidenceDir, 'gemini-summary.md'),
+      '--routing-evidence-file',
+      routing.evidenceFile,
+      '--routing-summary-file',
+      routing.summaryFile,
+      '--require-routing-evidence',
     ], root)
 
     const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
@@ -150,7 +171,21 @@ describe('GPT Pro manual bridge', () => {
     expect(status.task_dir).toBe('.ccg/tasks/demo-task')
     expect(status.evidence_file).toBe('.ccg/tasks/demo-task/evidence.json')
     expect(status.source_command).toBe('/ccg:gptpro-review')
-    expect(readFileSync(promptFile, 'utf-8')).toContain('Project Access Context')
+    expect(status.routing_evidence).toMatchObject({
+      required: true,
+      available: true,
+      evidence_file: '.ccg/tasks/demo-task/evidence/routing.md',
+      evidence_sha256: sha256(routing.content),
+      evidence_chars: routing.content.length,
+      summary_file: '.ccg/tasks/demo-task/evidence/routing-summary.md',
+      summary: routing.summary,
+      summary_chars: routing.summary.length,
+    })
+    const promptText = readFileSync(promptFile, 'utf-8')
+    expect(promptText).toContain('Project Access Context')
+    expect(promptText).toContain('Base CCG Routing Evidence')
+    expect(promptText).toContain('Routing evidence file: .ccg/tasks/demo-task/evidence/routing.md')
+    expect(promptText).toContain(routing.summary)
 
     const saveScript = [
       'import importlib.util, pathlib, sys',
@@ -247,6 +282,31 @@ describe('GPT Pro manual bridge', () => {
       'Gemini evidence is available.',
     ], root)
     expect(stderr).toContain('Canonical Gemini gate evidence file not found')
+  })
+
+  maybeIt('rejects required routing evidence when the file is missing', () => {
+    const root = join(TMP_ROOT, 'missing-routing-evidence')
+    const taskDir = join(root, '.ccg', 'tasks', 'missing-routing-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'missing-routing-task', status: 'in_progress' })
+
+    const stderr = runPythonFailure(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/missing-routing-task',
+      '--prompt',
+      'Create a manual GPT Pro execution second opinion.',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+      '--require-routing-evidence',
+    ], root)
+    expect(stderr).toContain('Base CCG routing evidence file is required')
   })
 
   maybeIt('protects preview write endpoints with a token and response size limit', () => {

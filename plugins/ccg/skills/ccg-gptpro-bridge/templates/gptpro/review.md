@@ -2,7 +2,13 @@
 
 Review the plan, diff, changed files, or verification summary below.
 
-The input should include Codex's primary review notes and any available Gemini findings. Compare them, call out disagreements, and help Codex decide what is actually blocking.
+The input should include the ordinary CCG review route, the current orchestrator's review
+conclusion, and any routed helper findings. Compare the Base CCG Routing Evidence with the
+review scope, call out disagreements, and help the current orchestrator decide what is actually
+blocking.
+
+Do not assume missing Codex, Claude, Gemini, or other model evidence exists. GPT Pro is fourth
+evidence and must not replace routed models.
 
 ## Expected Output
 

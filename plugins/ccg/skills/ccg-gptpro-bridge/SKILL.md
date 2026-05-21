@@ -5,9 +5,15 @@ description: Shared manual ChatGPT Pro bridge for CCG planning, review, and exec
 
 # CCG GPT Pro Manual Bridge
 
-This manual bridge lets the user manually ask ChatGPT Pro inside a Codex-led CCG workflow.
+This manual bridge lets the user manually ask ChatGPT Pro after ordinary CCG plan/review/execute
+routing has already produced auditable evidence.
 
-Codex remains final owner. Gemini evidence mode depends on the command: required gate evidence for plan/review, and optional frontend/full-stack evidence for execution companion. GPT Pro provides a user-mediated manual second opinion.
+The current CCG orchestrator remains final owner. In Claude installs that means Claude-led command
+semantics still apply; in Codex installs that means Codex-led command semantics still apply. GPT Pro
+does not replace ordinary routed Codex, Claude, Gemini, or other configured helper evidence.
+Gemini evidence mode depends on the underlying ordinary command: required gate evidence for
+plan/review, and optional frontend/full-stack evidence for execution. GPT Pro provides a
+user-mediated manual second opinion.
 
 ## Hard Boundaries
 
@@ -17,9 +23,10 @@ Codex remains final owner. Gemini evidence mode depends on the command: required
 - Do not extract ChatGPT Output programmatically from the web UI.
 - Do not store ChatGPT cookies, sessions, or account tokens.
 - Do not bypass rate limits, restrictions, or protective measures.
-- Codex remains final owner.
+- The current CCG orchestrator remains final owner.
 - GPT Pro output is untrusted helper evidence only.
 - GPT Pro does not write workspace files.
+- GPT Pro is fourth evidence and must not replace routed models.
 
 ## Manual Question Budget
 
@@ -30,13 +37,45 @@ Each GPT Pro bridge command is designed to complete in one manual ChatGPT Pro qu
 - Round 2 only for blocker re-check, revised plan comparison, applied diff review, or high-risk follow-up.
 - More than two manual questions means the task should be decomposed or returned to Codex-native CCG workflows.
 
+## Base Routing Evidence
+
+Before creating a GPT Pro bridge for `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or
+`/ccg:gptpro-exc`, first run the matching ordinary command semantics:
+
+- `/ccg:gptpro-plan` = ordinary `/ccg:plan` first, then GPT Pro manual planning evidence.
+- `/ccg:gptpro-review` = ordinary `/ccg:review` first, then GPT Pro manual review evidence.
+- `/ccg:gptpro-exc` = ordinary `/ccg:execute` preflight/routing/prototype or analysis evidence
+  first, then GPT Pro manual execution second opinion before code landing.
+
+Write Base CCG Routing Evidence before the GPT Pro handoff. It should summarize:
+
+- current orchestrator and command semantics;
+- routed Codex/Claude/Gemini/helper evidence that actually exists;
+- ordinary orchestrator conclusion so far;
+- skipped, failed, or intentionally absent model steps.
+
+Pass this evidence to the bridge:
+
+```text
+--routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence
+```
+
+The helper injects `Base CCG Routing Evidence` into `prompt.md` and records
+`routing_evidence.available`, `evidence_file`, `evidence_sha256`, `evidence_chars`, `summary_file`,
+`summary`, and `summary_chars` under `status.json`.
+
 ## Gemini Evidence Modes
 
-Gemini and GPT Pro remain helper evidence only; Codex makes the final decision.
+Gemini and GPT Pro remain helper evidence only; the current CCG orchestrator makes the final
+decision.
 
-- For `/ccg:gptpro-plan` and `/ccg:gptpro-review`, keep the Codex + Gemini + GPT Pro plan/review flow: Run Gemini before GPT Pro and keep the Gemini Gate Before GPT Pro requirement.
-- For `/ccg:gptpro-exc`, Gemini is conditional frontend evidence only: backend-only tasks should omit it, while frontend/full-stack tasks should use the bundled Gemini preview helper with `--prompt-template frontend`.
-- After the user saves GPT Pro output, synthesize Codex findings, Gemini evidence when present, and GPT Pro manual second opinion in Chinese; otherwise state that Gemini evidence was not used.
+- For `/ccg:gptpro-plan` and `/ccg:gptpro-review`, keep the ordinary plan/review routing and the
+  Gemini Gate Before GPT Pro requirement.
+- For `/ccg:gptpro-exc`, follow ordinary execute routing: backend-only tasks normally omit Gemini,
+  while frontend/full-stack tasks may include real Gemini frontend evidence.
+- After the user saves GPT Pro output, synthesize ordinary routed evidence, Gemini evidence when
+  present, and GPT Pro manual second opinion in Chinese; otherwise state that Gemini evidence was
+  not used.
 
 ### Required Gate For Plan And Review
 
@@ -80,7 +119,9 @@ GitHub links are useful but not sufficient by themselves. The repository URL is 
 
 - If GPT Pro can use ChatGPT GitHub connector, Deep Research, or browsing, it may inspect the repository URL and cite exact file paths or commits.
 - If GPT Pro cannot access the repository URL, it must not guess repository facts.
-- Pasted CCG input, Gemini evidence when provided, diffs, and file excerpts have priority over repository content because local uncommitted changes may not exist on GitHub.
+- Pasted CCG input, Base CCG Routing Evidence, Gemini evidence when provided, diffs, and file
+  excerpts have priority over repository content because local uncommitted changes may not exist on
+  GitHub.
 - The helper must sanitize repository URLs before including them in prompts or `status.json`; never include credentials, access tokens, cookies, or local filesystem paths as repository URLs.
 
 ## Workflow
@@ -100,9 +141,11 @@ GitHub links are useful but not sufficient by themselves. The repository URL is 
 
 After creating a GPT Pro bridge session, Codex must stop at a manual handoff barrier.
 
-- Run `scripts/gptpro_bridge.py` with `--detach-preview --open-preview` plus the mode-appropriate Gemini evidence arguments for round 1 sessions.
+- Run `scripts/gptpro_bridge.py` with `--detach-preview --open-preview`, the required routing
+  evidence arguments, and the mode-appropriate Gemini evidence arguments for round 1 sessions.
 - Add `--repo-url <repository-url>` only when Codex needs to override the detected Git remote URL.
-- Follow-up sessions may pass fresh Gemini evidence with the same arguments, or inherit the existing `gemini_evidence` provenance from round 1.
+- Follow-up sessions may pass fresh Gemini/routing evidence with the same arguments, or inherit the
+  existing `gemini_evidence` and `routing_evidence` provenance from round 1.
 - Do not paste the full generated prompt into chat during normal handoffs.
 - Show the preview URL, session directory, prompt file path, response file path, and status file path.
 - Tell the user to open the preview page and use the preview page Copy Prompt button, or open `prompt.md` if the browser copy button fails.

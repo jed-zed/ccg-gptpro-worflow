@@ -8,21 +8,27 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 
 $ARGUMENTS
 
-Use this command when a CCG task needs a manual ChatGPT Pro planning second opinion.
+Use this command when a CCG task needs a manual ChatGPT Pro planning second opinion after the
+ordinary `/ccg:plan` semantics have already run.
 
 ## Contract
 
-Codex/Claude remains the controller and final planner. GPT Pro is not a `codeagent-wrapper`
-backend and must not be routed through `model-router.md` as an automated model. It is manual
-planning evidence only.
+Run ordinary `/ccg:plan` first. Preserve the current CCG orchestrator semantics and the normal
+model routing for this installation, including Codex, Claude, Gemini, or any configured helper that
+ordinary planning would use. GPT Pro is fourth evidence: it is appended as a manual planning second
+opinion after ordinary routing evidence exists.
+
+GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an
+automated model. Do not replace routed models, skip ordinary planning, or use GPT Pro to decide that
+missing Codex, Claude, or Gemini evidence exists.
 
 Plan-only boundary:
 
 - Do not execute implementation.
 - Do not apply product code changes.
 - Only create or update CCG plan artifacts and GPT Pro bridge artifacts.
-- After the user saves GPT Pro output, synthesize Codex, Gemini, and GPT Pro planning findings,
-  write or revise the plan, report the plan path, and stop.
+- After the user saves GPT Pro output, synthesize ordinary planning evidence plus GPT Pro planning
+  findings, write or revise the plan, report the plan path, and stop.
 - Execution requires a separate `/ccg:execute <plan>` or `/ccg:codex-exec <plan>` request.
 
 Hard boundaries:
@@ -36,7 +42,11 @@ Hard boundaries:
 
 1. Locate or create the active task under `.ccg/tasks/<task-id>/task.json`.
 2. Resolve the planning subject from `$ARGUMENTS`, an existing plan file, or task context.
-3. Validate required Gemini planning/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
+3. Run or verify the ordinary `/ccg:plan` route first and write a concise routing evidence file,
+   for example `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file.
+   The routing evidence must identify the current orchestrator, the routed model evidence that
+   actually exists, the ordinary planner conclusion, and any skipped/failed model steps.
+4. Validate required Gemini planning/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
 
@@ -60,6 +70,7 @@ Create a concise prompt file with:
 
 - task title, phase, gate, and next action;
 - requirements, constraints, known code context, and draft plan if present;
+- Base CCG Routing Evidence summary and artifact path;
 - Gemini evidence summary and artifact path;
 - explicit request for planning risks, alternatives, missing context, implementation sequence,
   test strategy, and blocking questions.
@@ -78,6 +89,9 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --gemini-evidence-role gate \
   --gemini-response-file "<gemini-response-file>" \
   --gemini-summary-file "<gemini-summary-file>" \
+  --routing-evidence-file "<routing-evidence-file>" \
+  --routing-summary-file "<routing-summary-file>" \
+  --require-routing-evidence \
   --detach-preview \
   --open-preview
 ```
