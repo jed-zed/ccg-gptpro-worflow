@@ -258,6 +258,15 @@ def display_gate_response_file(gemini_gate: dict[str, Any], workdir: Path) -> st
     return display_path(response_path, workdir)
 
 
+def display_file_value(value: str, workdir: Path) -> str:
+    if not value:
+        return ""
+    path_value = Path(value)
+    if not path_value.is_absolute():
+        return value
+    return display_path(path_value, workdir)
+
+
 def run_git_result(workdir: Path, args: list[str]) -> tuple[bool, str]:
     try:
         result = subprocess.run(
@@ -483,6 +492,113 @@ def compose_gemini_evidence(gemini_gate: dict[str, Any]) -> str:
     )
 
 
+def empty_routing_evidence(required: bool = False) -> dict[str, Any]:
+    return {
+        "required": bool(required),
+        "available": False,
+        "evidence_file": "",
+        "evidence_sha256": "",
+        "evidence_chars": 0,
+        "summary_file": "",
+        "summary": "",
+        "summary_chars": 0,
+    }
+
+
+def normalize_routing_evidence(routing_evidence: dict[str, Any] | None, required: bool = False) -> dict[str, Any]:
+    normalized = dict(routing_evidence or {})
+    if required:
+        normalized["required"] = True
+    else:
+        normalized.setdefault("required", False)
+    normalized.setdefault("available", False)
+    normalized.setdefault("evidence_file", "")
+    normalized.setdefault("evidence_sha256", "")
+    normalized.setdefault("evidence_chars", 0)
+    normalized.setdefault("summary_file", "")
+    normalized.setdefault("summary", "")
+    normalized.setdefault("summary_chars", len(str(normalized.get("summary") or "")))
+    return normalized
+
+
+def summarize_routing_evidence(raw: str, limit: int = 1200) -> str:
+    collapsed = re.sub(r"\s+", " ", raw.strip())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[: limit - 3].rstrip() + "..."
+
+
+def read_routing_evidence(
+    workdir: str | Path,
+    evidence_file: str = "",
+    summary_file: str = "",
+    *,
+    required: bool = False,
+) -> dict[str, Any]:
+    workdir_path = Path(workdir).resolve()
+    if not evidence_file:
+        if summary_file:
+            raise ValueError("Base CCG routing evidence file is required when routing summary evidence is provided.")
+        if required:
+            raise ValueError("Base CCG routing evidence file is required before GPT Pro bridge session creation.")
+        return empty_routing_evidence(required)
+
+    evidence_path = Path(evidence_file).expanduser()
+    if not evidence_path.is_absolute():
+        evidence_path = workdir_path / evidence_path
+    evidence_path = evidence_path.resolve()
+    if not evidence_path.exists():
+        raise ValueError(f"Base CCG routing evidence file not found: {evidence_path}")
+
+    evidence_raw = evidence_path.read_text(encoding="utf-8")
+    if not evidence_raw.strip():
+        raise ValueError(f"Base CCG routing evidence file is empty: {evidence_path}")
+
+    summary_path: Path | None = None
+    summary_text = ""
+    if summary_file:
+        summary_path = Path(summary_file).expanduser()
+        if not summary_path.is_absolute():
+            summary_path = workdir_path / summary_path
+        summary_path = summary_path.resolve()
+        if not summary_path.exists():
+            raise ValueError(f"Base CCG routing summary file not found: {summary_path}")
+        summary_text = summary_path.read_text(encoding="utf-8").strip()
+        if not summary_text:
+            raise ValueError(f"Base CCG routing summary file is empty: {summary_path}")
+    else:
+        summary_text = summarize_routing_evidence(evidence_raw)
+
+    evidence_bytes = evidence_path.read_bytes()
+    return {
+        "required": bool(required),
+        "available": True,
+        "evidence_file": str(evidence_path),
+        "evidence_sha256": hashlib.sha256(evidence_bytes).hexdigest(),
+        "evidence_chars": len(evidence_raw),
+        "summary_file": str(summary_path) if summary_path else "",
+        "summary": summary_text,
+        "summary_chars": len(summary_text),
+    }
+
+
+def compose_routing_evidence(routing_evidence: dict[str, Any]) -> str:
+    if not routing_evidence.get("available"):
+        return ""
+    return "\n".join(
+        [
+            "## Base CCG Routing Evidence",
+            "",
+            f"Routing evidence file: {routing_evidence.get('evidence_file') or ''}",
+            f"Routing evidence SHA-256: {routing_evidence.get('evidence_sha256') or ''}",
+            f"Routing evidence characters: {routing_evidence.get('evidence_chars') or 0}",
+            "",
+            "Routing evidence summary:",
+            str(routing_evidence.get("summary") or ""),
+        ]
+    )
+
+
 def compose_project_context(project_context: dict[str, Any]) -> str:
     repo_url = str(project_context.get("repository_url") or "not provided")
     branch = str(project_context.get("branch") or "unknown")
@@ -521,6 +637,7 @@ def compose_prompt(
     round_number: int,
     followup_reason: str | None,
     gemini_gate: dict[str, Any],
+    routing_evidence: dict[str, Any],
     project_context: dict[str, Any],
 ) -> str:
     sections = [read_template("base")]
@@ -530,6 +647,9 @@ def compose_prompt(
             sections.append(f"## Follow-up Reason\n\n{followup_reason.strip()}")
     sections.append(read_template(mode))
     sections.append(compose_project_context(project_context))
+    routing_section = compose_routing_evidence(routing_evidence)
+    if routing_section:
+        sections.append(routing_section)
     gemini_section = compose_gemini_evidence(gemini_gate)
     if gemini_section:
         sections.append(gemini_section)
@@ -697,6 +817,8 @@ def create_session(
     gemini_evidence: dict[str, Any] | None = None,
     gemini_policy: str = "",
     gemini_evidence_role: str = "",
+    routing_evidence: dict[str, Any] | None = None,
+    require_routing_evidence: bool = False,
     project_context: dict[str, Any] | None = None,
 ) -> BridgeSession:
     if round_number > MANUAL_QUESTIONS_MAX:
@@ -736,6 +858,11 @@ def create_session(
                 inherited_evidence = empty_gemini_evidence(policy, role)
             gemini_evidence = dict(inherited_evidence)
             gemini_evidence["inherited_from_round"] = 1
+        if routing_evidence is None:
+            inherited_routing_evidence = status.get("routing_evidence")
+            if inherited_routing_evidence:
+                routing_evidence = dict(inherited_routing_evidence)
+                routing_evidence["inherited_from_round"] = 1
     else:
         slug_value = slugify(slug or prompt[:60])
         session_dir = ensure_unique_session_dir(output_root_path, mode, slug_value).resolve()
@@ -767,6 +894,9 @@ def create_session(
         )
     if project_context is None:
         project_context = detect_project_context(workdir_path)
+    routing_evidence = normalize_routing_evidence(routing_evidence, require_routing_evidence)
+    if require_routing_evidence and not routing_evidence.get("available"):
+        raise ValueError("Base CCG routing evidence is required before GPT Pro bridge session creation.")
 
     round_name = f"round-{round_number}"
     round_dir = session_dir / round_name
@@ -775,8 +905,11 @@ def create_session(
     response_file = round_dir / "response.md"
     prompt_gate = dict(gemini_evidence)
     prompt_gate["response_file"] = display_gate_response_file(prompt_gate, workdir_path)
+    prompt_routing_evidence = dict(routing_evidence)
+    for key in ("evidence_file", "summary_file"):
+        prompt_routing_evidence[key] = display_file_value(str(prompt_routing_evidence.get(key) or ""), workdir_path)
     prompt_file.write_text(
-        compose_prompt(mode, prompt, round_number, followup_reason, prompt_gate, project_context),
+        compose_prompt(mode, prompt, round_number, followup_reason, prompt_gate, prompt_routing_evidence, project_context),
         encoding="utf-8",
     )
     if not response_file.exists():
@@ -820,6 +953,11 @@ def create_session(
         "gemini_evidence": {
             **gemini_evidence,
             "response_file": display_gate_response_file(gemini_evidence, workdir_path),
+        },
+        "routing_evidence": {
+            **routing_evidence,
+            "evidence_file": display_file_value(str(routing_evidence.get("evidence_file") or ""), workdir_path),
+            "summary_file": display_file_value(str(routing_evidence.get("summary_file") or ""), workdir_path),
         },
     }
     if gemini_evidence.get("role") == "gate" and gemini_evidence.get("available"):
@@ -1175,6 +1313,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gemini-summary-file", default="")
     parser.add_argument("--gemini-policy", choices=GEMINI_POLICIES, default="")
     parser.add_argument("--gemini-evidence-role", choices=GEMINI_EVIDENCE_ROLES, default="")
+    parser.add_argument("--routing-evidence-file", default="")
+    parser.add_argument("--routing-summary-file", default="")
+    parser.add_argument("--require-routing-evidence", action="store_true")
     parser.add_argument("--repo-url", default="")
     parser.add_argument("--wait-response", action="store_true")
     parser.add_argument("--hold-seconds", type=int, default=0)
@@ -1320,6 +1461,15 @@ def main(argv: list[str] | None = None) -> int:
                 policy=gemini_policy,
                 role=gemini_evidence_role,
             )
+        routing_evidence = None
+        has_routing_args = bool(args.routing_evidence_file or args.routing_summary_file)
+        if has_routing_args or not args.followup_session:
+            routing_evidence = read_routing_evidence(
+                args.workdir,
+                args.routing_evidence_file,
+                args.routing_summary_file,
+                required=args.require_routing_evidence,
+            )
         project_context = detect_project_context(args.workdir, args.repo_url)
         session = create_session(
             mode=args.mode,
@@ -1337,6 +1487,8 @@ def main(argv: list[str] | None = None) -> int:
             gemini_evidence=gemini_evidence,
             gemini_policy=gemini_policy,
             gemini_evidence_role=gemini_evidence_role,
+            routing_evidence=routing_evidence,
+            require_routing_evidence=args.require_routing_evidence,
             project_context=project_context,
         )
     except Exception as error:

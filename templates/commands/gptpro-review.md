@@ -8,13 +8,19 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 
 $ARGUMENTS
 
-Use this command when a CCG task needs a manual ChatGPT Pro review as fourth-model evidence.
+Use this command when a CCG task needs a manual ChatGPT Pro review after the ordinary `/ccg:review`
+semantics have already run.
 
 ## Contract
 
-Codex/Claude remains the controller and final reviewer. GPT Pro is not a `codeagent-wrapper`
-backend and must not be routed through `model-router.md` as an automated model. It is manual
-evidence only.
+Run ordinary `/ccg:review` first. Preserve the current CCG orchestrator semantics and the normal
+cross-review/model routing for this installation, including Codex, Claude, Gemini, or any configured
+helper that ordinary review would use. GPT Pro is fourth evidence: it is appended as a manual review
+second opinion after ordinary routing evidence exists.
+
+GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an
+automated model. Do not replace routed models, skip ordinary review, or use GPT Pro to decide that
+missing Codex, Claude, or Gemini evidence exists.
 
 Hard boundaries:
 
@@ -27,7 +33,11 @@ Hard boundaries:
 
 1. Locate the active task under `.ccg/tasks/<task-id>/task.json`.
 2. Resolve review scope from `$ARGUMENTS`, `git diff HEAD`, the active plan, or changed files.
-3. Validate required Gemini review/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
+3. Run or verify the ordinary `/ccg:review` route first and write a concise routing evidence file,
+   for example `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file.
+   The routing evidence must identify the current orchestrator, the routed model evidence that
+   actually exists, the ordinary reviewer conclusion, and any skipped/failed model steps.
+4. Validate required Gemini review/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
 
@@ -51,6 +61,7 @@ Create a concise prompt file with:
 
 - task title, phase, gate, and next action;
 - review scope and relevant diff/file excerpts;
+- Base CCG Routing Evidence summary and artifact path;
 - Gemini evidence summary and artifact path;
 - explicit request for blocking findings, non-blocking findings, test gaps, false positives, and suggested fixes.
 
@@ -68,6 +79,9 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --gemini-evidence-role gate \
   --gemini-response-file "<gemini-response-file>" \
   --gemini-summary-file "<gemini-summary-file>" \
+  --routing-evidence-file "<routing-evidence-file>" \
+  --routing-summary-file "<routing-summary-file>" \
+  --require-routing-evidence \
   --detach-preview \
   --open-preview
 ```

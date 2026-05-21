@@ -359,6 +359,31 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
     expect(fs.existsSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'plan.md'))).toBe(true)
     expect(fs.existsSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'review.md'))).toBe(true)
     expect(fs.existsSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'exc.md'))).toBe(true)
+
+    const installedCommands = [
+      readFileSync(join(tmpDir, 'commands', 'ccg', 'gptpro-plan.md'), 'utf-8'),
+      readFileSync(join(tmpDir, 'commands', 'ccg', 'gptpro-review.md'), 'utf-8'),
+      readFileSync(join(tmpDir, 'commands', 'ccg', 'gptpro-exc.md'), 'utf-8'),
+    ].join('\n')
+    const installedBridgeBase = readFileSync(
+      join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'base.md'),
+      'utf-8',
+    )
+    const installedBridgeScript = readFileSync(
+      join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'gptpro_bridge.py'),
+      'utf-8',
+    )
+
+    expect(installedCommands).toMatch(/ordinary\s+`\/ccg:plan`\s+semantics/)
+    expect(installedCommands).toMatch(/ordinary\s+`\/ccg:review`\s+semantics/)
+    expect(installedCommands).toMatch(/ordinary\s+`\/ccg:execute`\s+semantics/)
+    expect(installedCommands).toContain('preflight and routing evidence')
+    expect(installedCommands).toContain('--require-routing-evidence')
+    expect(installedBridgeBase).toContain('ordinary plan/review/execute first')
+    expect(installedBridgeBase).toContain('GPT Pro is fourth evidence')
+    expect(installedBridgeBase).toContain('do not replace routed models')
+    expect(installedBridgeScript).toContain('--routing-evidence-file')
+    expect(installedBridgeScript).toContain('Base CCG Routing Evidence')
   }, 30_000)
 })
 

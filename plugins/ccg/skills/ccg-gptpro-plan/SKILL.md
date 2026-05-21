@@ -5,24 +5,32 @@ description: Create a manual ChatGPT Pro planning second-opinion bridge. Use whe
 
 # CCG GPT Pro Plan
 
-This is a Codex + Gemini + GPT Pro planning workflow.
+This is ordinary CCG planning plus GPT Pro manual evidence.
 
 Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 
 ## Behavior
 
 - Treat the argument as a planning task or plan-review input.
-- Run Gemini before GPT Pro using the bundled Gemini preview helper with `--prompt-template plan`.
+- Run ordinary `/ccg:plan` semantics first. Preserve the current CCG orchestrator and model routing
+  for this installation; do not drop Codex from Claude-led planning or drop Claude from Codex-led
+  planning when ordinary planning would include that evidence.
+- Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
+  routed model evidence, ordinary planning conclusion, and skipped/failed model steps.
+- Run Gemini according to ordinary planning rules before GPT Pro using the bundled Gemini preview
+  helper with `--prompt-template plan`.
 - Follow the Gemini Gate Before GPT Pro from `skills/ccg-gptpro-bridge/SKILL.md`: require a real `CCG_GEMINI_RESPONSE_FILE`, read a non-empty Gemini response from it, stop and do not create a GPT Pro bridge session if it is missing or empty, and do not invent Gemini findings.
-- Include Codex's planning context, the Gemini response file path, and a concise Gemini findings summary in the GPT Pro prompt.
+- Include the ordinary planning context, Base CCG Routing Evidence, the Gemini response file path,
+  and a concise Gemini findings summary in the GPT Pro prompt.
 - Build a single-round planning prompt by default.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only for blocker re-check or revised plan comparison.
-- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`.
+- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence`.
 - Read the saved response file only after the user manually saves it.
-- Summarize and synthesize Codex, Gemini, and GPT Pro findings in Chinese.
-- Codex remains final owner.
+- Summarize and synthesize ordinary planning evidence, Gemini gate evidence, and GPT Pro findings
+  in Chinese.
+- The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.
 - Do not extract ChatGPT Output programmatically.

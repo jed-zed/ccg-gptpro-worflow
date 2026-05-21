@@ -20,3 +20,6 @@ Use `commands/go.md` as the authoritative routing contract for `/ccg:go`.
 - Codex remains the controller and final executor.
 
 Do not bypass the GPT Pro manual handoff barrier. GPT Pro is manual evidence, not an automated model backend.
+GPT Pro routes inherit the matching ordinary command first: plan -> ordinary `/ccg:plan`, review ->
+ordinary `/ccg:review`, exc -> ordinary `/ccg:execute` preflight/routing evidence before manual GPT
+Pro second opinion. Do not replace routed Codex, Claude, Gemini, or helper evidence.

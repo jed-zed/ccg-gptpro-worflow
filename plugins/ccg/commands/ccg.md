@@ -50,9 +50,9 @@ If `$ARGUMENTS` is empty, show the available CCG commands in Chinese:
 - `/ccg:team-review <task>` - review worker output, diffs, and tests.
 - `/ccg:review [plan-or-diff]` - review a CCG implementation.
 - `/ccg:gemini-preview <prompt>` - run Gemini with a live browser preview.
-- `/ccg:gptpro-plan <task>` - Codex + Gemini + GPT Pro planning-only workflow with manual GPT Pro handoff.
-- `/ccg:gptpro-review [target]` - Codex + Gemini + GPT Pro review workflow with manual GPT Pro handoff.
-- `/ccg:gptpro-exc <task-or-plan>` - Codex-led execution companion; Gemini only for frontend/full-stack evidence; GPT Pro manual second opinion.
+- `/ccg:gptpro-plan <task>` - ordinary `/ccg:plan` semantics first, then manual GPT Pro planning evidence.
+- `/ccg:gptpro-review [target]` - ordinary `/ccg:review` semantics first, then manual GPT Pro review evidence.
+- `/ccg:gptpro-exc <task-or-plan>` - ordinary `/ccg:execute` preflight/routing evidence first, then manual GPT Pro second opinion before code landing.
 - `/ccg:gen-docs <module-path>` - generate README/DESIGN skeletons.
 - `/ccg:verify-change` - analyze change impact and documentation sync.
 - `/ccg:verify-module <module-path>` - check module completeness.
