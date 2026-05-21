@@ -241,7 +241,7 @@ export async function showMainMenu(): Promise<void> {
 
 function showHelp(): void {
   const config = readCcgConfigSync()
-  const isZh = (config?.general?.language || 'zh-CN') === 'zh-CN'
+  const _isZh = (config?.general?.language || 'zh-CN') === 'zh-CN'
 
   console.log()
   console.log(ansis.cyan.bold(`  ${i18n.t('menu:help.title')}`))
@@ -446,7 +446,7 @@ const OUTPUT_STYLES = [
 
 async function configModelRouting(): Promise<void> {
   const config = await readCcgConfig()
-  const isZh = (config?.general?.language || 'zh-CN') === 'zh-CN'
+  const _isZh = (config?.general?.language || 'zh-CN') === 'zh-CN'
 
   console.log()
   console.log(ansis.cyan.bold(`  ${i18n.t('init:model.title')}`))

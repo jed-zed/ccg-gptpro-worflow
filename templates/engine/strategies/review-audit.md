@@ -121,3 +121,18 @@ Gate: 双模型审查已返回 ✓
 - **双模型必须独立审查** — 交叉验证的价值在于独立性
 - **Critical 必须明确标出** — 不可淡化严重问题
 - **如无发现，明确说明** — "经双模型审查，未发现问题" 优于沉默
+
+## Optional GPT Pro Escalation
+
+Use `/ccg:gptpro-review` as an escalation checkpoint, not as the default review step.
+
+Good triggers:
+
+- release-blocking or high-risk changes;
+- disagreement between backend/frontend reviewers;
+- security, auth, data-loss, migration, or packaging risks;
+- user explicitly requests GPT Pro evidence.
+
+Before creating the GPT Pro bridge, required Gemini gate evidence must be present in
+`.ccg/tasks/<task-id>/evidence.json`. After bridge creation, set `task.json.gate` to
+`manual_gptpro_waiting` and stop until the user manually saves the GPT Pro response.

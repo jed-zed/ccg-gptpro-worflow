@@ -88,6 +88,10 @@ interface InstallContext {
   result: InstallResult
 }
 
+function normalizeTemplateContent(content: string): string {
+  return content.replace(/\r\n/g, '\n')
+}
+
 // ═══════════════════════════════════════════════════════
 // Binary download
 // ═══════════════════════════════════════════════════════
@@ -203,10 +207,51 @@ async function copyMdTemplates(
       let content = await fs.readFile(join(srcDir, file), 'utf-8')
       if (options.inject) content = injectConfigVariables(content, ctx.config)
       content = replaceHomePathsInTemplate(content, ctx.installDir)
+      content = normalizeTemplateContent(content)
       await fs.writeFile(destFile, content, 'utf-8')
       installed.push(file.replace('.md', ''))
     }
   }
+  return installed
+}
+
+async function copyTemplateTree(
+  ctx: InstallContext,
+  srcDir: string,
+  destDir: string,
+  options: { injectMd?: boolean } = {},
+): Promise<string[]> {
+  const installed: string[] = []
+  if (!(await fs.pathExists(srcDir))) return installed
+
+  const copyEntry = async (source: string, dest: string, prefix = ''): Promise<void> => {
+    await fs.ensureDir(dest)
+    const entries = await fs.readdir(source, { withFileTypes: true })
+    for (const entry of entries) {
+      const sourcePath = join(source, entry.name)
+      const destPath = join(dest, entry.name)
+      const relPath = prefix ? `${prefix}/${entry.name}` : entry.name
+
+      if (entry.isDirectory()) {
+        await copyEntry(sourcePath, destPath, relPath)
+        continue
+      }
+
+      if (entry.name.endsWith('.md')) {
+        let content = await fs.readFile(sourcePath, 'utf-8')
+        if (options.injectMd) content = injectConfigVariables(content, ctx.config)
+        content = replaceHomePathsInTemplate(content, ctx.installDir)
+        content = normalizeTemplateContent(content)
+        await fs.writeFile(destPath, content, 'utf-8')
+      }
+      else {
+        await fs.copy(sourcePath, destPath, { overwrite: true })
+      }
+      installed.push(relPath)
+    }
+  }
+
+  await copyEntry(srcDir, destDir)
   return installed
 }
 
@@ -823,7 +868,7 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
  * Install the unified /ccg entry point command.
  * Installed to ~/.claude/commands/ccg.md (NOT commands/ccg/) for clean /ccg invocation.
  */
-async function installCcgEntryCommand(ctx: InstallContext): Promise<void> {
+async function _installCcgEntryCommand(ctx: InstallContext): Promise<void> {
   const srcFile = join(ctx.templateDir, 'commands', 'ccg.md')
   const destFile = join(ctx.installDir, 'commands', 'ccg.md')
 
@@ -863,6 +908,12 @@ async function installEngineFiles(ctx: InstallContext): Promise<void> {
     const strategiesDest = join(engineDestDir, 'strategies')
     if (await fs.pathExists(strategiesSrc)) {
       await copyMdTemplates(ctx, strategiesSrc, strategiesDest, { inject: true })
+    }
+
+    const toolsSrc = join(engineSrcDir, 'tools')
+    const toolsDest = join(engineDestDir, 'tools')
+    if (await fs.pathExists(toolsSrc)) {
+      await copyTemplateTree(ctx, toolsSrc, toolsDest, { injectMd: true })
     }
   }
   catch (error) {
@@ -940,7 +991,6 @@ async function registerHooksInSettings(ctx: InstallContext): Promise<void> {
 
     for (const [event, def] of Object.entries(ccgHookDefs)) {
       const eventHooks = (hooks[event] || []) as Record<string, unknown>[]
-      const ccgCommand = (def.hooks[0] as Record<string, unknown>).command as string
       const existingIdx = eventHooks.findIndex((h) => {
         const hHooks = (h.hooks || []) as Record<string, unknown>[]
         return hHooks.some(hh => typeof hh.command === 'string' && hh.command.includes('hooks/ccg/'))

@@ -1,6 +1,5 @@
 import ansis from 'ansis'
 import inquirer from 'inquirer'
-import { i18n } from '../i18n'
 import fs from 'fs-extra'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
@@ -340,7 +339,7 @@ async function handleAuxiliary(): Promise<void> {
 
   for (const id of selected) {
     const mcp = AUXILIARY_MCPS.find(m => m.id === id)!
-    let env: Record<string, string> = {}
+    const env: Record<string, string> = {}
 
     if (mcp.requiresApiKey) {
       console.log(ansis.cyan(`📖 获取 ${mcp.name} API Key：`))

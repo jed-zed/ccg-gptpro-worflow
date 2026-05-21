@@ -387,3 +387,12 @@ git add .ccg/tasks/ && git commit -m "chore: archive ccg task {task-name}"
 - **不可因为"任务简单"而跳过 [required] 阶段** — 每个阶段都有其价值
 - **外部模型零文件写入权限** — 所有修改由 Claude 执行
 - **评分 <7 或用户未审批时强制停止** — 不可绕过
+
+## Optional GPT Pro Planning Evidence
+
+For high-risk or release-blocking full-collaborate tasks, GPT Pro may be inserted as an optional
+manual evidence step before Phase 3 user approval. This does not replace user approval and does not
+give GPT Pro file-write authority.
+
+Use the manual bridge only after Gemini/Codex planning evidence exists, then set
+`gate=manual_gptpro_waiting` and pause until the user saves the response.

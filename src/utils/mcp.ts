@@ -205,7 +205,7 @@ export function fixWindowsMcpConfig(config: ClaudeCodeConfig): ClaudeCodeConfig 
   const fixed = JSON.parse(JSON.stringify(config)) as ClaudeCodeConfig
 
   // Fix each MCP server configuration
-  for (const [serverName, serverConfig] of Object.entries(fixed.mcpServers || {})) {
+  for (const [, serverConfig] of Object.entries(fixed.mcpServers || {})) {
     if (serverConfig && typeof serverConfig === 'object' && 'command' in serverConfig) {
       const mcpConfig = serverConfig as McpServerConfig
       // 先尝试修复损坏的配置

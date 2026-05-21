@@ -45,6 +45,9 @@ const CORE_CONFIGS: WorkflowConfig[] = [
   // ── Independent Tools ────────────────────────────────
   cmd('init-project', 10, 'init', '项目初始化', 'Project Init', '初始化项目 AI 上下文，生成 CLAUDE.md', 'Initialize project AI context, generate CLAUDE.md', 'init'),
   cmd('context', 11, 'development', '项目上下文管理', 'Project Context Manager', '初始化 .context 目录、记录决策日志、压缩归档、查看历史', 'Init .context dir, log decisions, compress, view history'),
+  cmd('gptpro-plan', 12, 'development', 'GPT Pro Plan', 'GPT Pro Plan', 'Manual GPT Pro planning evidence', 'Manual GPT Pro fourth-model planning evidence'),
+  cmd('gptpro-review', 13, 'development', 'GPT Pro Review', 'GPT Pro Review', 'Manual GPT Pro review evidence', 'Manual GPT Pro fourth-model review evidence'),
+  cmd('gptpro-exc', 14, 'development', 'GPT Pro Execution Companion', 'GPT Pro Execution Companion', 'Manual GPT Pro execution companion', 'Manual GPT Pro fourth-model execution companion'),
 
   // ── Git ──────────────────────────────────────────────
   cmd('commit', 20, 'git', 'Git 提交', 'Git Commit', '智能生成 conventional commit 信息', 'Smart conventional commit message generation'),

@@ -9,7 +9,7 @@ import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { checkForUpdates, compareVersions } from '../utils/version'
 import { showBinaryDownloadWarning, verifyBinary } from '../utils/installer'
-import { readCcgConfig, writeCcgConfig } from '../utils/config'
+import { readCcgConfig } from '../utils/config'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 import { i18n } from '../i18n'
 
@@ -90,7 +90,7 @@ export async function update(): Promise<void> {
 /**
  * Ask user if they want to reconfigure model routing
  */
-async function askReconfigureRouting(currentRouting?: ModelRouting): Promise<ModelRouting | null> {
+async function _askReconfigureRouting(currentRouting?: ModelRouting): Promise<ModelRouting | null> {
   console.log()
   console.log(ansis.cyan.bold(`🔧 ${i18n.t('init:summary.modelRouting')}`))
   console.log()
