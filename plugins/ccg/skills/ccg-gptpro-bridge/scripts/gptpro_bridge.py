@@ -507,7 +507,10 @@ def empty_routing_evidence(required: bool = False) -> dict[str, Any]:
 
 def normalize_routing_evidence(routing_evidence: dict[str, Any] | None, required: bool = False) -> dict[str, Any]:
     normalized = dict(routing_evidence or {})
-    normalized.setdefault("required", bool(required))
+    if required:
+        normalized["required"] = True
+    else:
+        normalized.setdefault("required", False)
     normalized.setdefault("available", False)
     normalized.setdefault("evidence_file", "")
     normalized.setdefault("evidence_sha256", "")
@@ -1460,7 +1463,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         routing_evidence = None
         has_routing_args = bool(args.routing_evidence_file or args.routing_summary_file)
-        if has_routing_args or args.require_routing_evidence or not args.followup_session:
+        if has_routing_args or not args.followup_session:
             routing_evidence = read_routing_evidence(
                 args.workdir,
                 args.routing_evidence_file,

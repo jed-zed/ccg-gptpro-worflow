@@ -216,6 +216,82 @@ describe('GPT Pro manual bridge', () => {
     expect(gptproEvidence.artifactChars).toBe('Manual GPT Pro response\n'.length)
   })
 
+  maybeIt('inherits required routing evidence for follow-up sessions without fresh routing files', () => {
+    const root = join(TMP_ROOT, 'routing-followup-session')
+    const taskDir = join(root, '.ccg', 'tasks', 'followup-task')
+    const evidenceDir = join(taskDir, 'evidence')
+    fs.ensureDirSync(evidenceDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), {
+      id: 'followup-task',
+      status: 'in_progress',
+      currentPhase: 'review',
+      nextAction: 'run GPT Pro follow-up review',
+    })
+    const geminiResponse = 'Gemini gate evidence: review follow-up inheritance.'
+    writeFileSync(join(evidenceDir, 'gemini.md'), geminiResponse, 'utf-8')
+    writeFileSync(join(evidenceDir, 'gemini-summary.md'), 'Gemini says follow-up inheritance is relevant.', 'utf-8')
+    writeGeminiGateEvidence(taskDir, 'evidence/gemini.md', geminiResponse)
+    const routing = writeRoutingEvidence(evidenceDir)
+
+    const roundOneOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/followup-task',
+      '--prompt',
+      'Review round one.',
+      '--slug',
+      'followup-task-review',
+      '--gemini-response-file',
+      join(evidenceDir, 'gemini.md'),
+      '--gemini-summary-file',
+      join(evidenceDir, 'gemini-summary.md'),
+      '--routing-evidence-file',
+      routing.evidenceFile,
+      '--routing-summary-file',
+      routing.summaryFile,
+      '--require-routing-evidence',
+    ], root)
+    const sessionDir = parseOutputPath(roundOneOutput, 'CCG_GPTPRO_SESSION_DIR')
+
+    const roundTwoOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/followup-task',
+      '--prompt',
+      'Review round two without fresh routing files.',
+      '--followup-session',
+      sessionDir,
+      '--followup-reason',
+      'Re-check after revised review notes.',
+      '--require-routing-evidence',
+    ], root)
+    const statusFile = parseOutputPath(roundTwoOutput, 'CCG_GPTPRO_STATUS_FILE')
+    const promptFile = parseOutputPath(roundTwoOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const status = fs.readJsonSync(statusFile)
+
+    expect(status.current_round).toBe(2)
+    expect(status.rounds['round-2']).toBeDefined()
+    expect(status.routing_evidence).toMatchObject({
+      required: true,
+      available: true,
+      inherited_from_round: 1,
+      evidence_file: '.ccg/tasks/followup-task/evidence/routing.md',
+      summary: routing.summary,
+    })
+    const promptText = readFileSync(promptFile, 'utf-8')
+    expect(promptText).toContain('Base CCG Routing Evidence')
+    expect(promptText).toContain('Routing evidence file: .ccg/tasks/followup-task/evidence/routing.md')
+    expect(promptText).toContain(routing.summary)
+  })
+
   maybeIt('rejects an empty saved response', () => {
     const root = join(TMP_ROOT, 'empty-response')
     const taskDir = join(root, '.ccg', 'tasks', 'empty-task')
