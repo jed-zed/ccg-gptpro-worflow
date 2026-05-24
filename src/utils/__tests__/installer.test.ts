@@ -140,7 +140,7 @@ describe('injectConfigVariables — routing variables', () => {
   it('defaults to standard routing when not specified', () => {
     const input = '{{FRONTEND_PRIMARY}} / {{BACKEND_PRIMARY}}'
     const result = injectConfigVariables(input, {})
-    expect(result).toBe('antigravity / codex')
+    expect(result).toBe('gemini / codex')
   })
 })
 
@@ -379,11 +379,22 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
     expect(installedCommands).toMatch(/ordinary\s+`\/ccg:execute`\s+semantics/)
     expect(installedCommands).toContain('preflight and routing evidence')
     expect(installedCommands).toContain('--require-routing-evidence')
+    expect(installedCommands).toContain('risk-triggered')
+    expect(installedCommands).toContain('Project Access Context')
+    expect(installedCommands).toContain('Blockers')
+    expect(installedCommands).toContain('highest-value default use case')
+    expect(installedCommands).toContain('Critical')
+    expect(installedCommands).toContain('Proceed')
+    expect(installedCommands).toContain('advisory / illustrative')
     expect(installedBridgeBase).toContain('ordinary plan/review/execute first')
     expect(installedBridgeBase).toContain('GPT Pro is fourth evidence')
     expect(installedBridgeBase).toContain('do not replace routed models')
+    expect(installedBridgeBase).toContain('Project Access Context')
+    expect(installedBridgeBase).toContain('repository URL, branch, commit, and local git status')
+    expect(installedBridgeBase).toContain('advisory and illustrative')
     expect(installedBridgeScript).toContain('--routing-evidence-file')
     expect(installedBridgeScript).toContain('Base CCG Routing Evidence')
+    expect(installedBridgeScript).toContain('Repository URL: {repo_url}')
   }, 30_000)
 })
 

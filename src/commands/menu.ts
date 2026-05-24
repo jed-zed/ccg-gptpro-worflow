@@ -453,7 +453,7 @@ async function configModelRouting(): Promise<void> {
   console.log()
 
   // Show current routing
-  const currentFrontend = config?.routing?.frontend?.primary || 'antigravity'
+  const currentFrontend = config?.routing?.frontend?.primary || 'gemini'
   const currentBackend = config?.routing?.backend?.primary || 'codex'
   const currentGeminiModel = config?.routing?.geminiModel || 'gemini-3.1-pro-preview'
 
@@ -471,8 +471,8 @@ async function configModelRouting(): Promise<void> {
     name: 'selectedFrontend',
     message: i18n.t('init:model.selectFrontend'),
     choices: [
-      { name: `Antigravity ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'antigravity' },
-      { name: 'Gemini', value: 'gemini' },
+      { name: `Gemini ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'gemini' },
+      { name: 'Antigravity', value: 'antigravity' },
       { name: 'Codex', value: 'codex' },
     ],
     default: currentFrontend,

@@ -9,14 +9,23 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 $ARGUMENTS
 
 Use this command when a CCG task needs a manual ChatGPT Pro review after the ordinary `/ccg:review`
-semantics have already run.
+semantics have already run. Review is GPT Pro's highest-value default use case because concrete
+diffs, findings, and tests let it focus on missed risks instead of inventing implementation context.
 
 ## Contract
 
 Run ordinary `/ccg:review` first. Preserve the current CCG orchestrator semantics and the normal
 cross-review/model routing for this installation, including Codex, Claude, Gemini, or any configured
 helper that ordinary review would use. GPT Pro is fourth evidence: it is appended as a manual review
-second opinion after ordinary routing evidence exists.
+second opinion after ordinary routing evidence exists. In this command GPT Pro is a high-value
+external reviewer for hidden bugs, security risks, compatibility risks, edge cases, test gaps, and
+ordinary model false positives or missed findings.
+
+Ordinary review must include Claude evidence unless the user explicitly says Claude must not be
+used. First try `~/.claude/bin/codeagent-wrapper[.exe] --backend claude`. If the automatic Claude
+route fails or returns empty output, stop before creating the GPT Pro bridge, tell the user Claude
+evidence is missing, and offer a manual Claude Code handoff: write the Claude prompt to a file, ask
+the user to paste it into Claude Code, then paste/save Claude's response back before continuing.
 
 GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an
 automated model. Do not replace routed models, skip ordinary review, or use GPT Pro to decide that
@@ -36,7 +45,8 @@ Hard boundaries:
 3. Run or verify the ordinary `/ccg:review` route first and write a concise routing evidence file,
    for example `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
-   actually exists, the ordinary reviewer conclusion, and any skipped/failed model steps.
+   actually exists, Claude evidence status, the ordinary reviewer conclusion, and any skipped/failed
+   model steps.
 4. Validate required Gemini review/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
@@ -61,9 +71,13 @@ Create a concise prompt file with:
 
 - task title, phase, gate, and next action;
 - review scope and relevant diff/file excerpts;
+- Project Access Context is injected by the bridge with repository URL, branch, commit, and local
+  status; pasted diffs and local evidence override repository contents when they differ;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini evidence summary and artifact path;
-- explicit request for blocking findings, non-blocking findings, test gaps, false positives, and suggested fixes.
+- explicit request for hidden bugs, security risks, compatibility risks, edge cases, test gaps,
+  likely false positives, and missed findings in ordinary model evidence;
+- required output sections: `Critical`, `Major`, `Minor`, `False Positives`, and `Required Tests`.
 
 Then invoke the task-local bridge:
 

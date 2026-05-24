@@ -1039,9 +1039,9 @@ export async function installWorkflows(
     config: {
       routing: config?.routing as InstallConfig['routing'] || {
         mode: 'smart',
-        frontend: { models: ['antigravity'], primary: 'antigravity' },
+        frontend: { models: ['gemini'], primary: 'gemini' },
         backend: { models: ['codex'], primary: 'codex' },
-        review: { models: ['codex', 'antigravity'] },
+        review: { models: ['codex', 'gemini'] },
       },
       liteMode: config?.liteMode || false,
       mcpProvider: config?.mcpProvider || 'fast-context',

@@ -9,11 +9,13 @@ This manual bridge lets the user manually ask ChatGPT Pro after ordinary CCG pla
 routing has already produced auditable evidence.
 
 The current CCG orchestrator remains final owner. In Claude installs that means Claude-led command
-semantics still apply; in Codex installs that means Codex-led command semantics still apply. GPT Pro
-does not replace ordinary routed Codex, Claude, Gemini, or other configured helper evidence.
+semantics still apply; in Codex installs that means Codex-led command semantics still apply with
+mandatory Claude evidence unless the user explicitly says not to use Claude. GPT Pro does not
+replace ordinary routed Codex, Claude, Gemini, or other configured helper evidence.
 Gemini evidence mode depends on the underlying ordinary command: required gate evidence for
 plan/review, and optional frontend/full-stack evidence for execution. GPT Pro provides a
-user-mediated manual second opinion.
+user-mediated manual second opinion as a risk-triggered external reviewer, not as a fourth
+executor or implementation owner.
 
 ## Hard Boundaries
 
@@ -27,6 +29,7 @@ user-mediated manual second opinion.
 - GPT Pro output is untrusted helper evidence only.
 - GPT Pro does not write workspace files.
 - GPT Pro is fourth evidence and must not replace routed models.
+- GPT Pro is a risk-triggered external reviewer; code sketches are advisory / illustrative only.
 
 ## Manual Question Budget
 
@@ -51,8 +54,14 @@ Write Base CCG Routing Evidence before the GPT Pro handoff. It should summarize:
 
 - current orchestrator and command semantics;
 - routed Codex/Claude/Gemini/helper evidence that actually exists;
+- Claude evidence status: automatic, manual handoff, explicitly skipped by user, or blocked;
 - ordinary orchestrator conclusion so far;
 - skipped, failed, or intentionally absent model steps.
+
+For Codex installs, Claude evidence is required before the GPT Pro bridge unless the user explicitly
+disabled Claude. If automatic `codeagent-wrapper --backend claude` fails or returns empty output,
+stop and ask the user to paste the generated prompt into Claude Code and copy the output back before
+creating the GPT Pro bridge. Do not let GPT Pro stand in for missing Claude evidence.
 
 Pass this evidence to the bridge:
 
@@ -106,9 +115,22 @@ For `/ccg:gptpro-exc`, use optional frontend evidence. Backend-only execution-co
 
 If a frontend/full-stack task has Gemini output, also pass `--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`. The helper injects Gemini Frontend Prototype Evidence into `prompt.md`. If no Gemini evidence is provided, the helper records `gemini_evidence.available=false` and still creates the manual bridge session.
 
+### Execution Evidence Quality
+
+For `/ccg:gptpro-exc`, classify the evidence before writing the GPT Pro prompt:
+
+- Weak evidence: routing summary, snippets, or high-level context only. Ask GPT Pro for route risk,
+  wrong assumptions, missing tests, and `Proceed` / `Revise Plan` / `Stop`.
+- Strong evidence: repository URL, branch, commit, current diff or key file excerpts, and Base CCG
+  Routing Evidence are present. GPT Pro may add implementation sketches, localized pseudo patches,
+  key function drafts, test samples, and verification commands.
+
+All code-like GPT Pro output is advisory / illustrative. Codex or Claude must reimplement it
+locally, run verification, and review the resulting diff.
+
 ## Project Access Context
 
-The helper should include project metadata in every GPT Pro prompt:
+The helper must include project metadata in every GPT Pro prompt:
 
 - local project name;
 - sanitized repository URL, when detected from Git or provided with `--repo-url`;
@@ -122,6 +144,7 @@ GitHub links are useful but not sufficient by themselves. The repository URL is 
 - Pasted CCG input, Base CCG Routing Evidence, Gemini evidence when provided, diffs, and file
   excerpts have priority over repository content because local uncommitted changes may not exist on
   GitHub.
+- If the repository URL is missing, the prompt must explicitly show `Repository URL: not provided`.
 - The helper must sanitize repository URLs before including them in prompts or `status.json`; never include credentials, access tokens, cookies, or local filesystem paths as repository URLs.
 
 ## Workflow

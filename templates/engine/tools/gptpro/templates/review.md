@@ -1,4 +1,4 @@
-# Mode: Review Second Opinion
+# Mode: High-Value Review Second Opinion
 
 Review the plan, diff, changed files, or verification summary below.
 
@@ -12,15 +12,18 @@ evidence and must not replace routed models.
 
 ## Expected Output
 
-| Severity | File/Area | Finding | Rationale | Suggested Fix |
-| --- | --- | --- | --- | --- |
+Use exactly these sections:
 
-Then provide:
+## Critical
 
-- Must-fix before merge
-- Should-fix later
-- Test gaps
-- Possible false positives
-- Confidence and assumptions
+## Major
+
+## Minor
+
+## False Positives
+
+## Required Tests
+
+Review is the highest-value GPT Pro use case. Prioritize hidden bugs, security risks, compatibility risks, edge cases, test gaps, and likely false positives or misses in ordinary model evidence.
 
 Do not invent files. Do not assume hidden state.

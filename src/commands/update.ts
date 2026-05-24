@@ -121,8 +121,8 @@ async function _askReconfigureRouting(currentRouting?: ModelRouting): Promise<Mo
     name: 'selectedFrontend',
     message: i18n.t('init:selectFrontendModels'),
     choices: [
-      { name: 'Antigravity', value: 'antigravity' as ModelType, checked: currentRouting?.frontend.models.includes('antigravity') ?? true },
-      { name: 'Gemini', value: 'gemini' as ModelType, checked: currentRouting?.frontend.models.includes('gemini') ?? false },
+      { name: 'Gemini', value: 'gemini' as ModelType, checked: currentRouting?.frontend.models.includes('gemini') ?? true },
+      { name: 'Antigravity', value: 'antigravity' as ModelType, checked: currentRouting?.frontend.models.includes('antigravity') ?? false },
       { name: 'Claude', value: 'claude' as ModelType, checked: currentRouting?.frontend.models.includes('claude') ?? false },
       { name: 'Codex', value: 'codex' as ModelType, checked: currentRouting?.frontend.models.includes('codex') ?? false },
     ],
