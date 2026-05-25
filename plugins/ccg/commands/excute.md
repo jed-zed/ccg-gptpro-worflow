@@ -12,4 +12,4 @@ The user invoked:
 /ccg:excute $ARGUMENTS
 ```
 
-This is a typo-compatible alias of `/ccg:execute`. Use the installed CCG plugin skill `ccg:executor` and follow it exactly. Treat `$ARGUMENTS` as the plan path or task description. The architecture is Codex-led: Gemini assists only when useful; Codex owns final implementation and verification.
+This is a typo-compatible alias of `/ccg:execute`. Use the installed CCG plugin skill `ccg:executor` and follow it exactly. Treat `$ARGUMENTS` as the plan path or task description. The architecture is Codex-led: Gemini and Claude provide evidence when the Codex-native parity rules require it; Codex owns final implementation and verification.

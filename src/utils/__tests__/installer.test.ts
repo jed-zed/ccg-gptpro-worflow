@@ -23,6 +23,7 @@ function findPackageRoot(): string {
 const PACKAGE_ROOT = findPackageRoot()
 const TEMPLATES_DIR = join(PACKAGE_ROOT, 'templates', 'commands')
 const LEGACY_TEMPLATES_DIR = join(PACKAGE_ROOT, 'templates', 'commands-legacy')
+const CCG_PLUGIN_DIR = join(PACKAGE_ROOT, 'plugins', 'ccg')
 
 // ─────────────────────────────────────────────────────────────
 // A. Workflow registry consistency
@@ -90,6 +91,25 @@ describe('workflow registry', () => {
 
   it('getWorkflowById returns undefined for unknown id', () => {
     expect(getWorkflowById('nonexistent')).toBeUndefined()
+  })
+})
+
+describe('Codex plugin ordinary CCG Claude parity', () => {
+  it('does not forbid Claude in ordinary plan/execute/review command contracts', () => {
+    const content = [
+      readFileSync(join(CCG_PLUGIN_DIR, 'commands', 'plan.md'), 'utf-8'),
+      readFileSync(join(CCG_PLUGIN_DIR, 'commands', 'execute.md'), 'utf-8'),
+      readFileSync(join(CCG_PLUGIN_DIR, 'commands', 'review.md'), 'utf-8'),
+      readFileSync(join(CCG_PLUGIN_DIR, 'skills', 'ccg-plan', 'SKILL.md'), 'utf-8'),
+      readFileSync(join(CCG_PLUGIN_DIR, 'skills', 'ccg-executor', 'SKILL.md'), 'utf-8'),
+      readFileSync(join(CCG_PLUGIN_DIR, 'skills', 'ccg-review', 'SKILL.md'), 'utf-8'),
+    ].join('\n')
+
+    expect(content).not.toContain('Do not call Claude-side wrappers')
+    expect(content).not.toContain('Do not call `~/.claude/bin/codeagent-wrapper.exe` or use Claude execution quota')
+    expect(content).toContain('Codex-native CCG parity rules')
+    expect(content).toContain('--backend claude')
+    expect(content).toContain('Gemini + Claude')
   })
 })
 

@@ -12,12 +12,12 @@ Route all real work to `skills/ccg-executor/SKILL.md`.
 If the user provided no argument, answer in Chinese with the CCG command index:
 
 - `/ccg:ccg` - show this index; with a plan path or task, execute it.
-- `/ccg:plan <task>` - create or revise a CCG plan with Codex and Gemini analysis.
+- `/ccg:plan <task>` - create or revise a CCG plan with Codex plus Gemini/Claude analysis evidence.
 - `/ccg:workflow` - explain the Codex-native CCG workflow.
 - `/ccg:doctor` - diagnose local CCG plugin, skill, MCP, bridge, and Gemini availability.
 - `/ccg:doctor --fix` - from this source checkout only, refresh stale local plugin cache.
-- `/ccg:execute <plan>` - execute a CCG plan with Codex as orchestrator.
-- `/ccg:codex-exec <plan>` - explicit Codex-led execution alias.
+- `/ccg:execute <plan>` - execute a CCG plan with Codex as orchestrator and Gemini/Claude evidence when required.
+- `/ccg:codex-exec <plan>` - explicit Codex-led execution alias with the same parity rules.
 - `/ccg:excute <plan>` - typo-compatible alias.
 - `/ccg:feat <task>` - implement a feature with Codex and bounded Gemini help.
 - `/ccg:frontend <task>` - handle frontend/UI work with Gemini as a strong read-only UI helper.
@@ -56,4 +56,4 @@ If the user provided no argument, answer in Chinese with the CCG command index:
 
 If the user provided a plan path or task, treat it as `/ccg:execute`.
 
-Core rule: Codex plans and executes; Gemini assists with bounded read-only planning analysis, drafts, tests, edge cases, UI prototypes, or review; Codex applies final edits, verifies, and reports in Chinese. Whenever any CCG workflow uses Gemini, it must invoke the bundled browser preview helper automatically rather than asking the user to run `/ccg:gemini-preview` manually.
+Core rule: Codex plans and executes; Gemini and Claude assist as bounded read-only evidence helpers under the Codex-native parity rules from `fengshao1227/ccg-workflow`; Codex applies final edits, verifies, and reports in Chinese. M+ complexity and risky review paths use Gemini + Claude. Whenever any CCG workflow uses Gemini, it must invoke the bundled browser preview helper automatically rather than asking the user to run `/ccg:gemini-preview` manually. Whenever Claude evidence is required, use `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` and record whether the output was present.
