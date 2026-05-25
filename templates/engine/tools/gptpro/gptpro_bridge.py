@@ -548,8 +548,8 @@ def extract_claude_evidence_status(raw: str) -> str:
         return normalize_claude_evidence_status(str(status)) if status else ""
 
     patterns = (
-        r"(?im)^\s*claudeEvidenceStatus\s*[:=]\s*([A-Za-z0-9 _-]+)\s*$",
-        r"(?im)^\s*claude[\s_-]+evidence[\s_-]+status\s*[:=]\s*([A-Za-z0-9 _-]+)\s*$",
+        r"(?im)^\s*(?:[-*]\s*)?`?\s*claudeEvidenceStatus\s*[:=]\s*([A-Za-z0-9 _-]+)\s*`?\s*$",
+        r"(?im)^\s*(?:[-*]\s*)?`?\s*claude[\s_-]+evidence[\s_-]+status\s*[:=]\s*([A-Za-z0-9 _-]+)\s*`?\s*$",
     )
     for pattern in patterns:
         match = re.search(pattern, text)

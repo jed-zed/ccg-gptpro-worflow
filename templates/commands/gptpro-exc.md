@@ -107,6 +107,10 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --open-preview
 ```
 
+If the user explicitly disabled Claude and routing evidence records
+`claudeEvidenceStatus: skipped_by_user`, omit `--require-claude-evidence`; do not omit it for
+automatic failure or blocked Claude evidence.
+
 For frontend/full-stack execution route review with Gemini evidence, also pass:
 
 ```bash

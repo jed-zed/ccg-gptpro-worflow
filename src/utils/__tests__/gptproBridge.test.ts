@@ -80,12 +80,13 @@ function writeGeminiGateEvidence(taskDir: string, artifactFile: string, response
 function writeRoutingEvidence(
   evidenceDir: string,
   claudeEvidenceStatus: string | null = 'automatic',
+  claudeEvidenceLine?: string,
 ): { evidenceFile: string, summaryFile: string, content: string, summary: string } {
   const content = [
     'ordinary /ccg:review first',
     'current orchestrator: codex',
     'routed models: codex primary review, gemini gate evidence',
-    ...(claudeEvidenceStatus ? [`claudeEvidenceStatus: ${claudeEvidenceStatus}`] : []),
+    ...(claudeEvidenceLine ? [claudeEvidenceLine] : (claudeEvidenceStatus ? [`claudeEvidenceStatus: ${claudeEvidenceStatus}`] : [])),
     'ordinary review conclusion: packaging path needs verification',
   ].join('\n')
   const summary = 'Ordinary review route completed with Codex primary review and Gemini gate evidence.'
@@ -361,6 +362,47 @@ describe('GPT Pro manual bridge', () => {
       '--require-claude-evidence',
     ], root)
     expect(stderr).toContain('claudeEvidenceStatus is required')
+  })
+
+  maybeIt('accepts Markdown bullet or backtick Claude evidence status lines', () => {
+    const root = join(TMP_ROOT, 'markdown-claude-status')
+    const taskDir = join(root, '.ccg', 'tasks', 'markdown-claude-task')
+    const evidenceDir = join(taskDir, 'evidence')
+    fs.ensureDirSync(evidenceDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'markdown-claude-task', status: 'in_progress' })
+    const routing = writeRoutingEvidence(evidenceDir, null, '- `claudeEvidenceStatus: manual_handoff`')
+
+    const output = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/markdown-claude-task',
+      '--prompt',
+      'Create a manual GPT Pro execution route review.',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+      '--routing-evidence-file',
+      routing.evidenceFile,
+      '--routing-summary-file',
+      routing.summaryFile,
+      '--require-routing-evidence',
+      '--require-claude-evidence',
+    ], root)
+
+    const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
+    const promptFile = parseOutputPath(output, 'CCG_GPTPRO_PROMPT_FILE')
+    const status = fs.readJsonSync(statusFile)
+    expect(status.routing_evidence).toMatchObject({
+      available: true,
+      claudeEvidenceStatus: 'manual_handoff',
+    })
+    const promptText = readFileSync(promptFile, 'utf-8')
+    expect(promptText).toContain('Claude evidence status: manual_handoff')
   })
 
   maybeIt('records execution route review metadata while preserving the legacy evidence role', () => {
