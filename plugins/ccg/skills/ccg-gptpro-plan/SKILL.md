@@ -5,7 +5,9 @@ description: Create a manual ChatGPT Pro planning second-opinion bridge. Use whe
 
 # CCG GPT Pro Plan
 
-This is ordinary CCG planning plus GPT Pro manual evidence.
+This is ordinary CCG planning plus GPT Pro manual evidence. GPT Pro acts as an adversarial plan
+reviewer: it challenges an existing plan, but does not rewrite the whole plan or replace the current
+orchestrator's planning authority.
 
 Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 
@@ -13,23 +15,29 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 
 - Treat the argument as a planning task or plan-review input.
 - Run ordinary `/ccg:plan` semantics first. Preserve the current CCG orchestrator and model routing
-  for this installation; do not drop Codex from Claude-led planning or drop Claude from Codex-led
-  planning when ordinary planning would include that evidence.
+  for this installation. In Codex installs, ordinary planning must include Claude evidence unless
+  the user explicitly says not to use Claude.
+- If automatic Claude planning evidence fails or returns empty output, stop before GPT Pro and ask
+  the user to paste the generated Claude prompt into Claude Code, then copy the output back.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, ordinary planning conclusion, and skipped/failed model steps.
+  routed model evidence, `claudeEvidenceStatus`, ordinary planning conclusion, and skipped/failed
+  model steps.
 - Run Gemini according to ordinary planning rules before GPT Pro using the bundled Gemini preview
   helper with `--prompt-template plan`.
 - Follow the Gemini Gate Before GPT Pro from `skills/ccg-gptpro-bridge/SKILL.md`: require a real `CCG_GEMINI_RESPONSE_FILE`, read a non-empty Gemini response from it, stop and do not create a GPT Pro bridge session if it is missing or empty, and do not invent Gemini findings.
-- Include the ordinary planning context, Base CCG Routing Evidence, the Gemini response file path,
-  and a concise Gemini findings summary in the GPT Pro prompt.
+- Include the ordinary planning context, Project Access Context, Base CCG Routing Evidence, the
+  Gemini response file path, and a concise Gemini findings summary in the GPT Pro prompt.
+- Ask GPT Pro to focus on requirement ambiguity, wrong assumptions, architecture risk, missing
+  constraints, test gaps, and whether the plan is worth continuing.
+- Require output sections: `Blockers`, `Risks`, `Missing Evidence`, `Plan Adjustments`, `Go-NoGo`.
 - Build a single-round planning prompt by default.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only for blocker re-check or revised plan comparison.
-- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence`.
+- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence`.
 - Read the saved response file only after the user manually saves it.
 - Summarize and synthesize ordinary planning evidence, Gemini gate evidence, and GPT Pro findings
-  in Chinese.
+  in Chinese; the current orchestrator decides final plan edits.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.

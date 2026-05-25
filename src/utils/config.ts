@@ -77,8 +77,8 @@ export function createDefaultConfig(options: {
 export function createDefaultRouting(): ModelRouting {
   return {
     frontend: {
-      models: ['antigravity'],
-      primary: 'antigravity',
+      models: ['gemini'],
+      primary: 'gemini',
       strategy: 'parallel',
     },
     backend: {
@@ -87,7 +87,7 @@ export function createDefaultRouting(): ModelRouting {
       strategy: 'parallel',
     },
     review: {
-      models: ['codex', 'antigravity'],
+      models: ['codex', 'gemini'],
       strategy: 'parallel',
     },
     mode: 'smart',

@@ -1,5 +1,5 @@
 ---
-description: "Manual ChatGPT Pro execution-companion bridge"
+description: "Manual ChatGPT Pro execution route review bridge"
 argument-hint: "<task-or-plan> [--task <task-id>] [--followup <session-dir>]"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 ---
@@ -8,7 +8,7 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 
 $ARGUMENTS
 
-Use this command when a CCG task needs one manual GPT Pro implementation second opinion after the
+Use this command when a CCG task needs one manual GPT Pro execution route review after the
 ordinary `/ccg:execute` semantics have completed preflight and routing evidence, but before real
 code landing begins.
 
@@ -19,13 +19,24 @@ analysis-evidence phase. Preserve the current CCG orchestrator semantics and the
 routing for this installation, including Codex, Claude, Gemini, or any configured helper that
 ordinary execute would use. GPT Pro is fourth evidence: it is appended as a manual second opinion
 after ordinary routing evidence exists and before the ordinary execute owner applies final code.
+In this command GPT Pro decides whether the route is worth local implementation by Codex or Claude;
+it is not a fourth implementation owner.
+
+Ordinary execution evidence must include Claude unless the user explicitly says Claude must not be
+used. First try `~/.claude/bin/codeagent-wrapper[.exe] --backend claude`. If the automatic Claude
+route fails or returns empty output, stop before creating the GPT Pro bridge, tell the user Claude
+evidence is missing, and offer a manual Claude Code handoff: write the Claude prompt to a file, ask
+the user to paste it into Claude Code, then paste/save Claude's response back before continuing.
 
 GPT Pro provides manual helper evidence only. It must not write files, own delivery, replace routed
 models, or decide that missing Codex, Claude, or Gemini evidence exists.
+Any code sketch, localized pseudo patch, key function draft, test sample, or verification command
+from GPT Pro is advisory / illustrative only and must be reimplemented and verified locally by the
+ordinary execute owner.
 
 Gemini behavior still follows ordinary `/ccg:execute` routing:
 
-- Backend-only execution-companion sessions should not run Gemini by default.
+- Backend-only execution route review sessions should not run Gemini by default.
 - Frontend/full-stack sessions may run Gemini first for frontend prototype or frontend-review evidence.
 - If Gemini evidence is included, it must come from a real, non-empty response file with a concise
   summary. Do not invent Gemini findings.
@@ -45,12 +56,19 @@ Hard boundaries:
    advice can still change the path safely. Write a concise routing evidence file, for example
    `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file. The routing evidence
    must identify the current orchestrator, the routed model evidence that actually exists, the
-   ordinary execute conclusion so far, and any skipped/failed model steps.
+   `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, ordinary execute
+   conclusion so far, and any skipped/failed model steps.
 4. Decide whether ordinary routing produced Gemini frontend/full-stack evidence:
    - backend/tooling-only: use `--gemini-policy optional --gemini-evidence-role frontend-prototype`
      without forcing a Gemini run;
    - frontend/full-stack: pass the real Gemini response and summary files when ordinary execute
      produced them.
+5. Classify GPT Pro implementation evidence quality:
+   - weak evidence: routing summary, snippets, or high-level context only; ask GPT Pro for route
+     risk, wrong assumptions, missing tests, and `Proceed` / `Revise Plan` / `Stop`;
+   - strong evidence: repository URL, branch, commit, current diff or key file excerpts, and Base
+     CCG Routing Evidence are present; GPT Pro may add implementation sketches, localized pseudo
+     patches, key function drafts, test samples, and verification commands.
 
 ## Bridge Creation
 
@@ -58,12 +76,18 @@ Create a concise prompt file with:
 
 - task title, phase, gate, and next action;
 - implementation objective and relevant plan/diff/file excerpts;
+- Project Access Context is injected by the bridge with repository URL, branch, commit, and local
+  status; repository content is supplemental, and local diff/excerpts remain authoritative;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini frontend/full-stack evidence when available;
-- explicit request for implementation sketch, pseudo patch or unified diff if possible, tests to add,
-  edge cases, risks, and verification commands.
+- explicit request for execution route judgment first, using `Proceed`, `Revise Plan`, or `Stop`;
+- required output sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
+  `Required Tests`, and `Verification`;
+- only request implementation sketch, localized pseudo patch, key function draft, test sample, or
+  verification commands when evidence is strong, and require all code-like output to be marked
+  `advisory / illustrative`.
 
-For backend/tooling-only execution companion:
+For backend/tooling-only execution route review:
 
 ```bash
 python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
@@ -78,11 +102,16 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
+  --require-claude-evidence \
   --detach-preview \
   --open-preview
 ```
 
-For frontend/full-stack execution companion with Gemini evidence, also pass:
+If the user explicitly disabled Claude and routing evidence records
+`claudeEvidenceStatus: skipped_by_user`, omit `--require-claude-evidence`; do not omit it for
+automatic failure or blocked Claude evidence.
+
+For frontend/full-stack execution route review with Gemini evidence, also pass:
 
 ```bash
   --gemini-response-file "<gemini-response-file>" \
@@ -106,7 +135,7 @@ After bridge creation, update the active task:
 {
   "status": "in_progress",
   "gate": "manual_gptpro_waiting",
-  "nextAction": "Open the GPT Pro preview, manually submit the execution-companion prompt, save the response, then continue."
+  "nextAction": "Open the GPT Pro preview, manually submit the execution route review prompt, save the response, then continue."
 }
 ```
 

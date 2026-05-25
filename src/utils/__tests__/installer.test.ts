@@ -140,7 +140,7 @@ describe('injectConfigVariables — routing variables', () => {
   it('defaults to standard routing when not specified', () => {
     const input = '{{FRONTEND_PRIMARY}} / {{BACKEND_PRIMARY}}'
     const result = injectConfigVariables(input, {})
-    expect(result).toBe('antigravity / codex')
+    expect(result).toBe('gemini / codex')
   })
 })
 
@@ -369,6 +369,11 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
       join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'base.md'),
       'utf-8',
     )
+    const installedBridgeModeTemplates = [
+      readFileSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'plan.md'), 'utf-8'),
+      readFileSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'review.md'), 'utf-8'),
+      readFileSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'exc.md'), 'utf-8'),
+    ].join('\n')
     const installedBridgeScript = readFileSync(
       join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'gptpro_bridge.py'),
       'utf-8',
@@ -379,16 +384,35 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
     expect(installedCommands).toMatch(/ordinary\s+`\/ccg:execute`\s+semantics/)
     expect(installedCommands).toContain('preflight and routing evidence')
     expect(installedCommands).toContain('--require-routing-evidence')
+    expect(installedCommands).toContain('--require-claude-evidence')
+    expect(installedCommands).toContain('claudeEvidenceStatus: skipped_by_user')
+    expect(installedCommands).toContain('do not omit it for')
+    expect(installedCommands).toContain('automatic failure or blocked Claude evidence')
+    expect(installedCommands).toContain('risk-triggered')
+    expect(installedCommands).toContain('Project Access Context')
+    expect(installedCommands).toContain('Blockers')
+    expect(installedCommands).toContain('highest-value default use case')
+    expect(installedCommands).toContain('Critical')
+    expect(installedCommands).toContain('Proceed')
+    expect(installedCommands).toContain('advisory / illustrative')
     expect(installedBridgeBase).toContain('ordinary plan/review/execute first')
     expect(installedBridgeBase).toContain('GPT Pro is fourth evidence')
     expect(installedBridgeBase).toContain('do not replace routed models')
+    expect(installedBridgeBase).toContain('Project Access Context')
+    expect(installedBridgeBase).toContain('repository URL, branch, commit, and local git status')
+    expect(installedBridgeBase).toContain('advisory and illustrative')
+    expect(installedBridgeModeTemplates).toContain('Task For GPT Pro')
+    expect(installedBridgeModeTemplates).toContain('review the current plan for requirement ambiguity')
+    expect(installedBridgeModeTemplates).toContain('review the submitted scope for concrete defects')
+    expect(installedBridgeModeTemplates).toContain('decide whether the current execution route should proceed')
     expect(installedBridgeScript).toContain('--routing-evidence-file')
     expect(installedBridgeScript).toContain('Base CCG Routing Evidence')
+    expect(installedBridgeScript).toContain('Repository URL: {repo_url}')
   }, 30_000)
 })
 
 describe('GPT Pro go routing', () => {
-  it('documents automatic routing for plan, review, and execution companion', () => {
+  it('documents automatic routing for plan, review, and execution route review', () => {
     const content = readFileSync(join(TEMPLATES_DIR, 'go.md'), 'utf-8')
     expect(content).toContain('/ccg:gptpro-plan')
     expect(content).toContain('/ccg:gptpro-review')

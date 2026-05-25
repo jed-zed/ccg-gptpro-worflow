@@ -5,33 +5,38 @@ description: Create a manual ChatGPT Pro review second-opinion bridge. Use when 
 
 # CCG GPT Pro Review
 
-This is ordinary CCG review plus GPT Pro manual evidence.
+This is ordinary CCG review plus GPT Pro manual evidence. Review is GPT Pro's highest-value default
+use case because concrete diffs, findings, and tests let it focus on missed risks.
 
 Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 
 ## Behavior
 
 - Gather review input: plan, diff, touched files, test summary, or user-provided target.
-- Run ordinary `/ccg:review` semantics first. Preserve the current CCG orchestrator and cross-review
-  model routing for this installation; do not drop Codex from Claude-led review or drop Claude from
-  Codex-led review when ordinary review would include that evidence.
+- Run ordinary `/ccg:review` semantics first. Ordinary review must include Claude review evidence
+  unless the user explicitly says Claude must not be used. First try the automatic
+  `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` route. If it fails or returns empty
+  output, stop before GPT Pro, tell the user Claude evidence is missing, and offer a manual Claude
+  Code handoff: write the Claude prompt to a file, ask the user to paste it into Claude Code, then
+  paste/save Claude's response back before continuing.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, ordinary review conclusion, and skipped/failed model steps.
+  routed model evidence, `claudeEvidenceStatus`, ordinary review conclusion, and skipped/failed
+  model steps.
 - Run Gemini according to ordinary review rules before GPT Pro using the bundled Gemini preview
   helper with `--prompt-template review`.
 - Follow the Gemini Gate Before GPT Pro from `skills/ccg-gptpro-bridge/SKILL.md`: require a real `CCG_GEMINI_RESPONSE_FILE`, read a non-empty Gemini response from it, stop and do not create a GPT Pro bridge session if it is missing or empty, and do not invent Gemini findings.
-- Include the ordinary review conclusion, Base CCG Routing Evidence, the Gemini response file path,
-  and a concise Gemini findings summary in the GPT Pro prompt.
+- Include the ordinary review conclusion, Project Access Context, Base CCG Routing Evidence, the
+  Gemini response file path, and a concise Gemini findings summary in the GPT Pro prompt.
+- Ask GPT Pro to focus on hidden bugs, security risks, compatibility risks, edge cases, test gaps,
+  ordinary-model false positives, and missed findings.
+- Require output sections: `Critical`, `Major`, `Minor`, `False Positives`, `Required Tests`.
 - Build a single-round review prompt by default.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only after Codex fixes blocker findings.
-- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence`.
-- After response is saved, classify:
-  - blocking findings
-  - non-blocking findings
-  - possible false positives
-  - Codex actions
+- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence`.
+- After response is saved, classify Critical/Major/Minor findings, false positives, required tests,
+  and Codex/Claude actions.
 - Report in Chinese and synthesize ordinary review evidence, Gemini gate evidence, and GPT Pro
   findings.
 - The current CCG orchestrator remains final owner.

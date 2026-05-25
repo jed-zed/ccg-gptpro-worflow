@@ -225,7 +225,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
   }
 
   // Model routing configuration (user-selectable since v2.1.0)
-  let frontendModels: ModelType[] = ['antigravity']
+  let frontendModels: ModelType[] = ['gemini']
   let backendModels: ModelType[] = ['codex']
   let geminiModel = 'gemini-3.1-pro-preview'
   const mode: CollaborationMode = 'smart'
@@ -236,7 +236,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
   if (options.skipPrompt) {
     const existingConfig = await readCcgConfig()
     if (existingConfig?.routing) {
-      frontendModels = existingConfig.routing.frontend?.models || ['antigravity']
+      frontendModels = existingConfig.routing.frontend?.models || ['gemini']
       backendModels = existingConfig.routing.backend?.models || ['codex']
       geminiModel = existingConfig.routing.geminiModel || 'gemini-3.1-pro-preview'
     }
@@ -398,12 +398,12 @@ export async function init(options: InitOptions = {}): Promise<void> {
         name: 'selectedFrontend',
         message: i18n.t('init:model.selectFrontend'),
         choices: [
-          { name: `Antigravity ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'antigravity' as ModelType },
-          { name: 'Gemini', value: 'gemini' as ModelType },
+          { name: `Gemini ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'gemini' as ModelType },
+          { name: 'Antigravity', value: 'antigravity' as ModelType },
           { name: 'Codex', value: 'codex' as ModelType },
           ...navSentinels(canGoBack),
         ],
-        default: frontendModels[0] || 'antigravity',
+        default: frontendModels[0] || 'gemini',
       }])
 
       if (selectedFrontend === BACK_SENTINEL)

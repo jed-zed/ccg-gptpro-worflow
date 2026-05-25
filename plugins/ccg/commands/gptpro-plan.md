@@ -8,7 +8,7 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 
 $ARGUMENTS
 
-Use this command when a CCG task needs a manual ChatGPT Pro planning second opinion after the
+Use this command when a CCG task needs a manual ChatGPT Pro adversarial plan review after the
 ordinary `/ccg:plan` semantics have already run.
 
 ## Contract
@@ -16,7 +16,15 @@ ordinary `/ccg:plan` semantics have already run.
 Run ordinary `/ccg:plan` first. Preserve the current CCG orchestrator semantics and the normal
 model routing for this installation, including Codex, Claude, Gemini, or any configured helper that
 ordinary planning would use. GPT Pro is fourth evidence: it is appended as a manual planning second
-opinion after ordinary routing evidence exists.
+opinion after ordinary routing evidence exists. In this command GPT Pro is a risk-triggered
+external reviewer: it challenges the existing plan, but must not rewrite the whole plan or replace
+the current orchestrator's planning authority.
+
+Ordinary planning must include Claude evidence unless the user explicitly says Claude must not be
+used. First try `~/.claude/bin/codeagent-wrapper[.exe] --backend claude`. If the automatic Claude
+route fails or returns empty output, stop before creating the GPT Pro bridge, tell the user Claude
+evidence is missing, and offer a manual Claude Code handoff: write the Claude prompt to a file, ask
+the user to paste it into Claude Code, then paste/save Claude's response back before continuing.
 
 GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an
 automated model. Do not replace routed models, skip ordinary planning, or use GPT Pro to decide that
@@ -28,7 +36,7 @@ Plan-only boundary:
 - Do not apply product code changes.
 - Only create or update CCG plan artifacts and GPT Pro bridge artifacts.
 - After the user saves GPT Pro output, synthesize ordinary planning evidence plus GPT Pro planning
-  findings, write or revise the plan, report the plan path, and stop.
+  findings, write or revise the plan through the current orchestrator, report the plan path, and stop.
 - Execution requires a separate `/ccg:execute <plan>` or `/ccg:codex-exec <plan>` request.
 
 Hard boundaries:
@@ -45,7 +53,8 @@ Hard boundaries:
 3. Run or verify the ordinary `/ccg:plan` route first and write a concise routing evidence file,
    for example `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
-   actually exists, the ordinary planner conclusion, and any skipped/failed model steps.
+   actually exists, `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, the
+   ordinary planner conclusion, and any skipped/failed model steps.
 4. Validate required Gemini planning/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
@@ -70,10 +79,13 @@ Create a concise prompt file with:
 
 - task title, phase, gate, and next action;
 - requirements, constraints, known code context, and draft plan if present;
+- Project Access Context is injected by the bridge with repository URL, branch, commit, and local
+  status; if repository URL is unavailable, the prompt must say so and GPT Pro must not guess repo facts;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini evidence summary and artifact path;
-- explicit request for planning risks, alternatives, missing context, implementation sequence,
-  test strategy, and blocking questions.
+- explicit request to challenge the existing plan for requirement ambiguity, wrong assumptions,
+  architecture risk, missing constraints, test gaps, and whether the plan is worth continuing;
+- required output sections: `Blockers`, `Risks`, `Missing Evidence`, `Plan Adjustments`, and `Go-NoGo`.
 
 Then invoke the task-local bridge:
 
@@ -92,9 +104,14 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
+  --require-claude-evidence \
   --detach-preview \
   --open-preview
 ```
+
+If the user explicitly disabled Claude and routing evidence records
+`claudeEvidenceStatus: skipped_by_user`, omit `--require-claude-evidence`; do not omit it for
+automatic failure or blocked Claude evidence.
 
 Expected artifacts:
 
