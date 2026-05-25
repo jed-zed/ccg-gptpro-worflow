@@ -369,6 +369,11 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
       join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'base.md'),
       'utf-8',
     )
+    const installedBridgeModeTemplates = [
+      readFileSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'plan.md'), 'utf-8'),
+      readFileSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'review.md'), 'utf-8'),
+      readFileSync(join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'templates', 'exc.md'), 'utf-8'),
+    ].join('\n')
     const installedBridgeScript = readFileSync(
       join(tmpDir, '.ccg', 'engine', 'tools', 'gptpro', 'gptpro_bridge.py'),
       'utf-8',
@@ -393,6 +398,10 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
     expect(installedBridgeBase).toContain('Project Access Context')
     expect(installedBridgeBase).toContain('repository URL, branch, commit, and local git status')
     expect(installedBridgeBase).toContain('advisory and illustrative')
+    expect(installedBridgeModeTemplates).toContain('Task For GPT Pro')
+    expect(installedBridgeModeTemplates).toContain('review the current plan for requirement ambiguity')
+    expect(installedBridgeModeTemplates).toContain('review the submitted scope for concrete defects')
+    expect(installedBridgeModeTemplates).toContain('decide whether the current execution route should proceed')
     expect(installedBridgeScript).toContain('--routing-evidence-file')
     expect(installedBridgeScript).toContain('Base CCG Routing Evidence')
     expect(installedBridgeScript).toContain('Repository URL: {repo_url}')

@@ -122,6 +122,23 @@ describe('GPT Pro manual bridge', () => {
     runPython(PYTHON!, ['-m', 'py_compile', BRIDGE])
   })
 
+  it('mode templates include explicit GPT Pro task directives', () => {
+    const templateDir = join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'gptpro', 'templates')
+    const plan = readFileSync(join(templateDir, 'plan.md'), 'utf-8')
+    const review = readFileSync(join(templateDir, 'review.md'), 'utf-8')
+    const exc = readFileSync(join(templateDir, 'exc.md'), 'utf-8')
+
+    expect(plan).toContain('## Task For GPT Pro')
+    expect(plan).toContain('review the current plan for requirement ambiguity')
+    expect(plan).toContain('implementation details that should be added to the plan')
+    expect(review).toContain('## Task For GPT Pro')
+    expect(review).toContain('review the submitted scope for concrete defects')
+    expect(review).toContain('specific tests or verification needed before merge')
+    expect(exc).toContain('## Task For GPT Pro')
+    expect(exc).toContain('decide whether the current execution route should proceed')
+    expect(exc).toContain('supplement the route with')
+  })
+
   maybeIt('creates task-local review artifacts and records saved response evidence', () => {
     const root = join(TMP_ROOT, 'review-session')
     const taskDir = join(root, '.ccg', 'tasks', 'demo-task')
@@ -194,6 +211,9 @@ describe('GPT Pro manual bridge', () => {
     expect(promptText).toContain('Current commit: unknown')
     expect(promptText).toContain('Local git status: not_git')
     expect(promptText).toContain('High-Value Review Second Opinion')
+    expect(promptText).toContain('Task For GPT Pro')
+    expect(promptText).toContain('review the submitted scope for concrete defects')
+    expect(promptText).toContain('specific tests or verification needed before merge')
     expect(promptText).toContain('Critical')
     expect(promptText).toContain('False Positives')
     expect(promptText).toContain('Required Tests')
@@ -376,12 +396,17 @@ describe('GPT Pro manual bridge', () => {
     ], root)
 
     const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
+    const promptFile = parseOutputPath(output, 'CCG_GPTPRO_PROMPT_FILE')
     const status = fs.readJsonSync(statusFile)
     expect(status.routing_evidence).toMatchObject({
       required: true,
       available: true,
       claudeEvidenceStatus: 'manual_handoff',
     })
+    const promptText = readFileSync(promptFile, 'utf-8')
+    expect(promptText).toContain('Task For GPT Pro')
+    expect(promptText).toContain('decide whether the current execution route should proceed')
+    expect(promptText).toContain('supplement the route with')
 
     const saveScript = [
       'import importlib.util, pathlib, sys',

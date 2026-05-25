@@ -12,6 +12,16 @@ exists, compare it with the CCG input, call out disagreements, and help the curr
 choose the final implementation path. If no Codex, Claude, Gemini, or other model evidence is
 present, do not guess what that model would have said.
 
+## Task For GPT Pro
+
+Read the CCG Input, Project Access Context, Base CCG Routing Evidence, and Gemini frontend evidence
+if present. Your task is to decide whether the current execution route should proceed, be revised,
+or stop before local implementation. Identify route risks, wrong assumptions, missing prerequisites,
+missing tests, and unclear ownership. When evidence is strong enough, supplement the route with
+implementation details the local orchestrator can use: target files/modules, key functions,
+step-by-step implementation notes, localized pseudo patches or code sketches, test cases, and
+verification commands. All code-like output must be advisory / illustrative, not a final diff.
+
 ## Evidence Quality Rules
 
 - Weak evidence: only summarize route risk, wrong assumptions, missing tests, and whether to proceed, revise, or stop.

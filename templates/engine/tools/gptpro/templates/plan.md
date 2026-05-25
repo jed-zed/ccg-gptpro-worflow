@@ -11,6 +11,15 @@ evidence and must not replace routed models.
 
 Plan-only boundary: Do not execute implementation. Do not apply code changes. Do not ask Codex to continue directly into execution. Provide adversarial planning advice only.
 
+## Task For GPT Pro
+
+Read the CCG Input, Project Access Context, Base CCG Routing Evidence, and Gemini evidence if
+present. Your task is to review the current plan for requirement ambiguity, architecture risk,
+wrong assumptions, missing constraints, missing evidence, and test gaps. Then propose concrete plan
+adjustments the current orchestrator can apply, including target files/modules, sequencing,
+important invariants, implementation details that should be added to the plan, and verification
+commands. End with a clear Go/NoGo judgment.
+
 ## Expected Output
 
 Use exactly these sections:
