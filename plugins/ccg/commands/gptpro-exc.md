@@ -1,5 +1,5 @@
 ---
-description: "Manual ChatGPT Pro execution-companion bridge"
+description: "Manual ChatGPT Pro execution route review bridge"
 argument-hint: "<task-or-plan> [--task <task-id>] [--followup <session-dir>]"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 ---
@@ -36,7 +36,7 @@ ordinary execute owner.
 
 Gemini behavior still follows ordinary `/ccg:execute` routing:
 
-- Backend-only execution-companion sessions should not run Gemini by default.
+- Backend-only execution route review sessions should not run Gemini by default.
 - Frontend/full-stack sessions may run Gemini first for frontend prototype or frontend-review evidence.
 - If Gemini evidence is included, it must come from a real, non-empty response file with a concise
   summary. Do not invent Gemini findings.
@@ -56,7 +56,8 @@ Hard boundaries:
    advice can still change the path safely. Write a concise routing evidence file, for example
    `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file. The routing evidence
    must identify the current orchestrator, the routed model evidence that actually exists, the
-   Claude evidence status, ordinary execute conclusion so far, and any skipped/failed model steps.
+   `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, ordinary execute
+   conclusion so far, and any skipped/failed model steps.
 4. Decide whether ordinary routing produced Gemini frontend/full-stack evidence:
    - backend/tooling-only: use `--gemini-policy optional --gemini-evidence-role frontend-prototype`
      without forcing a Gemini run;
@@ -86,7 +87,7 @@ Create a concise prompt file with:
   verification commands when evidence is strong, and require all code-like output to be marked
   `advisory / illustrative`.
 
-For backend/tooling-only execution companion:
+For backend/tooling-only execution route review:
 
 ```bash
 python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
@@ -101,11 +102,12 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
+  --require-claude-evidence \
   --detach-preview \
   --open-preview
 ```
 
-For frontend/full-stack execution companion with Gemini evidence, also pass:
+For frontend/full-stack execution route review with Gemini evidence, also pass:
 
 ```bash
   --gemini-response-file "<gemini-response-file>" \
@@ -129,7 +131,7 @@ After bridge creation, update the active task:
 {
   "status": "in_progress",
   "gate": "manual_gptpro_waiting",
-  "nextAction": "Open the GPT Pro preview, manually submit the execution-companion prompt, save the response, then continue."
+  "nextAction": "Open the GPT Pro preview, manually submit the execution route review prompt, save the response, then continue."
 }
 ```
 

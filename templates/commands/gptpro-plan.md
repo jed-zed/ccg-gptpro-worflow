@@ -53,8 +53,8 @@ Hard boundaries:
 3. Run or verify the ordinary `/ccg:plan` route first and write a concise routing evidence file,
    for example `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
-   actually exists, Claude evidence status, the ordinary planner conclusion, and any skipped/failed
-   model steps.
+   actually exists, `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, the
+   ordinary planner conclusion, and any skipped/failed model steps.
 4. Validate required Gemini planning/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
@@ -104,6 +104,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
+  --require-claude-evidence \
   --detach-preview \
   --open-preview
 ```

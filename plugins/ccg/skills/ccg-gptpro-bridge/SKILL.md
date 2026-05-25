@@ -1,6 +1,6 @@
 ---
 name: gptpro-bridge
-description: Shared manual ChatGPT Pro bridge for CCG planning, review, and execution companion flows.
+description: Shared manual ChatGPT Pro bridge for CCG planning, review, and execution route review flows.
 ---
 
 # CCG GPT Pro Manual Bridge
@@ -54,7 +54,7 @@ Write Base CCG Routing Evidence before the GPT Pro handoff. It should summarize:
 
 - current orchestrator and command semantics;
 - routed Codex/Claude/Gemini/helper evidence that actually exists;
-- Claude evidence status: automatic, manual handoff, explicitly skipped by user, or blocked;
+- `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`;
 - ordinary orchestrator conclusion so far;
 - skipped, failed, or intentionally absent model steps.
 
@@ -66,12 +66,13 @@ creating the GPT Pro bridge. Do not let GPT Pro stand in for missing Claude evid
 Pass this evidence to the bridge:
 
 ```text
---routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence
+--routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence
 ```
 
 The helper injects `Base CCG Routing Evidence` into `prompt.md` and records
 `routing_evidence.available`, `evidence_file`, `evidence_sha256`, `evidence_chars`, `summary_file`,
-`summary`, and `summary_chars` under `status.json`.
+`summary`, `summary_chars`, and `claudeEvidenceStatus` under `status.json`. Omit
+`--require-claude-evidence` only when the user explicitly disabled Claude.
 
 ## Gemini Evidence Modes
 
@@ -105,9 +106,9 @@ Use the helper-level gate arguments for required gate sessions:
 
 Use `--gemini-summary "<summary>"` only for short diagnostic or fixture calls. The helper injects Gemini Gate Evidence into `prompt.md` and records `gemini_evidence.policy=required`, `role=gate`, `available=true`, `response_file`, `response_non_empty`, `response_chars`, `response_sha256`, and `summary` under `status.json` as auditable provenance.
 
-### Optional Frontend Evidence For Execution Companion
+### Optional Frontend Evidence For Execution Route Review
 
-For `/ccg:gptpro-exc`, use optional frontend evidence. Backend-only execution-companion sessions should omit Gemini evidence. Frontend/full-stack sessions should pass real Gemini frontend prototype evidence when it is available:
+For `/ccg:gptpro-exc`, use optional frontend evidence. Backend-only execution route review sessions should omit Gemini evidence. Frontend/full-stack sessions should pass real Gemini frontend prototype evidence when it is available:
 
 ```text
 --gemini-policy optional --gemini-evidence-role frontend-prototype

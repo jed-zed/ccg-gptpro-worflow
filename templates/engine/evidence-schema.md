@@ -45,7 +45,9 @@ Recommended roles:
 - `gate` for required pre-GPT-Pro Gemini evidence.
 - `review` for review findings.
 - `plan` for planning evidence.
-- `execution-companion` for optional GPT Pro implementation companion evidence.
+- `execution-companion` for legacy GPT Pro execution evidence; new items should add
+  `displayRole: "execution-route-review"`, `semanticRole: "route-review"`, and
+  `implementationOwner: false`.
 - `frontend-prototype` for optional frontend/UI helper evidence.
 
 ## Artifact Rules

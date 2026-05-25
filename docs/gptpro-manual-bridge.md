@@ -106,6 +106,7 @@ For the ordinary routing evidence passed into GPT Pro prompts, use:
 --routing-evidence-file <routing-evidence-file>
 --routing-summary-file <routing-summary-file>
 --require-routing-evidence
+--require-claude-evidence
 ```
 
 `status.json` records:
@@ -117,7 +118,11 @@ routing_evidence.evidence_sha256=<sha256>
 routing_evidence.evidence_chars=<character-count>
 routing_evidence.summary_file=<path>
 routing_evidence.summary=<concise-summary>
+routing_evidence.claudeEvidenceStatus=automatic|manual_handoff
 ```
+
+Use `claudeEvidenceStatus=skipped_by_user` only when the user explicitly disabled Claude, and omit
+`--require-claude-evidence` in that case. `blocked` or a missing status must stop bridge creation.
 
 ## Packaging Check
 

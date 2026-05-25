@@ -379,6 +379,7 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
     expect(installedCommands).toMatch(/ordinary\s+`\/ccg:execute`\s+semantics/)
     expect(installedCommands).toContain('preflight and routing evidence')
     expect(installedCommands).toContain('--require-routing-evidence')
+    expect(installedCommands).toContain('--require-claude-evidence')
     expect(installedCommands).toContain('risk-triggered')
     expect(installedCommands).toContain('Project Access Context')
     expect(installedCommands).toContain('Blockers')
@@ -399,7 +400,7 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
 })
 
 describe('GPT Pro go routing', () => {
-  it('documents automatic routing for plan, review, and execution companion', () => {
+  it('documents automatic routing for plan, review, and execution route review', () => {
     const content = readFileSync(join(TEMPLATES_DIR, 'go.md'), 'utf-8')
     expect(content).toContain('/ccg:gptpro-plan')
     expect(content).toContain('/ccg:gptpro-review')

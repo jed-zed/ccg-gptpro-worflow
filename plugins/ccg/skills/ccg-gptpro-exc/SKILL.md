@@ -1,9 +1,9 @@
 ---
 name: gptpro-exc
-description: Create a manual ChatGPT Pro execution-companion bridge. Use when the user invokes /ccg:gptpro-exc.
+description: Create a manual ChatGPT Pro execution route review bridge. Use when the user invokes /ccg:gptpro-exc.
 ---
 
-# CCG GPT Pro Execution Companion
+# CCG GPT Pro Execution Route Review
 
 Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 
@@ -22,7 +22,7 @@ the execution route is worth local implementation before real code landing.
   missing, and offer a manual Claude Code handoff: write the Claude prompt to a file, ask the user
   to paste it into Claude Code, then paste/save Claude's response back before continuing.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, Claude evidence status, ordinary execute conclusion so far, and
+  routed model evidence, `claudeEvidenceStatus`, ordinary execute conclusion so far, and
   skipped/failed model steps.
 - For backend-only tasks, follow ordinary execute routing and do not run Gemini by default.
 - For frontend or full-stack tasks, pass real Gemini frontend evidence when ordinary execute
@@ -45,7 +45,7 @@ the execution route is worth local implementation before real code landing.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 should be converted into `/ccg:gptpro-review` whenever possible; use Gemini `--prompt-template review` and `--gemini-evidence-role frontend-review` for frontend review evidence over the applied diff.
-- Use `scripts/gptpro_bridge.py --mode exc --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence`.
+- Use `scripts/gptpro_bridge.py --mode exc --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence`.
 - When frontend/full-stack Gemini output is available, add `--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`.
 - GPT Pro output must use sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
   `Required Tests`, `Verification`.
@@ -63,5 +63,5 @@ the execution route is worth local implementation before real code landing.
 - Do not paste the full generated prompt into chat.
 - Show the preview URL, session directory, prompt file path, response file path, and status file path.
 - Tell the user to open the preview page and use the preview page Copy Prompt button, then manually submit the prompt to ChatGPT Pro and manually save the response.
-- End the current assistant turn after the handoff. Do not continue the execution-companion analysis in the same turn.
+- End the current assistant turn after the handoff. Do not continue the execution route review analysis in the same turn.
 - Continue only after `status.json` shows `response_saved=true` and `response.md is non-empty`.

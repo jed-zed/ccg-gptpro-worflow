@@ -40,6 +40,8 @@ BOUNDARIES = (
 )
 GEMINI_POLICIES = ("required", "optional", "none")
 GEMINI_EVIDENCE_ROLES = ("gate", "frontend-prototype", "frontend-review")
+CLAUDE_EVIDENCE_STATUSES = ("automatic", "manual_handoff", "skipped_by_user", "blocked")
+CLAUDE_EVIDENCE_REQUIRED_STATUSES = {"automatic", "manual_handoff"}
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 SCP_LIKE_REMOTE_PATTERN = re.compile(r"^(?:([^@/:\\]+)@)?([A-Za-z0-9.-]+):(.+)$")
@@ -502,7 +504,58 @@ def empty_routing_evidence(required: bool = False) -> dict[str, Any]:
         "summary_file": "",
         "summary": "",
         "summary_chars": 0,
+        "claudeEvidenceStatus": "",
     }
+
+
+def normalize_claude_evidence_status(status: str) -> str:
+    raw = str(status or "").strip()
+    normalized = re.sub(r"[^a-z0-9]+", "_", raw.lower()).strip("_")
+    aliases = {
+        "auto": "automatic",
+        "automatic": "automatic",
+        "manual": "manual_handoff",
+        "manual_handoff": "manual_handoff",
+        "manual_claude_handoff": "manual_handoff",
+        "manual_code_handoff": "manual_handoff",
+        "manual_handoff_completed": "manual_handoff",
+        "explicitly_skipped": "skipped_by_user",
+        "explicitly_skipped_by_user": "skipped_by_user",
+        "skipped": "skipped_by_user",
+        "skipped_by_user": "skipped_by_user",
+        "skip_by_user": "skipped_by_user",
+        "blocked": "blocked",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in CLAUDE_EVIDENCE_STATUSES:
+        raise ValueError(
+            "Invalid claudeEvidenceStatus: "
+            f"{raw}. Expected one of: {', '.join(CLAUDE_EVIDENCE_STATUSES)}."
+        )
+    return normalized
+
+
+def extract_claude_evidence_status(raw: str) -> str:
+    text = raw.strip()
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        status = parsed.get("claudeEvidenceStatus") or parsed.get("claude_evidence_status")
+        return normalize_claude_evidence_status(str(status)) if status else ""
+
+    patterns = (
+        r"(?im)^\s*claudeEvidenceStatus\s*[:=]\s*([A-Za-z0-9 _-]+)\s*$",
+        r"(?im)^\s*claude[\s_-]+evidence[\s_-]+status\s*[:=]\s*([A-Za-z0-9 _-]+)\s*$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return normalize_claude_evidence_status(match.group(1))
+    return ""
 
 
 def normalize_routing_evidence(routing_evidence: dict[str, Any] | None, required: bool = False) -> dict[str, Any]:
@@ -518,7 +571,27 @@ def normalize_routing_evidence(routing_evidence: dict[str, Any] | None, required
     normalized.setdefault("summary_file", "")
     normalized.setdefault("summary", "")
     normalized.setdefault("summary_chars", len(str(normalized.get("summary") or "")))
+    claude_status = normalized.get("claudeEvidenceStatus") or normalized.get("claude_evidence_status") or ""
+    normalized["claudeEvidenceStatus"] = (
+        normalize_claude_evidence_status(str(claude_status)) if claude_status else ""
+    )
     return normalized
+
+
+def validate_required_claude_evidence(routing_evidence: dict[str, Any]) -> None:
+    status = str(routing_evidence.get("claudeEvidenceStatus") or "")
+    if status in CLAUDE_EVIDENCE_REQUIRED_STATUSES:
+        return
+    if not status:
+        raise ValueError(
+            "claudeEvidenceStatus is required before GPT Pro bridge session creation. "
+            "Use automatic or manual_handoff, or omit --require-claude-evidence only when the user "
+            "explicitly disabled Claude."
+        )
+    raise ValueError(
+        "Claude evidence is required before GPT Pro bridge session creation; "
+        f"claudeEvidenceStatus={status}. Expected automatic or manual_handoff."
+    )
 
 
 def summarize_routing_evidence(raw: str, limit: int = 1200) -> str:
@@ -570,6 +643,7 @@ def read_routing_evidence(
         summary_text = summarize_routing_evidence(evidence_raw)
 
     evidence_bytes = evidence_path.read_bytes()
+    claude_status = extract_claude_evidence_status(evidence_raw)
     return {
         "required": bool(required),
         "available": True,
@@ -579,6 +653,7 @@ def read_routing_evidence(
         "summary_file": str(summary_path) if summary_path else "",
         "summary": summary_text,
         "summary_chars": len(summary_text),
+        "claudeEvidenceStatus": claude_status,
     }
 
 
@@ -592,6 +667,7 @@ def compose_routing_evidence(routing_evidence: dict[str, Any]) -> str:
             f"Routing evidence file: {routing_evidence.get('evidence_file') or ''}",
             f"Routing evidence SHA-256: {routing_evidence.get('evidence_sha256') or ''}",
             f"Routing evidence characters: {routing_evidence.get('evidence_chars') or 0}",
+            f"Claude evidence status: {routing_evidence.get('claudeEvidenceStatus') or 'not provided'}",
             "",
             "Routing evidence summary:",
             str(routing_evidence.get("summary") or ""),
@@ -819,6 +895,7 @@ def create_session(
     gemini_evidence_role: str = "",
     routing_evidence: dict[str, Any] | None = None,
     require_routing_evidence: bool = False,
+    require_claude_evidence: bool = False,
     project_context: dict[str, Any] | None = None,
 ) -> BridgeSession:
     if round_number > MANUAL_QUESTIONS_MAX:
@@ -897,6 +974,13 @@ def create_session(
     routing_evidence = normalize_routing_evidence(routing_evidence, require_routing_evidence)
     if require_routing_evidence and not routing_evidence.get("available"):
         raise ValueError("Base CCG routing evidence is required before GPT Pro bridge session creation.")
+    if require_claude_evidence:
+        if not routing_evidence.get("available"):
+            raise ValueError(
+                "Base CCG routing evidence is required when Claude evidence is required before GPT Pro bridge "
+                "session creation."
+            )
+        validate_required_claude_evidence(routing_evidence)
 
     round_name = f"round-{round_number}"
     round_dir = session_dir / round_name
@@ -1041,6 +1125,15 @@ def append_gptpro_evidence(session: BridgeSession, status: dict[str, Any], respo
         "round": int(status.get("current_round", 1)),
         "createdAt": utc_now(),
     }
+    if session.mode == "exc":
+        item.update(
+            {
+                "displayRole": "execution-route-review",
+                "semanticRole": "route-review",
+                "implementationOwner": False,
+                "summary": f"Manual GPT Pro execution route review response saved for {session.round_name}.",
+            }
+        )
     dedupe_key = (item["provider"], item["sessionId"], item["round"])
     items = [
         existing
@@ -1316,6 +1409,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--routing-evidence-file", default="")
     parser.add_argument("--routing-summary-file", default="")
     parser.add_argument("--require-routing-evidence", action="store_true")
+    parser.add_argument("--require-claude-evidence", action="store_true")
     parser.add_argument("--repo-url", default="")
     parser.add_argument("--wait-response", action="store_true")
     parser.add_argument("--hold-seconds", type=int, default=0)
@@ -1489,6 +1583,7 @@ def main(argv: list[str] | None = None) -> int:
             gemini_evidence_role=gemini_evidence_role,
             routing_evidence=routing_evidence,
             require_routing_evidence=args.require_routing_evidence,
+            require_claude_evidence=args.require_claude_evidence,
             project_context=project_context,
         )
     except Exception as error:

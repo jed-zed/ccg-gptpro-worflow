@@ -20,7 +20,7 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
   Code handoff: write the Claude prompt to a file, ask the user to paste it into Claude Code, then
   paste/save Claude's response back before continuing.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, Claude evidence status, ordinary review conclusion, and skipped/failed
+  routed model evidence, `claudeEvidenceStatus`, ordinary review conclusion, and skipped/failed
   model steps.
 - Run Gemini according to ordinary review rules before GPT Pro using the bundled Gemini preview
   helper with `--prompt-template review`.
@@ -34,7 +34,7 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only after Codex fixes blocker findings.
-- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence`.
+- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence`.
 - After response is saved, classify Critical/Major/Minor findings, false positives, required tests,
   and Codex/Claude actions.
 - Report in Chinese and synthesize ordinary review evidence, Gemini gate evidence, and GPT Pro

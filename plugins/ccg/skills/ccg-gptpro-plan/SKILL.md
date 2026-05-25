@@ -20,7 +20,7 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - If automatic Claude planning evidence fails or returns empty output, stop before GPT Pro and ask
   the user to paste the generated Claude prompt into Claude Code, then copy the output back.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, Claude evidence status, ordinary planning conclusion, and skipped/failed
+  routed model evidence, `claudeEvidenceStatus`, ordinary planning conclusion, and skipped/failed
   model steps.
 - Run Gemini according to ordinary planning rules before GPT Pro using the bundled Gemini preview
   helper with `--prompt-template plan`.
@@ -34,7 +34,7 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only for blocker re-check or revised plan comparison.
-- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence`.
+- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence`.
 - Read the saved response file only after the user manually saves it.
 - Summarize and synthesize ordinary planning evidence, Gemini gate evidence, and GPT Pro findings
   in Chinese; the current orchestrator decides final plan edits.

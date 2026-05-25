@@ -77,11 +77,15 @@ function writeGeminiGateEvidence(taskDir: string, artifactFile: string, response
   })
 }
 
-function writeRoutingEvidence(evidenceDir: string): { evidenceFile: string, summaryFile: string, content: string, summary: string } {
+function writeRoutingEvidence(
+  evidenceDir: string,
+  claudeEvidenceStatus: string | null = 'automatic',
+): { evidenceFile: string, summaryFile: string, content: string, summary: string } {
   const content = [
     'ordinary /ccg:review first',
     'current orchestrator: codex',
     'routed models: codex primary review, gemini gate evidence',
+    ...(claudeEvidenceStatus ? [`claudeEvidenceStatus: ${claudeEvidenceStatus}`] : []),
     'ordinary review conclusion: packaging path needs verification',
   ].join('\n')
   const summary = 'Ordinary review route completed with Codex primary review and Gemini gate evidence.'
@@ -162,6 +166,7 @@ describe('GPT Pro manual bridge', () => {
       '--routing-summary-file',
       routing.summaryFile,
       '--require-routing-evidence',
+      '--require-claude-evidence',
     ], root)
 
     const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
@@ -180,6 +185,7 @@ describe('GPT Pro manual bridge', () => {
       summary_file: '.ccg/tasks/demo-task/evidence/routing-summary.md',
       summary: routing.summary,
       summary_chars: routing.summary.length,
+      claudeEvidenceStatus: 'automatic',
     })
     const promptText = readFileSync(promptFile, 'utf-8')
     expect(promptText).toContain('Project Access Context')
@@ -193,6 +199,7 @@ describe('GPT Pro manual bridge', () => {
     expect(promptText).toContain('Required Tests')
     expect(promptText).toContain('Base CCG Routing Evidence')
     expect(promptText).toContain('Routing evidence file: .ccg/tasks/demo-task/evidence/routing.md')
+    expect(promptText).toContain('Claude evidence status: automatic')
     expect(promptText).toContain(routing.summary)
 
     const saveScript = [
@@ -262,6 +269,7 @@ describe('GPT Pro manual bridge', () => {
       '--routing-summary-file',
       routing.summaryFile,
       '--require-routing-evidence',
+      '--require-claude-evidence',
     ], root)
     const sessionDir = parseOutputPath(roundOneOutput, 'CCG_GPTPRO_SESSION_DIR')
 
@@ -280,6 +288,7 @@ describe('GPT Pro manual bridge', () => {
       '--followup-reason',
       'Re-check after revised review notes.',
       '--require-routing-evidence',
+      '--require-claude-evidence',
     ], root)
     const statusFile = parseOutputPath(roundTwoOutput, 'CCG_GPTPRO_STATUS_FILE')
     const promptFile = parseOutputPath(roundTwoOutput, 'CCG_GPTPRO_PROMPT_FILE')
@@ -293,11 +302,110 @@ describe('GPT Pro manual bridge', () => {
       inherited_from_round: 1,
       evidence_file: '.ccg/tasks/followup-task/evidence/routing.md',
       summary: routing.summary,
+      claudeEvidenceStatus: 'automatic',
     })
     const promptText = readFileSync(promptFile, 'utf-8')
     expect(promptText).toContain('Base CCG Routing Evidence')
     expect(promptText).toContain('Routing evidence file: .ccg/tasks/followup-task/evidence/routing.md')
+    expect(promptText).toContain('Claude evidence status: automatic')
     expect(promptText).toContain(routing.summary)
+  })
+
+  maybeIt('rejects required Claude evidence when routing evidence lacks a valid status', () => {
+    const root = join(TMP_ROOT, 'missing-claude-status')
+    const taskDir = join(root, '.ccg', 'tasks', 'missing-claude-task')
+    const evidenceDir = join(taskDir, 'evidence')
+    fs.ensureDirSync(evidenceDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'missing-claude-task', status: 'in_progress' })
+    const routing = writeRoutingEvidence(evidenceDir, null)
+
+    const stderr = runPythonFailure(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/missing-claude-task',
+      '--prompt',
+      'Create a manual GPT Pro execution route review.',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+      '--routing-evidence-file',
+      routing.evidenceFile,
+      '--routing-summary-file',
+      routing.summaryFile,
+      '--require-routing-evidence',
+      '--require-claude-evidence',
+    ], root)
+    expect(stderr).toContain('claudeEvidenceStatus is required')
+  })
+
+  maybeIt('records execution route review metadata while preserving the legacy evidence role', () => {
+    const root = join(TMP_ROOT, 'execution-route-review-evidence')
+    const taskDir = join(root, '.ccg', 'tasks', 'route-review-task')
+    const evidenceDir = join(taskDir, 'evidence')
+    fs.ensureDirSync(evidenceDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'route-review-task', status: 'in_progress' })
+    const routing = writeRoutingEvidence(evidenceDir, 'manual_handoff')
+
+    const output = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/route-review-task',
+      '--prompt',
+      'Create a manual GPT Pro execution route review.',
+      '--slug',
+      'route-review-task-exc',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+      '--routing-evidence-file',
+      routing.evidenceFile,
+      '--routing-summary-file',
+      routing.summaryFile,
+      '--require-routing-evidence',
+      '--require-claude-evidence',
+    ], root)
+
+    const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
+    const status = fs.readJsonSync(statusFile)
+    expect(status.routing_evidence).toMatchObject({
+      required: true,
+      available: true,
+      claudeEvidenceStatus: 'manual_handoff',
+    })
+
+    const saveScript = [
+      'import importlib.util, pathlib, sys',
+      'spec = importlib.util.spec_from_file_location("gptpro_bridge", sys.argv[1])',
+      'mod = importlib.util.module_from_spec(spec)',
+      'sys.modules["gptpro_bridge"] = mod',
+      'spec.loader.exec_module(mod)',
+      'session = mod.load_session(pathlib.Path(sys.argv[2]).parent)',
+      'mod.save_response(session, "Manual GPT Pro execution route review response\\n")',
+    ].join('; ')
+    runPython(PYTHON!, ['-c', saveScript, BRIDGE, statusFile], root)
+
+    const evidence = fs.readJsonSync(join(taskDir, 'evidence.json'))
+    const gptproEvidence = evidence.items.find((item: any) => item.provider === 'gptpro')
+    expect(gptproEvidence).toMatchObject({
+      provider: 'gptpro',
+      role: 'execution-companion',
+      displayRole: 'execution-route-review',
+      semanticRole: 'route-review',
+      implementationOwner: false,
+      available: true,
+      artifactFile: expect.stringContaining('round-1/response.md'),
+    })
+    expect(gptproEvidence.summary).toContain('execution route review response saved')
   })
 
   maybeIt('rejects an empty saved response', () => {
