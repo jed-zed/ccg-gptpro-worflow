@@ -14,7 +14,7 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:executor`.
 
-Review the current diff or the implementation associated with `$ARGUMENTS`. Codex performs the primary review, then preserves Codex-native dual-model parity by collecting Gemini + Claude review evidence for non-trivial, risky, or explicitly requested CCG reviews. Codex verifies findings before reporting them.
+Review the current diff or the implementation associated with `$ARGUMENTS`. Codex performs the primary review, then preserves the Codex-native CCG parity rules by collecting Gemini + Claude review evidence for non-trivial, risky, or explicitly requested CCG reviews. Codex verifies findings before reporting them.
 
 If Gemini is used, invoke the bundled browser preview helper automatically. Do not ask the user to run `/ccg:gemini-preview` first and do not call the raw Gemini CLI directly.
 

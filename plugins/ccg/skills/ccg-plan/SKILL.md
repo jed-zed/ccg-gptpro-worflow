@@ -102,6 +102,8 @@ Use this Chinese Markdown structure:
 **Gemini 模型**：`gemini-3.1-pro-preview`
 **Gemini 预览**：`<CCG_GEMINI_PREVIEW_URL>`；浏览器已打开：<是/否>
 **Gemini 响应文件**：`<CCG_GEMINI_RESPONSE_FILE>`
+**Claude 后端**：`codeagent-wrapper --backend claude`
+**Claude 响应证据**：`<path-or-summary>`
 
 ## 1. 增强需求
 
@@ -133,6 +135,9 @@ Use this Chinese Markdown structure:
 
 ### Gemini 分析
 <从响应文件综合后的只读助手发现，用中文表述>
+
+### Claude 分析
+<从 Claude 只读规划响应综合后的发现，用中文表述>
 
 ### 分歧与最终决策
 | 主题 | 决策 | 原因 |
@@ -180,6 +185,8 @@ Gemini 模型：`gemini-3.1-pro-preview`
 Gemini 预览 URL：`<url>`
 Gemini 浏览器已打开：<是/否>
 Gemini 响应文件：`<path>`
+Claude 后端：`codeagent-wrapper --backend claude`
+Claude 响应证据：`<path-or-summary>`
 ```
 
 ## 交付消息
@@ -189,6 +196,7 @@ Gemini 响应文件：`<path>`
 - 说明保存路径。
 - 概括选定的技术方案。
 - 说明 Gemini 是否参与，以及响应文件在哪里。
+- 说明 Claude 是否参与，以及响应证据路径/摘要在哪里。
 - 提供准确的手动执行命令：
 
 ```text
