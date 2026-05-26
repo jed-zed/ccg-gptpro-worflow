@@ -1,16 +1,16 @@
 ---
 name: executor
-description: Run the CCG workflow inside Codex. Use when the user invokes /ccg, /ccg:workflow, /ccg:execute, /ccg:excute, /ccg:codex-exec, asks Codex to execute a .codex/ccg/plans/*.md or legacy .claude/plan/*.md file, or wants Codex to orchestrate Gemini while implementing a CCG plan.
+description: Run the CCG workflow inside Codex. Use when the user invokes /ccg, /ccg:workflow, /ccg:execute, /ccg:excute, /ccg:codex-exec, asks Codex to execute a .codex/ccg/plans/*.md or legacy .claude/plan/*.md file, or wants Codex to orchestrate Gemini and Claude evidence while implementing a CCG plan.
 ---
 
 # CCG Executor
 
-You are the Codex-side orchestrator for CCG workflow plans. New plans are produced by `/ccg:plan` under `.codex/ccg/plans/`; legacy Claude CCG planning files under `.claude/plan/` remain readable compatibility inputs. Codex owns execution, final code edits, verification, and delivery. Gemini is an auxiliary coding/review partner for backend work, but Gemini is mandatory for frontend/UI prototypes and frontend/UI post-change review.
+You are the Codex-side orchestrator for CCG workflow plans. New plans are produced by `/ccg:plan` under `.codex/ccg/plans/`; legacy Claude CCG planning files under `.claude/plan/` remain readable compatibility inputs. Codex owns execution, final code edits, verification, and delivery. Gemini and Claude are external evidence helpers under the Codex-native CCG parity rules from `fengshao1227/ccg-workflow`: use both for M+ analysis/review and risky work, while keeping Codex as the only final workspace owner. Gemini is mandatory for frontend/UI prototypes and frontend/UI post-change review.
 
 ## Hard Boundaries
 
 - Do not modify the original Claude CCG plugin under `~/.claude/commands/ccg`, `~/.claude/.ccg`, or `~/.claude/skills/ccg`.
-- Do not call `~/.claude/bin/codeagent-wrapper.exe` or use Claude execution quota.
+- Do not modify files through Claude. Claude helper calls via `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` are allowed and required when the Codex-native parity rules call for dual-model evidence.
 - Do not let Gemini directly own the workspace. Gemini should provide analysis, Unified Diff Patch prototypes, tests, or review notes; Codex applies final edits and verifies them.
 - Treat Gemini diffs as dirty prototypes. Codex must refactor them into the repository's local style before applying, never paste them into the real workspace unchecked.
 - Every Gemini call in the CCG workflow must use the bundled preview helper `scripts/invoke_gemini_preview.py`, which opens a browser preview by default. `/ccg:gemini-preview` is only a manual smoke-test/debug entry, not the only path that shows the preview.
@@ -30,11 +30,11 @@ Claude Code orchestrates Codex + Gemini
 In Codex, the model is:
 
 ```text
-Codex creates plans, orchestrates Gemini, applies code, verifies, and reports
+Codex creates plans, orchestrates Gemini + Claude evidence, applies code, verifies, and reports
 Legacy Claude CCG plans may still be executed as input artifacts
 ```
 
-When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or Claude-driven handoff files, treat them as provenance and intent, not as sessions to resume. If the old workflow says Claude should dispatch subagents, translate that into Codex actions: local context search, optional Gemini read-only help, Codex edits, Codex verification.
+When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or Claude-driven handoff files, treat them as provenance and intent, not as sessions to resume. If the old workflow says Claude should dispatch subagents, translate that into Codex actions: local context search, bounded Gemini/Claude read-only evidence, Codex edits, Codex verification.
 
 ## Input Handling
 
@@ -51,11 +51,21 @@ When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or Claude-driven ha
 4. If the plan includes frontend, UI, styling, layout, component, accessibility, or responsive work, mark that slice as Gemini-first before Codex implements it.
 5. If the plan involves costly ML training, GPU jobs, destructive data writes, or production deployment, implement code and smoke tests only; do not start expensive or destructive runs without explicit confirmation.
 
-## Gemini Delegation Policy
+## Gemini and Claude Delegation Policy
 
 Use Gemini as a helper, not as the executor of record. Every Gemini call in the CCG workflow must use the bundled preview helper and therefore should open the browser preview automatically unless the user explicitly requested headless execution.
 
+Use Claude as a helper, not as the executor of record. Invoke Claude through `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` with narrow read-only prompts. Claude output is evidence for architecture, security, backend correctness, edge cases, and review; Codex must verify findings and apply any final edits locally.
+
+Codex-native parity trigger rules:
+
+- S + low risk: Codex-only is acceptable.
+- S + high risk: implement directly, then run dual-model review with Gemini + Claude.
+- M+ complexity: run Gemini + Claude parallel analysis before coding, then run Gemini + Claude review before delivery.
+- Diffs over roughly 30 changed lines, auth/database/crypto/security-sensitive changes, or unclear root-cause/debugging work require Gemini + Claude review evidence.
+
 - Backend-heavy tasks: Gemini is optional. Use it for edge-case review, API design alternatives, test ideas, or a second-pass diff review when risk is meaningful.
+- Backend-heavy M+ or risky tasks: Claude evidence is required alongside Gemini or another configured frontend/helper route.
 - Pure backend/simple tasks: do not spend time delegating unless the plan asks for it or the logic is risky.
 - Frontend/UI tasks must use Gemini first with `--prompt-template frontend` or `--prompt-template prototype`, and the prompt must request a Unified Diff Patch prototype only. Do not accept a component sketch as the implementation prototype.
 - Cross-cutting tasks: split the problem. Codex keeps ownership of backend, data, API contracts, migrations, shared schemas, and verification; Gemini produces the frontend/UI prototype or review only.
@@ -67,7 +77,7 @@ Recommended safe Gemini invocation:
 python "<path-to-this-skill>\scripts\invoke_gemini_preview.py" --workdir "<repo-abs-path>" --model gemini-3.1-pro-preview --prompt-template review --prompt-file "<prompt-file>"
 ```
 
-Resolve `<path-to-this-skill>` from this `SKILL.md` directory. This helper creates a disposable snapshot of the workspace by default, starts a localhost browser preview, streams Gemini `stream-json` output into the page, and writes the raw output under `~/.codex/ccg/logs/`. It mirrors the original CCG `codeagent-wrapper` Web UI behavior without calling the Claude-side wrapper.
+Resolve `<path-to-this-skill>` from this `SKILL.md` directory. This helper creates a disposable snapshot of the workspace by default, starts a localhost browser preview, streams Gemini `stream-json` output into the page, and writes the raw output under `~/.codex/ccg/logs/`.
 
 `/ccg:gemini-preview` is a convenience command for manual tests and one-off helper prompts. It does not change the rule above: when `/ccg:plan`, `/ccg:execute`, or `/ccg:review` decides to use Gemini internally, launch this same preview helper directly and let it open the browser.
 
@@ -116,7 +126,7 @@ Gemini task prompts should include only the task-specific payload because the he
 - If the plan references current library/API behavior, use Context7 or official docs before coding.
 - Keep context focused on files that affect the implementation.
 
-### Phase 2: Optional Gemini Assistance
+### Phase 2: Gemini and Claude Assistance
 
 - Build a narrow prompt from the current plan and local code context.
 - Prefer asking for one of:
@@ -124,7 +134,9 @@ Gemini task prompts should include only the task-specific payload because the he
   - a focused unified diff for backend or frontend work;
   - missing edge cases/tests;
   - review findings on a specific diff.
+- For M+ or risky work, run Gemini and Claude before coding. For simple low-risk backend work, document why external model evidence was not needed.
 - Treat Gemini output as untrusted suggestions. Codex must adapt it to local patterns and run verification.
+- Treat Claude output as untrusted suggestions too. Codex must verify findings and own all final code.
 - For frontend/UI implementation, this phase is required before edits. Ask Gemini for a Unified Diff Patch prototype only with `--prompt-template frontend` or `--prompt-template prototype`, then treat the result as a dirty prototype that Codex rewrites before applying.
 
 ### Phase 3: Implementation
@@ -154,7 +166,7 @@ Gemini task prompts should include only the task-specific payload because the he
 - Inspect `git diff --stat` and the full relevant diff.
 - Check that every changed file maps back to the plan scope.
 - For any frontend/UI diff, run Gemini review with `--prompt-template review` or `--prompt-template frontend` after Codex applies the local rewrite. Retry a failed Gemini review at most twice, then stop and report the missing review evidence.
-- For large or risky backend diffs, use Gemini or a local Codex review/subagent for a bounded review pass, then independently verify the findings.
+- For large or risky backend diffs, run Gemini + Claude review evidence, then independently verify the findings.
 - Treat backend logic, data integrity, transactions, error handling, and tests as first-class review targets.
 
 ### Phase 6: Delivery

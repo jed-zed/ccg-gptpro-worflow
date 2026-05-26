@@ -1,18 +1,18 @@
 ---
 name: plan
-description: Create or revise a CCG implementation plan with Codex as planner and Gemini as a read-only analysis helper. Use when the user invokes /ccg:plan, asks to generate a .codex/ccg/plans/*.md CCG plan, asks to revise an existing CCG plan, or wants multi-model Codex+Gemini planning without modifying product code.
+description: Create or revise a CCG implementation plan with Codex as planner and Gemini plus Claude read-only analysis evidence. Use when the user invokes /ccg:plan, asks to generate a .codex/ccg/plans/*.md CCG plan, asks to revise an existing CCG plan, or wants Codex-native multi-model planning without modifying product code.
 ---
 
 # CCG Plan
 
-Create decision-complete CCG plans for later `/ccg:execute`. This skill replaces the original Claude-led `/ccg:plan` with a Codex-native planner: Codex gathers context and writes the final plan under `.codex/ccg/plans/`; Gemini contributes read-only analysis from a disposable snapshot.
+Create decision-complete CCG plans for later `/ccg:execute`. This skill follows the Codex-native CCG parity rules from `fengshao1227/ccg-workflow`: Codex gathers context and writes the final plan under `.codex/ccg/plans/`; Gemini and Claude provide read-only external model evidence when a real plan is created or revised.
 
 ## Boundaries
 
 - Write new plans only to `.codex/ccg/plans/*.md`. Do not create new `.claude/plan/*.md` files.
 - Legacy `.claude/plan/*.md` files are read-compatible inputs. Revise a legacy `.claude/plan/*.md` file only when the user explicitly names that existing legacy file; mention in Chinese that it is a compatibility write.
 - Do not modify product code, tests, migrations, package files, or original Claude CCG plugin files.
-- Do not call `~/.claude/bin/codeagent-wrapper.exe` or any Claude-side execution wrapper.
+- Claude helper calls are allowed and required for real plan creation/revision unless the user explicitly disables Claude; use `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` with read-only planning instructions and no workspace writes.
 - Do not call `/ccg:execute` automatically and do not ask for a Y/N execution handoff.
 - If no user requirement is provided, answer in Chinese with usage examples and do not write files.
 - If the user explicitly asks to revise an existing plan file, update only that plan file. Otherwise create a new plan and never overwrite an existing plan; use `-v2`, `-v3`, and so on.
@@ -30,17 +30,19 @@ The generated plan file itself must also be Chinese by default. Hard requirement
 
 Internal prompts to tools or Gemini may use English when that improves retrieval or technical precision, but Codex must translate the final planning interaction and the saved plan content back into concise Chinese for the user.
 
-## Gemini gate
+## Gemini and Claude evidence gate
 
-For any real plan creation or plan revision, Gemini participation is mandatory. Before you write or present a final plan, you must have all of the following:
+For any real plan creation or plan revision, Gemini and Claude participation are mandatory unless the user explicitly disables one of them. This mirrors the Codex-native CCG rule that M+ analysis uses both Gemini and Claude. Before you write or present a final plan, you must have all of the following:
 
 - a successful Gemini helper launch using `gemini-3.1-pro-preview` by default, unless the user explicitly provided another model;
 - `CCG_GEMINI_PREVIEW_URL` and either `CCG_GEMINI_BROWSER_OPENED=1` or a clear note that the user should open the preview URL manually;
 - a real `CCG_GEMINI_RESPONSE_FILE` path printed by the helper;
 - a non-empty response read from that response file;
-- a final synthesis that includes both Codex analysis and Gemini analysis.
+- a successful Claude read-only planning call through `codeagent-wrapper --backend claude`, or an explicit user instruction disabling Claude;
+- a non-empty Claude response saved or summarized with its command/path evidence;
+- a final synthesis that includes Codex analysis, Gemini analysis, and Claude analysis, or records any user-disabled helper.
 
-If the Gemini helper cannot start, exits unsuccessfully, does not print `CCG_GEMINI_RESPONSE_FILE`, writes an empty response, or still fails after two retries, stop and report the failure in Chinese. In that case, do not write or present a final plan, do not create or edit `.codex/ccg/plans/*.md` or legacy `.claude/plan/*.md`, and do not emit a fake multi-model `<proposed_plan>`.
+If the Gemini or Claude helper cannot start, exits unsuccessfully, does not expose a non-empty response, or still fails after two retries, stop and report the failure in Chinese unless the user explicitly disables that helper. In that case, do not write or present a final plan, do not create or edit `.codex/ccg/plans/*.md` or legacy `.claude/plan/*.md`, and do not emit a fake multi-model `<proposed_plan>`.
 
 This gate does not apply to empty-input usage/help responses.
 
@@ -61,7 +63,7 @@ This gate does not apply to empty-input usage/help responses.
    - If ace-tool, fast-context, or `rg` fail because credentials are missing or access is denied, continue with targeted reads and exact search instead of aborting.
    - Gather enough evidence to name key files, symbols, existing patterns, and verification commands. Do not invent paths.
 
-4. **Run Gemini read-only analysis**
+4. **Run Gemini and Claude read-only analysis**
    - Use the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py`.
    - Invoke Gemini with `--approval-mode plan --detach --prompt-template plan`, default model `gemini-3.1-pro-preview`, no `--direct-workdir`, and no `--no-browser` unless the user explicitly asks for headless mode.
    - Confirm the helper prints `CCG_GEMINI_BROWSER_OPENED=1` or report the printed `CCG_GEMINI_PREVIEW_URL` so the user can open it manually.
@@ -71,12 +73,14 @@ This gate does not apply to empty-input usage/help responses.
    - Retry failed Gemini calls up to 2 times. If all attempts fail, stop and report the failure; do not generate a fake multi-model plan.
    - After detach, Poll `CCG_GEMINI_RESPONSE_FILE` every 5 seconds. Stop only when the file exists and has size > 0, then read it before writing the final plan.
    - If the response file is still missing or empty after 10 minutes, inspect `CCG_GEMINI_LAUNCHER_LOG`; if the launcher log shows a failure, retry the helper call. After two retries or 10 minutes on the final attempt, stop and report failure without writing a plan.
+   - Invoke Claude with `~/.claude/bin/codeagent-wrapper[.exe] --progress --backend claude - "<repo-abs-path>"` and a read-only planning prompt using the Claude architect/analyzer role. Ask for assumptions, architecture risks, edge cases, tests, and plan steps. Save or quote the response evidence path/summary in the plan metadata. Retry failed or empty Claude calls up to 2 times, then stop unless the user explicitly disabled Claude.
 
 5. **Synthesize the plan**
    - Codex is authoritative for backend, data, architecture, repository patterns, and final sequencing.
    - Treat Gemini as a strong reference for frontend, UX, accessibility, integration risks, and missing test cases.
+   - Treat Claude as a strong reference for architecture, security, backend correctness, edge cases, and reasoning gaps.
    - Record disagreements and the final tradeoff instead of hiding them.
-   - Translate or synthesize all Gemini findings into Chinese before saving the final plan.
+   - Translate or synthesize all Gemini and Claude findings into Chinese before saving the final plan.
 
 6. **Write the plan**
    - Create `.codex/ccg/plans/` if missing.
@@ -98,6 +102,8 @@ Use this Chinese Markdown structure:
 **Gemini 模型**：`gemini-3.1-pro-preview`
 **Gemini 预览**：`<CCG_GEMINI_PREVIEW_URL>`；浏览器已打开：<是/否>
 **Gemini 响应文件**：`<CCG_GEMINI_RESPONSE_FILE>`
+**Claude 后端**：`codeagent-wrapper --backend claude`
+**Claude 响应证据**：`<path-or-summary>`
 
 ## 1. 增强需求
 
@@ -129,6 +135,9 @@ Use this Chinese Markdown structure:
 
 ### Gemini 分析
 <从响应文件综合后的只读助手发现，用中文表述>
+
+### Claude 分析
+<从 Claude 只读规划响应综合后的发现，用中文表述>
 
 ### 分歧与最终决策
 | 主题 | 决策 | 原因 |
@@ -176,6 +185,8 @@ Gemini 模型：`gemini-3.1-pro-preview`
 Gemini 预览 URL：`<url>`
 Gemini 浏览器已打开：<是/否>
 Gemini 响应文件：`<path>`
+Claude 后端：`codeagent-wrapper --backend claude`
+Claude 响应证据：`<path-or-summary>`
 ```
 
 ## 交付消息
@@ -185,6 +196,7 @@ Gemini 响应文件：`<path>`
 - 说明保存路径。
 - 概括选定的技术方案。
 - 说明 Gemini 是否参与，以及响应文件在哪里。
+- 说明 Claude 是否参与，以及响应证据路径/摘要在哪里。
 - 提供准确的手动执行命令：
 
 ```text
