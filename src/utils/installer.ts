@@ -505,6 +505,17 @@ export async function installCodexMode(): Promise<{ success: boolean, message: s
     const codexHome = join(homedir(), '.codex')
     await fs.ensureDir(join(codexHome, 'agents'))
 
+    // Read CCG config once — reused for template variable injection across
+    // AGENTS.md + hooks/ccg-workflow.py so model routing (frontend/backend)
+    // stays consistent with what the user configured (issue: codex mode still
+    // referenced gemini after the antigravity default switch).
+    const config = await readCcgConfig()
+    const injectOpts = {
+      routing: config?.routing as any,
+      liteMode: config?.performance?.liteMode || false,
+      mcpProvider: config?.mcp?.provider || 'skip',
+    }
+
     const configSrc = join(codexTemplateDir, 'config.toml')
     const configDest = join(codexHome, 'config.toml')
     if (await fs.pathExists(configSrc) && !(await fs.pathExists(configDest))) {
@@ -518,32 +529,42 @@ export async function installCodexMode(): Promise<{ success: boolean, message: s
 
     const agentsMdSrc = join(codexTemplateDir, 'AGENTS.md')
     if (await fs.pathExists(agentsMdSrc)) {
-      const config = await readCcgConfig()
-      if (config) {
-        let content = await fs.readFile(agentsMdSrc, 'utf-8')
-        content = injectConfigVariables(content, {
-          routing: config.routing as any,
-          liteMode: config.performance?.liteMode || false,
-          mcpProvider: config.mcp?.provider || 'skip',
-        })
-        await fs.writeFile(join(codexHome, 'AGENTS.md'), content, 'utf-8')
-      }
-      else {
-        await fs.copy(agentsMdSrc, join(codexHome, 'AGENTS.md'), { overwrite: true })
-      }
+      // Always inject — injectConfigVariables falls back to sane defaults
+      // (antigravity/codex) when no config, so placeholders never leak.
+      let content = await fs.readFile(agentsMdSrc, 'utf-8')
+      content = injectConfigVariables(content, injectOpts)
+      await fs.writeFile(join(codexHome, 'AGENTS.md'), content, 'utf-8')
     }
 
-    // hooks/
+    // hooks/ — inject template variables into ccg-workflow.py so the guidance
+    // it emits references the user's actual frontend model, not hardcoded gemini.
     const hooksSrc = join(codexTemplateDir, 'hooks')
     if (await fs.pathExists(hooksSrc)) {
-      await fs.ensureDir(join(codexHome, 'hooks'))
-      await fs.copy(hooksSrc, join(codexHome, 'hooks'), { overwrite: true })
+      const hooksDest = join(codexHome, 'hooks')
+      await fs.ensureDir(hooksDest)
+      for (const file of await fs.readdir(hooksSrc)) {
+        const srcFile = join(hooksSrc, file)
+        const destFile = join(hooksDest, file)
+        if (file.endsWith('.py')) {
+          let content = await fs.readFile(srcFile, 'utf-8')
+          content = injectConfigVariables(content, injectOpts)
+          await fs.writeFile(destFile, content, 'utf-8')
+        }
+        else {
+          await fs.copy(srcFile, destFile, { overwrite: true })
+        }
+      }
     }
 
-    // hooks.json
+    // hooks.json — resolve the `~/.codex/...` hook command to an absolute path.
+    // Codex does not reliably expand `~` when spawning the hook command, so a
+    // relative/tilde path made it look for `.codex/hooks/` in the project dir.
     const hooksJsonSrc = join(codexTemplateDir, 'hooks.json')
     if (await fs.pathExists(hooksJsonSrc)) {
-      await fs.copy(hooksJsonSrc, join(codexHome, 'hooks.json'), { overwrite: true })
+      let content = await fs.readFile(hooksJsonSrc, 'utf-8')
+      const absHome = homedir().replace(/\\/g, '/')
+      content = content.replace(/~\//g, `${absHome}/`)
+      await fs.writeFile(join(codexHome, 'hooks.json'), content, 'utf-8')
     }
 
     return {
