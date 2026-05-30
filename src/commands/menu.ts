@@ -408,8 +408,10 @@ async function configApi(): Promise<void> {
   if (!settings.permissions.allow)
     settings.permissions.allow = []
   const wrapperPerms = [
+    'Bash(*codeagent-wrapper*)',
     'Bash(~/.claude/bin/codeagent-wrapper --backend gemini*)',
     'Bash(~/.claude/bin/codeagent-wrapper --backend codex*)',
+    'Bash(~/.claude/bin/codeagent-wrapper --backend claude*)',
   ]
   for (const perm of wrapperPerms) {
     if (!settings.permissions.allow.includes(perm))

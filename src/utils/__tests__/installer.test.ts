@@ -164,6 +164,19 @@ describe('Codex plugin ordinary CCG Claude parity', () => {
     expect(reviewSkill).toContain('Gemini and Claude provide bounded second-pass review evidence')
     expect(reviewSkill).toContain('--backend claude')
   })
+
+  it('keeps Claude backend allowed in generated Claude Code settings', () => {
+    const initCommand = readFileSync(join(PACKAGE_ROOT, 'src', 'commands', 'init.ts'), 'utf-8')
+    const menuCommand = readFileSync(join(PACKAGE_ROOT, 'src', 'commands', 'menu.ts'), 'utf-8')
+
+    for (const [relativePath, content] of [
+      ['src/commands/init.ts', initCommand],
+      ['src/commands/menu.ts', menuCommand],
+    ] as const) {
+      expect(content, `${relativePath} must allow all codeagent-wrapper command shapes`).toContain('Bash(*codeagent-wrapper*)')
+      expect(content, `${relativePath} must explicitly allow Claude backend calls`).toContain('Bash(~/.claude/bin/codeagent-wrapper --backend claude*)')
+    }
+  })
 })
 
 // ─────────────────────────────────────────────────────────────
