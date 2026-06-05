@@ -1098,6 +1098,7 @@ export interface UninstallResult {
   removedAgents: string[]
   removedSkills: string[]
   removedRules: boolean
+  removedHooks: boolean
   removedBin: boolean
   errors: string[]
 }
@@ -1114,6 +1115,7 @@ export async function uninstallWorkflows(installDir: string, options?: { preserv
     removedAgents: [],
     removedSkills: [],
     removedRules: false,
+    removedHooks: false,
     removedBin: false,
     errors: [],
   }
@@ -1187,7 +1189,7 @@ export async function uninstallWorkflows(installDir: string, options?: { preserv
     }
   }
 
-  // Remove .ccg config directory
+  // Remove .ccg config directory (engine, prompts, strategies all live here)
   if (await fs.pathExists(ccgConfigDir)) {
     try {
       await fs.remove(ccgConfigDir)
@@ -1195,6 +1197,54 @@ export async function uninstallWorkflows(installDir: string, options?: { preserv
     }
     catch (error) {
       result.errors.push(`Failed to remove .ccg directory: ${error}`)
+    }
+  }
+
+  // Remove CCG hook scripts directory (hooks/ccg/) — added by the v3.0 engine.
+  // Older uninstall logic predates the hook engine and left these behind.
+  const hooksCcgDir = join(installDir, 'hooks', 'ccg')
+  if (await fs.pathExists(hooksCcgDir)) {
+    try {
+      await fs.remove(hooksCcgDir)
+      result.removedHooks = true
+    }
+    catch (error) {
+      result.errors.push(`Failed to remove hooks directory: ${error}`)
+      result.success = false
+    }
+  }
+
+  // Deregister CCG hooks from settings.json — preserve the user's own hooks.
+  // CCG hook entries are identified by a command path that points at hooks/ccg/.
+  const settingsPath = join(installDir, 'settings.json')
+  if (await fs.pathExists(settingsPath)) {
+    try {
+      const settings = JSON.parse(await fs.readFile(settingsPath, 'utf-8')) as Record<string, any>
+      const hooks = settings.hooks as Record<string, any[]> | undefined
+      if (hooks && typeof hooks === 'object') {
+        const isCcgEntry = (h: any): boolean => {
+          const hHooks = (h?.hooks || []) as any[]
+          return hHooks.some(hh => typeof hh?.command === 'string' && /hooks[\\/]ccg[\\/]/.test(hh.command))
+        }
+        let modified = false
+        for (const event of Object.keys(hooks)) {
+          const arr = Array.isArray(hooks[event]) ? hooks[event] : []
+          const filtered = arr.filter(h => !isCcgEntry(h))
+          if (filtered.length !== arr.length) {
+            modified = true
+            if (filtered.length === 0) delete hooks[event]
+            else hooks[event] = filtered
+          }
+        }
+        if (modified) {
+          if (Object.keys(hooks).length === 0) delete settings.hooks
+          await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8')
+          result.removedHooks = true
+        }
+      }
+    }
+    catch (error) {
+      result.errors.push(`Failed to deregister hooks from settings.json: ${error}`)
     }
   }
 
