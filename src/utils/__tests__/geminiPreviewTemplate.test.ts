@@ -30,5 +30,8 @@ describe('Codex Gemini preview template', () => {
     expect(helper).toContain('<div class="title">Gemini</div>')
     expect(helper).not.toContain('Gemini Preview -')
     expect(helper).not.toContain('Raw stream-json / stderr log')
+    expect(helper).toContain('STATE.append_raw(line)')
+    expect(helper).toContain('output_file.write(line)')
+    expect(helper).toContain('output_file.flush()')
   })
 })
