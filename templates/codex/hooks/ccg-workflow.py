@@ -127,8 +127,8 @@ def build_guidance(task, progress, root):
     if phase == "analysis":
         if complexity in ("M", "L", "XL"):
             parts.append("")
-            parts.append(f"⛔ {complexity} complexity: you MUST call BOTH Gemini AND Claude for parallel analysis before coding.")
-            parts.append("Use the dual-model parallel template in AGENTS.md: --backend gemini & --backend claude with & + wait.")
+            parts.append(f"⛔ {complexity} complexity: you MUST call BOTH the frontend model AND Claude for parallel analysis before coding.")
+            parts.append("Use the dual-model parallel template in AGENTS.md: --backend {{FRONTEND_PRIMARY}} & --backend claude with & + wait.")
 
     # Phase: implementation — coding in progress
     elif phase == "implementation":
@@ -146,12 +146,12 @@ def build_guidance(task, progress, root):
     # Big changes without review
     if progress["changed_lines"] > 30 and phase != "review":
         parts.append("")
-        parts.append(f"⚠️ {progress['changed_lines']} lines changed. When done coding, you MUST call BOTH Gemini AND Claude for dual-model review. Not just one — both.")
+        parts.append(f"⚠️ {progress['changed_lines']} lines changed. When done coding, you MUST call BOTH the frontend model AND Claude for dual-model review. Not just one — both.")
 
     # Review phase: enforce dual model
     if phase == "review":
         parts.append("")
-        parts.append("⛔ Review phase: call BOTH Gemini (--backend gemini) AND Claude (--backend claude) with reviewer role. Two models, not one.")
+        parts.append("⛔ Review phase: call BOTH the frontend model (--backend {{FRONTEND_PRIMARY}}) AND Claude (--backend claude) with reviewer role. Two models, not one.")
 
     # High-risk files detected
     if progress["high_risk_files"] and phase not in ("review", "completed"):
