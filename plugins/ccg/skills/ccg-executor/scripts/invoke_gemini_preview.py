@@ -440,212 +440,151 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
             prompt = html.escape(str(snap["prompt_preview"]))
             auto_close = int(snap.get("auto_close_browser_seconds", 0) or 0)
             return f"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gemini Preview - {model}</title>
+  <title>Gemini - Live Output</title>
   <style>
-    * {{ box-sizing: border-box; }}
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
-      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #0d1117;
       color: #c9d1d9;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }}
     header {{
+      background: #161b22;
+      padding: 12px 20px;
+      border-bottom: 1px solid #30363d;
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 12px 18px;
-      border-bottom: 1px solid #30363d;
-      background: #161b22;
-      position: sticky;
-      top: 0;
     }}
-    .badge {{
-      background: #8957e5;
-      color: white;
-      font-weight: 700;
+    .panel-icon {{
+      width: 32px;
+      height: 32px;
       border-radius: 6px;
-      padding: 6px 8px;
-      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 11px;
+      background: #8957e5;
+      color: #fff;
     }}
-    .title {{ color: #a371f7; font-weight: 650; }}
-    .status {{ margin-left: auto; color: #8b949e; font-size: 12px; }}
-    .wrap {{ padding: 16px 18px; }}
-    .task {{
-      color: #58a6ff;
-      border-bottom: 1px solid #30363d;
-      padding-bottom: 12px;
-      margin-bottom: 14px;
-      white-space: pre-wrap;
-    }}
-    .grid {{
-      display: grid;
-      grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.6fr);
-      gap: 14px;
-      align-items: start;
-    }}
-    .panel {{
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      background: #0d1117;
-      min-height: 120px;
-      overflow: hidden;
-    }}
-    .panel h2 {{
-      margin: 0;
-      padding: 10px 12px;
-      border-bottom: 1px solid #30363d;
-      color: #c9d1d9;
-      background: #161b22;
-      font-size: 13px;
-      font-weight: 650;
-    }}
-    .panel-body {{ padding: 12px; }}
-    .meta {{
-      display: grid;
+    .title {{ font-size: 18px; font-weight: 600; color: #a371f7; }}
+    .live-indicator {{
+      display: inline-flex;
+      align-items: center;
       gap: 6px;
-      color: #8b949e;
-      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      overflow-wrap: anywhere;
-    }}
-    .timeline {{
-      display: grid;
-      gap: 8px;
-      max-height: 360px;
-      overflow: auto;
-    }}
-    .event {{
-      display: grid;
-      grid-template-columns: 64px 1fr;
-      gap: 8px;
-      color: #c9d1d9;
+      color: #3fb950;
       font-size: 12px;
+      margin-left: auto;
     }}
-    .event-time {{ color: #8b949e; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
-    details summary {{
-      cursor: pointer;
-      color: #8b949e;
-      padding: 10px 12px;
-      border-top: 1px solid #30363d;
-      background: #161b22;
-      font-size: 12px;
+    .live-dot {{
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #3fb950;
+      animation: blink 1s infinite;
     }}
-    pre {{
+    @keyframes blink {{
+      0%, 100% {{ opacity: 1; }}
+      50% {{ opacity: 0.3; }}
+    }}
+    .output-area {{
+      flex: 1;
+      background: #0d1117;
+      padding: 16px 20px;
+      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-size: 13px;
       white-space: pre-wrap;
       word-break: break-word;
-      font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      margin: 0;
-      max-height: 520px;
-      overflow: auto;
+      overflow-y: auto;
+      line-height: 1.6;
     }}
-    .done {{ margin-top: 16px; color: #3fb950; }}
+    .task-block {{
+      color: #58a6ff;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #30363d;
+    }}
+    .cursor {{
+      display: inline-block;
+      width: 8px;
+      height: 16px;
+      background: #3fb950;
+      animation: cursor-blink 1s infinite;
+      vertical-align: text-bottom;
+    }}
+    @keyframes cursor-blink {{
+      0%, 50% {{ opacity: 1; }}
+      51%, 100% {{ opacity: 0; }}
+    }}
+    .done-indicator {{
+      color: #8b949e;
+      font-style: italic;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #30363d;
+    }}
     .failed {{ color: #f85149; }}
   </style>
 </head>
 <body>
   <header>
-    <span class="badge">GEM</span>
-    <span class="title">Gemini Live Output</span>
-    <span class="status" id="status">starting</span>
-  </header>
-  <div class="wrap">
-    <div class="task"><strong>Task preview</strong><br>{prompt}</div>
-    <div class="grid">
-      <section class="panel">
-        <h2>Process</h2>
-        <div class="panel-body">
-          <div class="meta">
-            <div>Started: <span id="started"></span></div>
-            <div>Model: <span id="model"></span></div>
-            <div>Stream events: <span id="streamEvents">0</span></div>
-            <div>Snapshot: <span id="snapshotPath"></span></div>
-            <div>Response file: <span id="responseFile"></span></div>
-          </div>
-        </div>
-        <div class="panel-body timeline" id="timeline"></div>
-      </section>
-      <section class="panel">
-        <h2>Parsed Gemini Output</h2>
-        <div class="panel-body"><pre id="output"></pre></div>
-        <details>
-          <summary>Raw stream-json / stderr log</summary>
-          <div class="panel-body"><pre id="rawOutput"></pre></div>
-        </details>
-      </section>
+    <div class="panel-icon">GEM</div>
+    <div class="title">Gemini</div>
+    <div class="live-indicator" id="liveIndicator">
+      <span class="live-dot"></span> LIVE
     </div>
+  </header>
+  <div class="output-area" id="output">
+    <div class="task-block"><strong>&#128203; Task:</strong><br>{prompt}</div>
+    <span id="stream"></span><span class="cursor" id="cursor"></span>
     <div id="done"></div>
   </div>
   <script>
     const output = document.getElementById('output');
-    const rawOutput = document.getElementById('rawOutput');
-    const statusEl = document.getElementById('status');
+    const stream = document.getElementById('stream');
+    const cursor = document.getElementById('cursor');
     const doneEl = document.getElementById('done');
-    const timeline = document.getElementById('timeline');
-    const started = document.getElementById('started');
-    const modelEl = document.getElementById('model');
-    const streamEvents = document.getElementById('streamEvents');
-    const snapshotPath = document.getElementById('snapshotPath');
-    const responseFile = document.getElementById('responseFile');
+    const liveIndicator = document.getElementById('liveIndicator');
     let lastContent = '';
-    let lastRaw = '';
-    let lastEvents = '';
     let userScrolled = false;
-    window.addEventListener('scroll', () => {{
-      userScrolled = window.innerHeight + window.scrollY < document.body.scrollHeight - 60;
+    output.addEventListener('scroll', () => {{
+      const isAtBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 50;
+      userScrolled = !isAtBottom;
     }});
     function scrollBottom() {{
-      if (!userScrolled) window.scrollTo(0, document.body.scrollHeight);
-    }}
-    function escapeHtml(value) {{
-      const map = {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}};
-      return String(value || '').replace(/[&<>"']/g, c => map[c]);
+      if (!userScrolled) output.scrollTop = output.scrollHeight;
     }}
     async function tick() {{
       try {{
         const res = await fetch('/state?ts=' + Date.now());
         const state = await res.json();
-        statusEl.textContent = state.status + (state.session_id ? ' | ' + state.session_id : '');
-        started.textContent = state.started_at || '';
-        modelEl.textContent = state.model || '';
-        streamEvents.textContent = String(state.stream_events || 0);
-        snapshotPath.textContent = state.snapshot_path || '';
-        responseFile.textContent = state.response_file || '';
-        const eventKey = JSON.stringify(state.events || []);
-        if (eventKey !== lastEvents) {{
-          lastEvents = eventKey;
-          timeline.innerHTML = (state.events || []).map((event) => (
-            '<div class="event"><span class="event-time">' +
-            escapeHtml(event.time) +
-            '</span><span>' +
-            escapeHtml(event.message) +
-            '</span></div>'
-          )).join('');
-          timeline.scrollTop = timeline.scrollHeight;
-        }}
         if (state.content !== lastContent) {{
           lastContent = state.content;
-          output.textContent = state.content || '';
+          stream.textContent = state.content || '';
           setTimeout(scrollBottom, 0);
-        }}
-        if (state.raw !== lastRaw) {{
-          lastRaw = state.raw;
-          rawOutput.textContent = state.raw || '';
         }}
         if (state.done) {{
           const ok = state.exit_code === 0;
-          doneEl.className = ok ? 'done' : 'done failed';
+          cursor.style.display = 'none';
+          liveIndicator.style.display = 'none';
+          doneEl.className = ok ? 'done-indicator' : 'done-indicator failed';
           const autoClose = Number(state.auto_close_browser_seconds || {auto_close});
-          doneEl.textContent = ok
-            ? (autoClose > 0 ? 'Completed. Closing preview...' : 'Completed. You can close this page.')
-            : 'Finished with exit code ' + state.exit_code;
+          doneEl.textContent = ok ? 'Completed. Closing preview...' : 'Finished with exit code ' + state.exit_code;
+          userScrolled = false;
+          setTimeout(scrollBottom, 0);
           if (autoClose > 0) {{
             setTimeout(() => {{
               window.close();
               setTimeout(() => {{
-                doneEl.textContent = ok ? 'Completed. You can close this page.' : doneEl.textContent;
+                if (ok) doneEl.textContent = 'Completed. You can close this page.';
               }}, 700);
             }}, autoClose * 1000);
           }}
@@ -1137,7 +1076,8 @@ def main() -> int:
         response_path.write_text(response, encoding="utf-8", errors="replace")
         STATE.add_event(f"Response file written: {response_path}")
         STATE.update(done=True, exit_code=code, status="complete" if code == 0 else "failed")
-        STATE.add_event("Preview will auto-close after completion" if auto_close > 0 else "Preview auto-close disabled")
+        close_event = "Preview will auto-close after completion" if auto_close > 0 else "Preview auto-close disabled"
+        STATE.add_event(close_event)
         print(f"CCG_GEMINI_RESPONSE_FILE={response_path}", flush=True)
         print(f"CCG_GEMINI_EXIT_CODE={code}", flush=True)
         print("CCG_GEMINI_RESPONSE_BEGIN", flush=True)
