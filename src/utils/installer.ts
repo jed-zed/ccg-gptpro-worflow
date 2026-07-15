@@ -7,6 +7,7 @@ import { getLegacyCommandIds, getWorkflowById } from './installer-data'
 import { PACKAGE_ROOT, injectConfigVariables, replaceHomePathsInTemplate } from './installer-template'
 import { readCcgConfig } from './config'
 import { installSkillCommands } from './skill-registry'
+import { version as packageVersion } from '../../package.json'
 
 // ═══════════════════════════════════════════════════════
 // Re-exports — all consumers import from './installer'
@@ -62,7 +63,7 @@ export type { SkillMeta } from './skill-registry'
  * Must match the `version` constant in codeagent-wrapper/main.go.
  * When this differs from the installed binary, update triggers re-download.
  */
-const EXPECTED_BINARY_VERSION = '5.11.0'
+const EXPECTED_BINARY_VERSION = '5.12.0'
 
 // ═══════════════════════════════════════════════════════
 // Install context — shared across sub-functions
@@ -342,7 +343,7 @@ async function installPromptFiles(ctx: InstallContext): Promise<void> {
     return
   }
 
-  for (const model of ['codex', 'gemini', 'claude', 'antigravity']) {
+  for (const model of ['codex', 'gemini', 'claude', 'antigravity', 'grok']) {
     try {
       const installed = await copyMdTemplates(
         ctx,
@@ -578,6 +579,7 @@ export async function installCodexMode(): Promise<{ success: boolean, message: s
       // (antigravity/codex) when no config, so placeholders never leak.
       let content = await fs.readFile(agentsMdSrc, 'utf-8')
       content = injectConfigVariables(content, injectOpts)
+      content = replaceHomePathsInTemplate(content, join(homedir(), '.claude'))
       await fs.writeFile(join(codexHome, 'AGENTS.md'), content, 'utf-8')
     }
 
@@ -612,9 +614,12 @@ export async function installCodexMode(): Promise<{ success: boolean, message: s
       await fs.writeFile(join(codexHome, 'hooks.json'), content, 'utf-8')
     }
 
+    // Write version marker so external tools can check which CCG version installed Codex mode
+    await fs.writeFile(join(codexHome, '.ccg-version'), packageVersion, 'utf-8')
+
     return {
       success: true,
-      message: `Codex mode installed:\n  ~/.codex/AGENTS.md\n  ~/.codex/config.toml\n  ~/.codex/hooks.json\n  ~/.codex/hooks/ccg-workflow.py\n  ~/.codex/agents/ccg-implement.toml\n  ~/.codex/agents/ccg-review.toml\n  ~/.codex/agents/ccg-research.toml`,
+      message: `Codex mode installed:\n  ~/.codex/AGENTS.md\n  ~/.codex/config.toml\n  ~/.codex/hooks.json\n  ~/.codex/hooks/ccg-workflow.py\n  ~/.codex/agents/ccg-implement.toml\n  ~/.codex/agents/ccg-review.toml\n  ~/.codex/agents/ccg-research.toml\n  ~/.codex/.ccg-version (${packageVersion})`,
     }
   }
   catch (error) {
@@ -637,6 +642,7 @@ export async function uninstallCodexMode(): Promise<{ success: boolean, removed:
     join(codexHome, 'agents', 'ccg-research.toml'),
     join(codexHome, 'hooks', 'ccg-workflow.py'),
     join(codexHome, 'hooks.json'),
+    join(codexHome, '.ccg-version'),
   ]
 
   // AGENTS.md — only remove if it contains CCG marker
@@ -1210,7 +1216,7 @@ export async function uninstallWorkflows(installDir: string, options?: { preserv
   // Remove CCG rules files
   if (await fs.pathExists(rulesDir)) {
     try {
-      for (const ruleFile of ['ccg-skills.md', 'ccg-grok-search.md', 'ccg-skill-routing.md']) {
+      for (const ruleFile of ['ccg-skills.md', 'ccg-grok-search.md', 'ccg-skill-routing.md', 'ccg-codegraph.md']) {
         const rulePath = join(rulesDir, ruleFile)
         if (await fs.pathExists(rulePath)) {
           await fs.remove(rulePath)

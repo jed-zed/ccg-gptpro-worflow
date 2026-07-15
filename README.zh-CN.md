@@ -1,5 +1,4 @@
 # CCG - Claude + Codex + Gemini 多模型协作
-# CCG - Claude + Codex + Gemini Multi-Model Collaboration
 
 <div align="center">
 
@@ -9,17 +8,26 @@
 [![NPM Downloads](https://img.shields.io/npm/dt/ccg-workflow?style=flat-square&color=blue)](https://www.npmjs.com/package/ccg-workflow)
 [![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/fengshao1227/ccg-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/fengshao1227/ccg-workflow/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/fengshao1227/ccg-workflow/graph/badge.svg)](https://codecov.io/gh/fengshao1227/ccg-workflow)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
-[![Tests](https://img.shields.io/badge/Tests-139%20passed-brightgreen.svg)]()
+[![Node](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Follow on X](https://img.shields.io/badge/X-@CCG__Workflow-black?logo=x&logoColor=white)](https://x.com/CCG_Workflow)
 ![star](https://atomgit.com/fengshao1227/ccg-workflow/star/badge.svg)
 [![Docs](https://img.shields.io/badge/文档站-ccg.fengshao1227.com-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://ccg.fengshao1227.com/)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bTEgMTdoLTJ2LTJoMnYyem0yLjA3LTcuNzVsLS45Ljkydi4wMUM0LjE3IDEyLjE3IDE0IDEzIDE0IDEzaC0yYzAtMS4xLjktMiAyLTJzMi0uOSAyLTItLjktMi0yLTJINmMwLTIuMjEgMS43OS00IDQtNGgyYzIuMjEgMCA0IDEuNzkgNCA0IDAgLjg4LS4zNiAxLjY4LS45MyAyLjI1eiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=)](https://deepwiki.com/fengshao1227/ccg-workflow)
 
-[简体中文](./README.zh-CN.md) | English | [**完整文档**](https://ccg.fengshao1227.com/)
+[简体中文](./README.zh-CN.md) | [English](./README.md) | [**完整文档**](https://ccg.fengshao1227.com/)
 
 </div>
 
 ## ♥️ Sponsor
+
+[![Gamma Remover](assets/sponsors/gamma-remover.webp)](https://gammaremover.com/)
+
+[Gamma Remover](https://gammaremover.com/) — 免费浏览器本地 Gamma 水印去除工具。支持 PDF 和 PPTX，无需注册，即时出结果，100% 隐私，文件不离开你的设备。
+
+---
 
 [![302.AI](assets/sponsors/302.ai-en.jpg)](https://share.302.ai/oUDqQ6)
 
@@ -27,170 +35,179 @@
 
 ---
 
-[![NotebookLM Remover](assets/sponsors/notebooklm-remover.png)](https://notebooklmremover.org)
+## CCG 是什么？
 
-[NotebookLM Remover](https://notebooklmremover.org) — 免费浏览器本地 AI 水印去除工具。支持视频、PDF、PPTX、信息图、播客等全格式，100% 隐私，离线可用。
+**CCG 是 Claude Code 的工作流引擎。** 它让 Claude 变成多模型编排器 —— Claude 保持主控地位，通过 Go 编译的 codeagent-wrapper 将专业任务分发给 Codex（OpenAI）、Gemini（Google）和 Grok（xAI）。
 
----
-
-CCG 是 Claude Code 的工作流引擎。它编排多个 AI 模型（Codex、Gemini、Claude），通过 Hook 状态追踪、自动策略选择和 Agent Teams 并行执行来完成开发任务。
-
-## v3.0 重大更新
-
-v3.0 从底层重写。一个命令替代 29 个。
-
-- `/ccg:go` — 用自然语言描述任务，引擎自动分析意图、选择策略、执行到底。
-- **Hook 引擎** — 每轮注入任务状态，即使上下文被压缩也不丢。会话开始时注入完整项目上下文。
-- **Task 持久化** — 中等以上复杂度任务创建 `.ccg/tasks/`，阶段门控强制 HARD STOP 检查点。
-- **Agent Teams** — 大型任务通过 TeamCreate 并行 spawn 多个 Builder。每个 Builder 有独立文件所有权。
-- **质量关卡** — `verify-security`、`verify-quality`、`verify-change` 作为 Skill 在策略验证阶段强制调用。
-- **域知识 Hook** — 消息涉及安全、缓存、RAG 等关键词时，相关知识文件自动注入上下文。
-- **Codex 主导模式** — 用 Codex CLI 作为主编排器，Codex 自己写代码，同时调度 Gemini + Claude 做分析和审查。菜单 `X` 选项安装。
-
-## 快速开始
+一条命令，描述你要做什么，引擎自动处理一切。
 
 ```bash
-npx ccg-workflow
+npx ccg-workflow    # 60 秒安装
 ```
 
-需要 Node.js 20+ 和 Claude Code CLI。Codex CLI 和 Gemini CLI 可选（启用多模型功能）。
+## 架构
 
-安装器 4 步：API 配置 → 模型路由 → MCP 工具 → 性能模式。新用户有精简流程，默认值开箱即用。
+<div align="center">
+<img src="assets/readme/architecture-zh.png" alt="CCG 架构" width="800">
+</div>
 
-## 工作原理
+**Claude Code** 是主控编排器。它分析你的意图、选择策略、管理整个工作流。**Hook 引擎**每轮注入状态，确保 Claude 永不丢失上下文 —— 即使上下文被压缩。**codeagent-wrapper**（编译的 Go 二进制）作为桥梁，将 Claude 连接到外部模型进行并行分析和审查。
+
+## 工作流程
 
 ```
 你: /ccg:go 给这个 API 加 JWT 认证
 
 CCG 引擎:
-  1. 读取项目上下文（git、技术栈、文件结构）
-  2. 分类: feature / L 复杂度 / backend / high 风险
-  3. 选择策略: full-collaborate
+  1. 读取项目上下文（git 状态、技术栈、文件结构）
+  2. 分类：功能 / L 复杂度 / 后端 / 高风险
+  3. 选择策略：full-collaborate（全协作）
   4. 创建 .ccg/tasks/add-jwt-auth/task.json
-  5. 双模型并行分析（Codex + Gemini）
-  6. 产出计划 → HARD STOP 等你审批
-  7. spawn Agent Teams Builder 并行实施
-  8. 质量关卡 + 双模型交叉审查
-  9. 输出结果
+  5. 启动双模型并行分析（Codex + Gemini）
+  6. 生成计划 → 硬停等你审批
+  7. 派生 Agent Teams Builder 并行实施
+  8. 运行质量关卡 + 双模型交叉审查
+  9. 报告结果
 
-每轮 Hook 注入:
+每一轮，Hook 自动注入：
   <ccg-state>
-  Task: add-jwt-auth (in_progress)
-  Strategy: full-collaborate
-  Phase: 4-implementation
-  Next: Layer 1 Builders 执行中
+  任务: add-jwt-auth (进行中)
+  策略: full-collaborate
+  阶段: 4-实施
   </ccg-state>
 ```
 
-## 策略体系
+## 10 种内置策略
 
-引擎根据任务类型和复杂度自动选择策略：
+引擎根据任务类型和复杂度自动选择最佳策略：
 
-| 策略 | 场景 | 外部模型 | Teams |
-|------|------|---------|-------|
-| direct-fix | 简单 bug，单文件 | 无 | 无 |
-| quick-implement | 小功能，范围清晰 | 无 | 无 |
-| guided-develop | 中等功能，需要规划 | 单模型 | 无 |
-| full-collaborate | 复杂功能，跨模块 | 双模型并行 | 强制 |
-| debug-investigate | 复杂 bug，原因不明 | 双模型诊断 | 无 |
-| refactor-safely | 代码重构 | 双模型审查 | 无 |
-| deep-research | 技术研究、方案对比 | 双模型探索 | 无 |
-| optimize-measure | 性能优化 | 可选 | 无 |
-| review-audit | 代码审查 | 双模型交叉 | 无 |
-| git-action | commit、rollback 等 | 无 | 无 |
+| 策略 | 适用场景 | 外部模型 | Agent Teams |
+|------|---------|:---:|:---:|
+| `direct-fix` | 简单 bug，单文件 | — | — |
+| `quick-implement` | 小功能，范围明确 | — | — |
+| `guided-develop` | 中等功能，需要规划 | 单模型 | — |
+| `full-collaborate` | 复杂功能，跨模块 | 双模型并行 | ✓ |
+| `debug-investigate` | 复杂 bug，原因未知 | 双模型诊断 | — |
+| `refactor-safely` | 代码重构 | 双模型审查 | — |
+| `deep-research` | 技术调研 | 双模型探索 | — |
+| `optimize-measure` | 性能优化 | 可选 | — |
+| `review-audit` | 代码审查 | 双模型交叉审查 | — |
+| `git-action` | commit、rollback、分支 | — | — |
 
-简单任务零开销快速执行。复杂任务启动完整引擎。
+简单任务零开销快速执行。复杂任务调动全部引擎能力。
+
+## 核心能力
+
+### Hook 引擎 — 永不丢失上下文
+
+4 个 JavaScript Hook 为每个 Claude Code 会话注入状态：
+
+| Hook | 触发时机 | 作用 |
+|------|---------|------|
+| `workflow-state.js` | 每轮用户消息 | 注入当前任务状态面包屑 |
+| `session-start.js` | 会话开始/压缩 | 重新注入完整项目上下文 |
+| `subagent-context.js` | Agent/Bash 调用 | 将 spec 直接注入子 agent 的 prompt |
+| `skill-router.js` | 每轮用户消息 | 按关键词自动注入域知识 |
+
+上下文在压缩后自动恢复。子 agent 出生即带 spec。零状态丢失。
+
+### 任务系统 — 持久化生命周期
+
+中等及以上复杂度的任务获得持久化目录：
+
+```
+.ccg/tasks/add-jwt-auth/
+├── task.json         # 状态、策略、阶段、门控
+├── requirements.md   # 增强需求
+├── plan.md           # 已审批的实施计划
+├── context.jsonl     # 子 agent 注入的 spec 文件
+├── review.md         # 审查结果
+└── research/         # 持久化研究成果
+```
+
+### 质量关卡 — 内置安全与质量检查
+
+| 关卡 | 触发条件 |
+|------|---------|
+| `/ccg:verify-security` | 新模块、安全相关变更 |
+| `/ccg:verify-quality` | 变更超过 30 行 |
+| `/ccg:verify-change` | 文档同步检查 |
+| `/ccg:verify-module` | 模块结构检查 |
+| `/ccg:gen-docs` | 自动生成 README + DESIGN |
+
+### 100+ 域知识秘典
+
+当你的消息提到安全、缓存、RAG、Kubernetes 等关键词时，对应的知识文件自动注入。10 大领域，61 个文件：
+
+`安全` · `架构` · `DevOps` · `AI/MLOps` · `开发语言` · `前端设计` · `基础设施` · `移动端` · `数据工程` · `编排`
 
 ## 命令
 
-v3.0 默认安装 13 个命令。旧版模式额外安装 18 个。
-
-### 核心
+### 核心命令（v3.0 默认安装 13 个）
 
 | 命令 | 说明 |
 |------|------|
-| `/ccg:go` | 智能入口 — 描述任务，引擎自动处理 |
-
-### Git 工具
-
-| 命令 | 说明 |
-|------|------|
-| `/ccg:commit` | 智能 conventional commit |
+| `/ccg:go` | **智能入口** — 描述你要做什么，引擎自动处理 |
+| `/ccg:commit` | 智能 Conventional Commit |
 | `/ccg:rollback` | 交互式回滚 |
 | `/ccg:clean-branches` | 清理已合并分支 |
 | `/ccg:worktree` | Worktree 管理 |
-
-### 项目
-
-| 命令 | 说明 |
-|------|------|
 | `/ccg:init` | 初始化项目 CLAUDE.md |
 | `/ccg:context` | 项目上下文管理 |
 
-### OpenSpec
+### OpenSpec 集成
 
 | 命令 | 说明 |
 |------|------|
 | `/ccg:spec-init` | 初始化 OPSX 环境 |
 | `/ccg:spec-research` | 需求 → 约束集 |
 | `/ccg:spec-plan` | 零决策可执行计划 |
-| `/ccg:spec-impl` | 按规范实施 |
+| `/ccg:spec-impl` | 按规范实施 + 归档 |
 | `/ccg:spec-review` | 双模型交叉审查 |
 
-## Hook 引擎
+### Legacy 模式（额外 18 个命令）
 
-CCG 在 `~/.claude/settings.json` 注册 4 个 Hook：
+包括 `/ccg:workflow`、`/ccg:plan`、`/ccg:execute`、`/ccg:frontend`、`/ccg:backend`、`/ccg:analyze`、`/ccg:debug`、`/ccg:optimize`、`/ccg:test`、`/ccg:review`、`/ccg:team` 等。
 
-| Hook | 事件 | 作用 |
-|------|------|------|
-| workflow-state.js | UserPromptSubmit | 每轮注入任务状态面包屑 |
-| session-start.js | SessionStart | 会话开始/压缩时注入完整项目上下文 |
-| subagent-context.js | PreToolUse | codeagent-wrapper/Team spawn 时注入 spec + 任务上下文 |
-| skill-router.js | UserPromptSubmit | 检测域关键词，自动注入知识文件 |
+## 快速开始
 
-纯 JavaScript，零依赖，失败时静默退出。
+```bash
+# 安装（交互式 4 步向导）
+npx ccg-workflow
 
-## Task 系统
-
-中等以上复杂度任务创建持久化目录：
-
-```
-.ccg/tasks/add-jwt-auth/
-├── task.json         # 状态、策略、当前阶段、门控
-├── requirements.md   # 增强后的需求
-├── plan.md           # 审批后的计划
-├── context.jsonl     # 子 Agent spec 注入列表
-├── review.md         # 审查结果
-└── research/         # 研究成果
+# 或非交互式使用默认配置
+npx ccg-workflow init --skip-prompt
 ```
 
-workflow-state Hook 每轮读取 task.json 注入状态。上下文压缩后 session-start 重新注入。状态不会丢失。
+需要 **Node.js 20+** 和 **Claude Code CLI**。Codex CLI、Gemini CLI 和 Grok CLI 为可选（启用多模型功能）。
 
-## Spec 系统
+## CLI 命令大全
 
-项目级编码规范在 `.ccg/spec/`：
-
+```bash
+npx ccg-workflow                          # 交互式菜单
+npx ccg-workflow init                     # 4 步安装向导
+npx ccg-workflow doctor                   # 环境健康检查
+npx ccg-workflow status                   # 安装概况
+npx ccg-workflow codex-mode install       # 安装 Codex 主导模式
+npx ccg-workflow codex-mode uninstall     # 卸载 Codex 主导模式
+npx ccg-workflow uninstall                # 卸载 CCG
+npx ccg-workflow config mcp               # 配置 MCP Token
+npx ccg-workflow diagnose-mcp             # 诊断 MCP 问题
 ```
-.ccg/spec/
-├── backend/index.md    # 后端规范
-├── frontend/index.md   # 前端规范
-└── guides/index.md     # 跨模块指南
-```
-
-subagent-context Hook 读取 `context.jsonl` 将相关 spec 文件注入到 codeagent-wrapper 调用和 Team spawn 中。子 Agent 自动遵循项目规范。
 
 ## 配置
 
 ```
 ~/.claude/
 ├── commands/ccg/          # 斜杠命令
-├── hooks/ccg/             # Hook 脚本（4 个）
+├── hooks/ccg/             # Hook 脚本（5 个文件）
+├── skills/ccg/            # 质量关卡 + 100+ 域知识
+├── rules/                 # 自动触发规则
 ├── .ccg/
-│   ├── config.toml        # 模型路由、MCP、性能
-│   ├── engine/            # 策略文件 + 模型路由器
-│   └── prompts/           # 专家提示词
-├── skills/ccg/            # 质量关卡 + 域知识
-└── bin/codeagent-wrapper  # 多模型执行桥
+│   ├── config.toml        # 模型路由、MCP、性能配置
+│   ├── engine/            # 10 个策略文件 + 模型路由器
+│   └── prompts/           # 专家提示词（codex/gemini/claude）
+└── bin/codeagent-wrapper  # 多模型桥接（Go 二进制）
 ```
 
 ### 环境变量
@@ -200,20 +217,22 @@ subagent-context Hook 读取 `context.jsonl` 将相关 spec 文件注入到 code
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `CODEX_TIMEOUT` | `7200` | Wrapper 超时（秒） |
+| `CODEAGENT_POST_MESSAGE_DELAY` | `5` | 完成后延迟（秒） |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | 未设置 | 设为 `1` 启用 Agent Teams 并行 |
 
 ## 更新 / 卸载
 
 ```bash
-npx ccg-workflow@latest     # 更新
-npx ccg-workflow            # 菜单中选"卸载"
+npx ccg-workflow@latest     # 更新到最新版
+npx ccg-workflow doctor     # 更新后健康检查
+npx ccg-workflow uninstall  # 彻底卸载
 ```
 
 ## 致谢
 
-- [cexll/myclaude](https://github.com/cexll/myclaude) — codeagent-wrapper 灵感
+- [cexll/myclaude](https://github.com/cexll/myclaude) — codeagent-wrapper 灵感来源
 - [UfoMiao/zcf](https://github.com/UfoMiao/zcf) — Git 工具参考
-- [mindfold-ai/Trellis](https://github.com/mindfold-ai/Trellis) — Hook 工作流状态模式
+- [mindfold-ai/Trellis](https://github.com/mindfold-ai/Trellis) — Hook 状态注入模式
 - [ace-tool](https://linux.do/t/topic/1344562) — MCP 代码检索
 
 ## 贡献者
@@ -242,10 +261,14 @@ npx ccg-workflow            # 菜单中选"卸载"
 - **Issues**: [GitHub Issues](https://github.com/fengshao1227/ccg-workflow/issues)
 - **社区**: [Linux.do](https://linux.do)
 
-## License
+## Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=fengshao1227/ccg-workflow&type=timeline&legend=top-left)](https://www.star-history.com/#fengshao1227/ccg-workflow&type=timeline&legend=top-left)
+
+## 许可证
 
 MIT
 
 ---
 
-v3.0.4 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.2.2 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)

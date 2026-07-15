@@ -62,3 +62,5 @@ FINAL_VERIFICATION.md
 
 # Old package tarballs
 *.tgz
+.codegraph/
+coverage/
