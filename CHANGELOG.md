@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.1.3] - 2026-06-01
+
+### 🐛 Fixes
+
+- **Uninstall left hooks and settings behind** — `uninstallWorkflows` predated the v3.0 hook engine and never removed `~/.claude/hooks/ccg/` (5 scripts) or the CCG hook registrations in `~/.claude/settings.json` (`UserPromptSubmit`/`SessionStart`/`PreToolUse`). Uninstall now removes the `hooks/ccg/` directory and deregisters only CCG hook entries (identified by a `hooks/ccg/` command path), preserving the user's own hooks. Added `removedHooks` to the uninstall result. Verified with an install→uninstall round-trip test.
+
+---
+
+## [3.1.2] - 2026-05-30
+
+### 🐛 Fixes
+
+- **Codex Mode hook loaded wrong directory** — `hooks.json` used a relative path (`python3 .codex/hooks/ccg-workflow.py`), so Codex looked for `.codex/hooks/` in the project folder instead of the user home. Now resolved to an absolute home path at install time (`installCodexMode` replaces `~/` with the real home dir).
+- **Codex Mode still called `--backend gemini`** — `hooks/ccg-workflow.py` hardcoded "Gemini" / `--backend gemini` and was copied as-is (never passed through `injectConfigVariables`). Combined with the antigravity default switch + Gemini CLI sunset, this produced empty external-model responses. The script now uses `{{FRONTEND_PRIMARY}}` placeholders injected at install time, and AGENTS.md descriptive text was de-hardcoded too. Antigravity (and any configured frontend) now routes correctly in Codex Mode.
+
+---
+
+## [3.1.1] - 2026-05-23
+
+### 🐛 Fixes
+
+- **Codex-Led AGENTS.md hardcoded gemini** — External model calls in AGENTS.md were hardcoded to `--backend gemini` + `prompts/gemini/`. Now uses `{{FRONTEND_PRIMARY}}`/`{{BACKEND_PRIMARY}}` template variables, replaced at install time via `injectConfigVariables()`. Users who selected antigravity or other models now get correct routing in Codex-Led mode.
+
+### 🔄 Changes
+
+- **Ralph Loop auto-retry** — Critical issues now auto-fix without asking user each round. Only stops at MAX_ROUNDS (3) if Critical persists, or passes through immediately when no Critical found. Reduces human intervention in quality gates.
+- **Artifact Registry** — `task.json` gains `artifacts: []` array. Each deliverable (plan, review, code) registered with type/path/status. Hooks inject artifact summary into breadcrumbs (`workflow-state.js`) and session context (`session-start.js`).
+
+---
+
 ## [3.1.0] - 2026-05-20
 
 ### ✨ New Features

@@ -27,7 +27,9 @@
 
 ---
 
-[**n1n.ai**](https://api.n1n.ai/register?channel=c_ivgzug0w) — Global LLM API Gateway. One API Key to access 500+ top AI models (GPT-5, Claude 4.5, Gemini 3 Pro, and more).
+[![NotebookLM Remover](assets/sponsors/notebooklm-remover.png)](https://notebooklmremover.org)
+
+[NotebookLM Remover](https://notebooklmremover.org) — 免费浏览器本地 AI 水印去除工具。支持视频、PDF、PPTX、信息图、播客等全格式，100% 隐私，离线可用。
 
 ---
 
