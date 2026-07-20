@@ -1,6 +1,6 @@
 {
   "name": "ccg",
-  "version": "3.1.0",
+  "version": "3.2.2",
   "description": "Codex-native CCG workflow planner, executor, Git/context, spec, team, quality gates, and manual GPT Pro evidence layer. Codex creates Chinese plans, orchestrates Gemini, applies code, verifies changes, and reports results.",
   "author": {
     "name": "jed-zed",

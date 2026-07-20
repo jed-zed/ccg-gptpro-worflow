@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.0"
+	version               = "5.12.1"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -577,7 +577,7 @@ func printHelp() {
 
 Usage:
     %[1]s "task" [workdir]
-    %[1]s --backend claude "task" [workdir]
+    %[1]s --backend grok "task" [workdir]
     %[1]s --lite "task" [workdir]     Lite mode (faster, no Web UI)
     %[1]s - [workdir]              Read task from stdin
     %[1]s resume <session_id> "task" [workdir]
@@ -595,11 +595,15 @@ Parallel mode examples:
 
 Options:
     --lite, -L            Lite mode: disable Web UI, faster response
-    --backend <name>      Select backend (codex, gemini, claude)
+    --backend <name>      Select backend (codex, gemini, claude, antigravity, grok)
     --gemini-model <name> Specify Gemini model (gemini backend only)
                           Can also be set via GEMINI_MODEL environment variable
                           CLI parameter takes precedence over environment variable
                           Examples: gemini-2.5-flash, gemini-1.5-pro
+    --grok-model <name>   Specify Grok model (grok backend only)
+                          Can also be set via GROK_MODEL environment variable
+                          CLI parameter takes precedence over environment variable
+                          Examples: grok-4.5, grok-composer-2.5-fast
     --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:
@@ -608,6 +612,8 @@ Environment Variables:
     CODEX_DISABLE_SKIP_GIT_CHECK  Disable skip-git-repo-check flag (default: false)
     CODEAGENT_ASCII_MODE       Use ASCII symbols instead of Unicode (PASS/WARN/FAIL)
     CODEAGENT_LITE_MODE        Enable lite mode (true/false)
+    GEMINI_MODEL               Default Gemini model
+    GROK_MODEL                 Default Grok model
 
 Exit Codes:
     0    Success

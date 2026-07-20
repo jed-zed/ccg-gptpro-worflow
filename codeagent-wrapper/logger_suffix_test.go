@@ -69,6 +69,8 @@ func TestLoggerWithSuffixNamingAndIsolation(t *testing.T) {
 }
 
 func TestLoggerWithSuffixReturnsErrorWhenTempDirNotWritable(t *testing.T) {
+	skipOnWindows(t, "Windows ACL semantics do not honor Unix mode-bit fixtures")
+
 	base := t.TempDir()
 	noWrite := filepath.Join(base, "ro")
 	if err := os.Mkdir(noWrite, 0o500); err != nil {

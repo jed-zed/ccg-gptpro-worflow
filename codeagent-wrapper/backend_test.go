@@ -229,6 +229,61 @@ func TestClaudeBuildArgs_BackendMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildBackendEnv_ClaudeDefaultModel(t *testing.T) {
+	setHome := func(t *testing.T) string {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		return home
+	}
+
+	t.Run("claude defaults to opus through env", func(t *testing.T) {
+		setHome(t)
+		t.Setenv("ANTHROPIC_MODEL", "")
+		got := buildBackendEnv("claude")
+		if got["ANTHROPIC_MODEL"] != "claude-opus-4-8" {
+			t.Fatalf("ANTHROPIC_MODEL=%q, want claude-opus-4-8", got["ANTHROPIC_MODEL"])
+		}
+	})
+
+	t.Run("process env can override", func(t *testing.T) {
+		setHome(t)
+		t.Setenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+		got := buildBackendEnv("claude")
+		if _, ok := got["ANTHROPIC_MODEL"]; ok {
+			t.Fatalf("wrapper env should not override process ANTHROPIC_MODEL: %v", got)
+		}
+	})
+
+	t.Run("settings env can override", func(t *testing.T) {
+		home := setHome(t)
+		t.Setenv("ANTHROPIC_MODEL", "")
+		dir := filepath.Join(home, ".claude")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		path := filepath.Join(dir, "settings.json")
+		data := []byte(`{"env":{"ANTHROPIC_MODEL":"claude-sonnet-4-6"}}`)
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		got := buildBackendEnv("claude")
+		if got["ANTHROPIC_MODEL"] != "claude-sonnet-4-6" {
+			t.Fatalf("ANTHROPIC_MODEL=%q, want settings value", got["ANTHROPIC_MODEL"])
+		}
+	})
+
+	t.Run("non-claude backend does not receive claude model", func(t *testing.T) {
+		setHome(t)
+		t.Setenv("ANTHROPIC_MODEL", "")
+		got := buildBackendEnv("gemini")
+		if _, ok := got["ANTHROPIC_MODEL"]; ok {
+			t.Fatalf("non-claude env should not set ANTHROPIC_MODEL: %v", got)
+		}
+	})
+}
+
 func TestLoadMinimalEnvSettings(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

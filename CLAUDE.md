@@ -2,7 +2,7 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-07-12 (v3.2.0)
+**Last Updated**: 2026-07-15 (v3.2.2)
 
 > ⚠ 本文档主体仍停留在 v2.1.16 架构描述（v3.0 引擎重构后未全量同步）。下方变更记录保留 v3.x 修复轨迹，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -11,6 +11,12 @@
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-07-15 (v3.2.2)
+- 🐛 **doctor/status ESM 修复**：改用静态 `node:child_process` import，恢复 binary 与 npm 版本探测。
+- 🐛 **Windows Go 测试修复**：Unix signal 用例按平台跳过，原生 Windows `go test ./...` 可编译运行。
+- 🐛 **插件缓存一致性**：Codex/Claude marketplace 与插件 manifest 对齐 v3.2.2，仓库回收 SSE 实时预览实现。
+- 🔄 **Binary `5.12.0` → `5.12.1`**：同步帮助文本与跨平台测试修复。
 
 ### 2026-07-12 (v3.2.0)
 - ✨ **Grok CLI 后端**：Grok (xAI) 成为第五个模型选项，init Step 2 / 菜单可选为前端或后端；型号可选 `grok-4.5`（500k 上下文）或 `grok-composer-2.5-fast`（Cursor 编码模型）。`/ccg:go` Builder 模式可让 Grok 全权写代码，Claude token 消耗极低。
@@ -279,7 +285,7 @@
 |--------|------|------|
 | TypeScript CLI 源码 | [src/CLAUDE.md](./src/CLAUDE.md) | CLI 主入口、命令实现、安装器、i18n、工具链 |
 | 模板文件 | [templates/CLAUDE.md](./templates/CLAUDE.md) | 斜杠命令、提示词、子智能体、技能、规则模板 |
-| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.10.0 |
+| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.1 |
 
 ---
 
@@ -308,7 +314,7 @@ npx ccg-workflow menu
 ### codeagent-wrapper 入口
 
 - **主入口**：`codeagent-wrapper/main.go`
-- **当前版本**：v5.10.0
+- **当前版本**：v5.12.1
 - **调用语法**：
   ```bash
   codeagent-wrapper --backend <codex|gemini|claude> - [工作目录] <<'EOF'
@@ -604,7 +610,7 @@ graph TD
     Init --> Agents["~/.claude/agents/ccg/<br/>7 个子智能体"]
     Init --> Skills["~/.claude/skills/ccg/<br/>100+ 技能文件"]
     Init --> Prompts["~/.claude/.ccg/prompts/<br/>19 个专家提示词"]
-    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.10.0"]
+    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.1"]
     Init --> MCP["~/.claude.json<br/>MCP 配置（可选）"]
 
     User2["Claude Code 用户"] --> SlashCmd["/ccg:workflow<br/>/ccg:frontend<br/>..."]

@@ -2,15 +2,15 @@
 
 > [根目录](../CLAUDE.md) > **codeagent-wrapper**
 
-**Last Updated**: 2026-04-10
-**Binary Version**: v5.10.0
+**Last Updated**: 2026-07-15
+**Binary Version**: v5.12.1
 **Go Version**: 1.21+（`go.mod:1`）
 
 ---
 
 ## 模块职责
 
-`codeagent-wrapper` 是用 Go 编写的跨平台 CLI 包装器，将 Codex CLI / Gemini CLI / Claude Code 三种 AI 后端统一成一个标准接口。CCG 工作流系统中的 20+ 个斜杠命令通过调用它来执行多模型协作任务——Claude 作为编排层，codeagent-wrapper 负责实际派发、执行、输出解析和会话管理。
+`codeagent-wrapper` 是用 Go 编写的跨平台 CLI 包装器，将 Codex CLI、Gemini CLI、Claude Code、Antigravity CLI 与 Grok CLI 五种 AI 后端统一成一个标准接口。CCG 工作流系统中的斜杠命令通过调用它来执行多模型协作任务——Claude 作为编排层，codeagent-wrapper 负责实际派发、执行、输出解析和会话管理。
 
 ---
 
@@ -25,10 +25,10 @@
 
 ```bash
 # 单任务模式（新会话）
-codeagent-wrapper [--backend <codex|gemini|claude>] "任务文本" [工作目录]
+codeagent-wrapper [--backend <codex|gemini|claude|antigravity|grok>] "任务文本" [工作目录]
 
 # stdin 模式（处理含换行/特殊字符的任务）
-codeagent-wrapper [--backend <codex|gemini|claude>] - [工作目录] <<'EOF'
+codeagent-wrapper [--backend <codex|gemini|claude|antigravity|grok>] - [工作目录] <<'EOF'
 任务文本
 EOF
 
@@ -48,8 +48,9 @@ codeagent-wrapper --cleanup
 
 | Flag | 说明 | 默认值 |
 |------|------|--------|
-| `--backend <name>` | 指定后端：`codex`、`gemini`、`claude` | `codex` |
+| `--backend <name>` | 指定后端：`codex`、`gemini`、`claude`、`antigravity`、`grok` | `codex` |
 | `--gemini-model <name>` | Gemini 型号（仅 gemini 后端有效） | 空（后端默认） |
+| `--grok-model <name>` | Grok 型号（仅 grok 后端有效） | 空（后端默认） |
 | `--progress` | 向 stderr 输出紧凑进度行 | 关 |
 | `--lite` / `-L` | 精简模式：关闭 Web UI，加快响应 | 关 |
 | `--parallel` | 并行模式，从 stdin 读取多任务配置 | — |
@@ -58,6 +59,8 @@ codeagent-wrapper --cleanup
 | `--version` / `-v` | 打印版本 | — |
 | `--help` / `-h` | 打印帮助 | — |
 | `--cleanup` | 清理过期日志文件 | — |
+
+Claude 后端不追加 `--model`，避免触发 Claude CLI 的模型 flag 兼容问题；wrapper 会在 Claude 子进程环境里默认设置 `ANTHROPIC_MODEL=claude-opus-4-8`。如果外部环境或 `~/.claude/settings.json` 已显式设置 `ANTHROPIC_MODEL`，wrapper 不覆盖。
 
 ### 环境变量
 
@@ -71,6 +74,7 @@ codeagent-wrapper --cleanup
 | `CODEAGENT_POST_MESSAGE_DELAY` | agent_message 后等待秒数（0-60） | 5s |
 | `CODEAGENT_MAX_PARALLEL_WORKERS` | 并行 worker 上限（0=不限） | 0 |
 | `GEMINI_MODEL` | Gemini 型号（低优先级，CLI 参数覆盖） | 空 |
+| `GROK_MODEL` | Grok 型号（低优先级，CLI 参数覆盖） | 空 |
 
 ### 退出码
 
@@ -106,6 +110,8 @@ type Backend interface {
 | `codex` | `codex` | `buildCodexArgs()` |
 | `gemini` | `gemini` | `buildGeminiArgs()` |
 | `claude` | `claude` | `buildClaudeArgs()` |
+| `antigravity` | `agy` | `buildAntigravityArgs()` |
+| `grok` | `grok` | `buildGrokArgs()` |
 
 ### stdin 传递协议
 
@@ -272,8 +278,8 @@ bash build-all.sh
 
 | 文件 | 位置 | 当前值 |
 |------|------|--------|
-| `codeagent-wrapper/main.go` | `version = "5.10.0"` （`main.go:17`） | `5.10.0` |
-| `src/utils/installer.ts` | `EXPECTED_BINARY_VERSION = '5.10.0'` | `5.10.0` |
+| `codeagent-wrapper/main.go` | `version = "5.12.1"` （`main.go:17`） | `5.12.1` |
+| `src/utils/installer.ts` | `EXPECTED_BINARY_VERSION = '5.12.1'` | `5.12.1` |
 
 两边不一致的后果：用户运行 `npx ccg-workflow update` 时无法触发 binary 重新下载，继续使用旧版 binary。
 

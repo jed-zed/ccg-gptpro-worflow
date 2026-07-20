@@ -517,6 +517,8 @@ ok-d`
 }
 
 func TestRunNonParallelOutputsIncludeLogPathsIntegration(t *testing.T) {
+	skipOnWindows(t, "requires the POSIX echo executable")
+
 	defer resetTestHooks()
 
 	tempDir := setTempDirEnv(t, t.TempDir())
@@ -716,6 +718,8 @@ func TestRunConcurrentSpeedupBenchmark(t *testing.T) {
 }
 
 func TestRunStartupCleanupRemovesOrphansEndToEnd(t *testing.T) {
+	skipOnWindows(t, "uses an executable shell-script fixture")
+
 	defer resetTestHooks()
 
 	tempDir := setTempDirEnv(t, t.TempDir())
@@ -867,6 +871,8 @@ func TestRunCleanupFlagEndToEnd_Success(t *testing.T) {
 }
 
 func TestRunCleanupFlagEndToEnd_FailureDoesNotAffectStartup(t *testing.T) {
+	skipOnWindows(t, "uses an executable shell-script fixture")
+
 	defer resetTestHooks()
 
 	tempDir := setTempDirEnv(t, t.TempDir())

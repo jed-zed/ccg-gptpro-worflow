@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import html
 import json
 import os
+import queue
 import shutil
 import socket
 import stat
@@ -44,12 +44,15 @@ PROMPT_TEMPLATES = (
 class State:
     def __init__(self) -> None:
         self.lock = threading.Lock()
+        self.preview_session_id = f"gemini-preview-{int(time.time() * 1000)}"
         self.backend = "gemini"
         self.model = ""
         self.prompt_preview = ""
         self.session_id = ""
         self.content = ""
         self.raw = ""
+        self.content_events: list[dict[str, object]] = []
+        self.clients: list[queue.Queue[dict[str, object]]] = []
         self.events: list[dict[str, str]] = []
         self.status = "starting"
         self.done = False
@@ -87,8 +90,77 @@ class State:
     def append_content(self, text: str) -> None:
         if not text:
             return
+        event = {
+            "session_id": self.preview_session_id,
+            "backend": self.backend,
+            "content": text,
+            "content_type": "message",
+        }
+        clients: list[queue.Queue[dict[str, object]]]
         with self.lock:
             self.content += text
+            self.content_events.append(event)
+            self.content_events = self.content_events[-1000:]
+            clients = list(self.clients)
+        for client in clients:
+            self._put_client_event(client, event)
+
+    def complete(self, exit_code: int, status: str) -> None:
+        event = {
+            "session_id": self.preview_session_id,
+            "backend": self.backend,
+            "done": True,
+            "exit_code": exit_code,
+            "status": status,
+            "auto_close_browser_seconds": self.auto_close_browser_seconds,
+        }
+        clients: list[queue.Queue[dict[str, object]]]
+        with self.lock:
+            self.done = True
+            self.exit_code = exit_code
+            self.status = status
+            clients = list(self.clients)
+        for client in clients:
+            self._put_client_event(client, event)
+
+    def _put_client_event(self, client: queue.Queue[dict[str, object]], event: dict[str, object]) -> None:
+        try:
+            client.put_nowait(event)
+        except queue.Full:
+            try:
+                client.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                client.put_nowait(event)
+            except queue.Full:
+                pass
+
+    def sessions(self) -> list[dict[str, object]]:
+        with self.lock:
+            return [
+                {
+                    "id": self.preview_session_id,
+                    "backend": self.backend,
+                    "task": self.prompt_preview,
+                    "done": self.done,
+                }
+            ]
+
+    def register_client(self, session_id: str) -> tuple[queue.Queue[dict[str, object]], list[dict[str, object]], bool, int | None]:
+        if session_id != self.preview_session_id:
+            raise KeyError(session_id)
+        client: queue.Queue[dict[str, object]] = queue.Queue(maxsize=200)
+        with self.lock:
+            self.clients.append(client)
+            backlog = list(self.content_events)
+            done = self.done
+            exit_code = self.exit_code
+        return client, backlog, done, exit_code
+
+    def unregister_client(self, client: queue.Queue[dict[str, object]]) -> None:
+        with self.lock:
+            self.clients = [existing for existing in self.clients if existing is not client]
 
     def append_raw(self, text: str) -> None:
         if not text:
@@ -102,6 +174,7 @@ class State:
                 "backend": self.backend,
                 "model": self.model,
                 "prompt_preview": self.prompt_preview,
+                "preview_session_id": self.preview_session_id,
                 "session_id": self.session_id,
                 "content": self.content,
                 "raw": self.raw,
@@ -430,14 +503,83 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
                 self.wfile.write(body)
                 return
 
+            if self.path == "/api/sessions" or self.path.startswith("/api/sessions?"):
+                body = json.dumps(STATE.sessions(), ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if self.path.startswith("/api/stream/"):
+                session_id = self.path[len("/api/stream/") :].split("?", 1)[0]
+                self.stream_session(session_id)
+                return
+
             self.send_response(404)
             self.end_headers()
+
+        def stream_session(self, session_id: str) -> None:
+            try:
+                client, backlog, done, exit_code = STATE.register_client(session_id)
+            except KeyError:
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            def send_event(event: dict[str, object]) -> bool:
+                try:
+                    data = json.dumps(event, ensure_ascii=False).encode("utf-8")
+                    self.wfile.write(b"data: " + data + b"\n\n")
+                    self.wfile.flush()
+                    return True
+                except (ConnectionError, OSError):
+                    return False
+
+            try:
+                for event in backlog:
+                    if not send_event(event):
+                        return
+                if done:
+                    send_event(
+                        {
+                            "session_id": STATE.preview_session_id,
+                            "backend": STATE.backend,
+                            "done": True,
+                            "exit_code": exit_code,
+                            "auto_close_browser_seconds": STATE.auto_close_browser_seconds,
+                        }
+                    )
+                    return
+                while True:
+                    try:
+                        event = client.get(timeout=15)
+                    except queue.Empty:
+                        try:
+                            self.wfile.write(b": keepalive\n\n")
+                            self.wfile.flush()
+                            continue
+                        except (ConnectionError, OSError):
+                            return
+                    if not send_event(event):
+                        return
+                    if event.get("done"):
+                        return
+            finally:
+                STATE.unregister_client(client)
 
         @staticmethod
         def index_html() -> str:
             snap = STATE.snapshot()
-            model = html.escape(str(snap["model"]))
-            prompt = html.escape(str(snap["prompt_preview"]))
             auto_close = int(snap.get("auto_close_browser_seconds", 0) or 0)
             return f"""<!doctype html>
 <html lang="zh-CN">
@@ -511,6 +653,7 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
       margin-bottom: 16px;
       padding-bottom: 12px;
       border-bottom: 1px solid #30363d;
+      white-space: pre-wrap;
     }}
     .cursor {{
       display: inline-block;
@@ -542,58 +685,121 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
       <span class="live-dot"></span> LIVE
     </div>
   </header>
-  <div class="output-area" id="output">
-    <div class="task-block"><strong>&#128203; Task:</strong><br>{prompt}</div>
-    <span id="stream"></span><span class="cursor" id="cursor"></span>
-    <div id="done"></div>
-  </div>
+  <div class="output-area" id="output"></div>
   <script>
     const output = document.getElementById('output');
-    const stream = document.getElementById('stream');
-    const cursor = document.getElementById('cursor');
-    const doneEl = document.getElementById('done');
     const liveIndicator = document.getElementById('liveIndicator');
-    let lastContent = '';
+    let connected = false;
     let userScrolled = false;
+
     output.addEventListener('scroll', () => {{
       const isAtBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 50;
       userScrolled = !isAtBottom;
     }});
-    function scrollBottom() {{
+
+    function scrollToBottom() {{
       if (!userScrolled) output.scrollTop = output.scrollHeight;
     }}
-    async function tick() {{
+
+    function appendCursor() {{
+      const existing = output.querySelector('.cursor');
+      if (existing) existing.remove();
+      const cursorEl = document.createElement('span');
+      cursorEl.className = 'cursor';
+      output.appendChild(cursorEl);
+    }}
+
+    function appendContent(content, contentType) {{
+      const cursor = output.querySelector('.cursor');
+      if (cursor) cursor.remove();
+
+      const contentEl = document.createElement('span');
+      switch (contentType || 'message') {{
+        case 'reasoning':
+          contentEl.style.cssText = 'color: #8b949e; font-style: italic;';
+          contentEl.textContent = '💭 ' + content;
+          break;
+        case 'command':
+          contentEl.style.cssText = 'color: #fbbf24; background: #1e1e1e; padding: 8px; margin: 8px 0; display: block; border-left: 3px solid #d97706; font-family: monospace;';
+          contentEl.textContent = content;
+          break;
+        case 'message':
+        default:
+          contentEl.style.cssText = 'color: #c9d1d9;';
+          contentEl.textContent = content;
+          break;
+      }}
+
+      output.appendChild(contentEl);
+      appendCursor();
+      setTimeout(scrollToBottom, 0);
+    }}
+
+    function appendDone(state) {{
+      const cursor = output.querySelector('.cursor');
+      if (cursor) cursor.remove();
+      liveIndicator.style.display = 'none';
+      const ok = Number(state.exit_code || 0) === 0;
+      const doneEl = document.createElement('div');
+      doneEl.className = ok ? 'done-indicator' : 'done-indicator failed';
+      const autoClose = Number(state.auto_close_browser_seconds || {auto_close});
+      doneEl.textContent = ok ? '✓ 完成' + (autoClose > 0 ? ' (' + autoClose + '秒后自动关闭)' : '') : 'Finished with exit code ' + state.exit_code;
+      output.appendChild(doneEl);
+      userScrolled = false;
+      setTimeout(scrollToBottom, 0);
+      if (autoClose > 0) {{
+        setTimeout(() => {{
+          window.close();
+          setTimeout(() => {{
+            if (ok) doneEl.textContent = '✓ 完成 (可以关闭此页面)';
+          }}, 100);
+        }}, autoClose * 1000);
+      }}
+    }}
+
+    async function connectToStream() {{
       try {{
-        const res = await fetch('/state?ts=' + Date.now());
-        const state = await res.json();
-        if (state.content !== lastContent) {{
-          lastContent = state.content;
-          stream.textContent = state.content || '';
-          setTimeout(scrollBottom, 0);
-        }}
-        if (state.done) {{
-          const ok = state.exit_code === 0;
-          cursor.style.display = 'none';
-          liveIndicator.style.display = 'none';
-          doneEl.className = ok ? 'done-indicator' : 'done-indicator failed';
-          const autoClose = Number(state.auto_close_browser_seconds || {auto_close});
-          doneEl.textContent = ok ? 'Completed. Closing preview...' : 'Finished with exit code ' + state.exit_code;
-          userScrolled = false;
-          setTimeout(scrollBottom, 0);
-          if (autoClose > 0) {{
-            setTimeout(() => {{
-              window.close();
-              setTimeout(() => {{
-                if (ok) doneEl.textContent = 'Completed. You can close this page.';
-              }}, 700);
-            }}, autoClose * 1000);
-          }}
+        const res = await fetch('/api/sessions');
+        const sessions = await res.json();
+        if (sessions.length === 0) {{
+          setTimeout(connectToStream, 500);
           return;
         }}
-      }} catch (e) {{}}
-      setTimeout(tick, 500);
+        const session = sessions[0];
+        if (connected) return;
+        connected = true;
+
+        if (session.task) {{
+          const taskEl = document.createElement('div');
+          taskEl.className = 'task-block';
+          taskEl.innerHTML = '<strong>&#128203; Task:</strong><br>';
+          const taskText = document.createElement('span');
+          taskText.textContent = session.task;
+          taskEl.appendChild(taskText);
+          output.appendChild(taskEl);
+          appendCursor();
+          setTimeout(scrollToBottom, 0);
+        }}
+
+        const es = new EventSource('/api/stream/' + session.id);
+        es.onmessage = (event) => {{
+          const data = JSON.parse(event.data);
+          if (data.content) {{
+            appendContent(data.content, data.content_type || 'message');
+          }}
+          if (data.done) {{
+            appendDone(data);
+            es.close();
+          }}
+        }};
+        es.onerror = () => {{
+          liveIndicator.style.display = 'none';
+        }};
+      }} catch (e) {{
+        setTimeout(connectToStream, 500);
+      }}
     }}
-    tick();
+    connectToStream();
   </script>
 </body>
 </html>"""
@@ -1075,7 +1281,7 @@ def main() -> int:
         response = str(STATE.snapshot().get("content", ""))
         response_path.write_text(response, encoding="utf-8", errors="replace")
         STATE.add_event(f"Response file written: {response_path}")
-        STATE.update(done=True, exit_code=code, status="complete" if code == 0 else "failed")
+        STATE.complete(code, "complete" if code == 0 else "failed")
         close_event = "Preview will auto-close after completion" if auto_close > 0 else "Preview auto-close disabled"
         STATE.add_event(close_event)
         print(f"CCG_GEMINI_RESPONSE_FILE={response_path}", flush=True)

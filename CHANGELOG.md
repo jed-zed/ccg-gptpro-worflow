@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.2.2] - 2026-07-15
+
+### 🐛 Fixes
+
+- **`ccg doctor` / `ccg status` ESM execution** — Replace the runtime `require('node:child_process')` call with an ESM import so packaged `.mjs` commands can detect installed binaries and npm versions correctly.
+- **Windows Go test portability** — Skip Unix-only signal delivery cases on Windows and remove cross-file references to Unix-tagged test functions, allowing native `go test ./...` to compile and run.
+- **Wrapper help parity** — Document the Antigravity and Grok backends plus `--grok-model` / `GROK_MODEL` in `codeagent-wrapper --help`.
+- **Safe binary upgrades** — Download wrapper candidates to a temporary file, require an exact `5.12.1` version match, and preserve the installed binary when the CDN or GitHub `preset` release is stale.
+- **Codex plugin cache parity** — Align plugin marketplace manifests with v3.2.2 and restore the SSE live-preview implementation to the repository source before cache synchronization.
+
+### 🔄 Changes
+
+- **codeagent-wrapper `5.12.0` → `5.12.1`** — Cross-platform test and help-text maintenance release.
+
+---
+
 ## [3.2.1] - 2026-07-15
 
 ### ✨ Features

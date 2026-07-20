@@ -9,7 +9,7 @@
     {
       "name": "ccg",
       "description": "Codex-side CCG workflow planner, executor, Git/context, spec, team, quality gates, and manual GPT Pro evidence layer.",
-      "version": "3.1.0",
+      "version": "3.2.2",
       "source": "./plugins/ccg",
       "author": {
         "name": "jed-zed",

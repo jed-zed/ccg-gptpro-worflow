@@ -37,7 +37,10 @@ func (ClaudeBackend) BuildArgs(cfg *Config, targetArg string) []string {
 	return buildClaudeArgs(cfg, targetArg)
 }
 
-const maxClaudeSettingsBytes = 1 << 20 // 1MB
+const (
+	maxClaudeSettingsBytes = 1 << 20 // 1MB
+	defaultClaudeModel     = "claude-opus-4-8"
+)
 
 // loadMinimalEnvSettings 从 ~/.claude/settings.json 只提取 env 配置。
 // 只接受字符串类型的值；文件缺失/解析失败/超限都返回空。
@@ -79,6 +82,23 @@ func loadMinimalEnvSettings() map[string]string {
 	if len(env) == 0 {
 		return nil
 	}
+	return env
+}
+
+func buildBackendEnv(commandName string) map[string]string {
+	env := loadMinimalEnvSettings()
+	if env == nil {
+		env = make(map[string]string)
+	}
+
+	if commandName == "claude" {
+		if _, ok := env["ANTHROPIC_MODEL"]; !ok {
+			if val, exists := os.LookupEnv("ANTHROPIC_MODEL"); !exists || strings.TrimSpace(val) == "" {
+				env["ANTHROPIC_MODEL"] = defaultClaudeModel
+			}
+		}
+	}
+
 	return env
 }
 

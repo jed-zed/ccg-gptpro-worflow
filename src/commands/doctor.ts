@@ -1,5 +1,6 @@
 import ansis from 'ansis'
 import fs from 'fs-extra'
+import { execSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { readCcgConfig } from '../utils/config'
@@ -18,9 +19,8 @@ async function dirFiles(p: string): Promise<string[]> {
   return (await fs.readdir(p)).filter(f => !f.startsWith('.'))
 }
 
-function execSafe(cmd: string): string | null {
+export function execSafe(cmd: string): string | null {
   try {
-    const { execSync } = require('node:child_process') as typeof import('node:child_process')
     return execSync(cmd, { stdio: 'pipe', timeout: 10000 }).toString().trim()
   }
   catch { return null }

@@ -152,6 +152,8 @@ func (f *execFakeRunner) Process() processHandle {
 }
 
 func TestExecutorHelperCoverage(t *testing.T) {
+	skipOnWindows(t, "includes POSIX command process coverage")
+
 	t.Run("realCmdAndProcess", func(t *testing.T) {
 		rc := &realCmd{}
 		if err := rc.Start(); err == nil {
@@ -357,6 +359,8 @@ func TestExecutorHelperCoverage(t *testing.T) {
 }
 
 func TestExecutorRunCodexTaskWithContext(t *testing.T) {
+	skipOnWindows(t, "includes POSIX exit and signal semantics")
+
 	origRunner := newCommandRunner
 	defer func() { newCommandRunner = origRunner }()
 
@@ -963,6 +967,8 @@ func TestExecutorTaskLoggerContext(t *testing.T) {
 }
 
 func TestExecutorExecuteConcurrentWithContextBranches(t *testing.T) {
+	skipOnWindows(t, "includes Unix permission-based logger failures")
+
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatalf("failed to open %s: %v", os.DevNull, err)
@@ -1226,6 +1232,8 @@ func TestExecutorExecuteConcurrentWithContextBranches(t *testing.T) {
 }
 
 func TestExecutorSignalAndTermination(t *testing.T) {
+	skipOnWindows(t, "Unix signal semantics test")
+
 	forceKillDelay.Store(0)
 	defer forceKillDelay.Store(5)
 
