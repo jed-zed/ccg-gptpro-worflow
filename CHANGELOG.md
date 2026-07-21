@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Automatic route invalidation** — Re-run intelligence when task phase, plan, target, dependency, or diff digests change; reuse identical valid Team decisions instead of invoking once per teammate.
 - **Headless live doctor authentication** — Use explicit `XAI_API_KEY` authentication in approved CI runs while preserving direct browser OAuth as the desktop default.
+- **Coverage runner parity** — Align `vitest` with `@vitest/coverage-v8` 3.2.7 so release coverage runs no longer mix unsupported tool versions.
 
 ### 🔄 Changes
 

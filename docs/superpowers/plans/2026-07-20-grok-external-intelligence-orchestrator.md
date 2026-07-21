@@ -966,7 +966,7 @@ git commit -m "docs: document Grok external intelligence"
 
 - Verify only; fix failures in the owning task's files with a focused follow-up commit
 
-- [ ] **Step 1: TypeScript gates**
+- [x] **Step 1: TypeScript gates**
 
 ```powershell
 pnpm typecheck
@@ -975,7 +975,7 @@ pnpm build
 npm pack --dry-run --json
 ```
 
-- [ ] **Step 2: Go gates**
+- [x] **Step 2: Go gates**
 
 ```powershell
 Push-Location codeagent-wrapper
@@ -986,7 +986,7 @@ go build .
 Pop-Location
 ```
 
-- [ ] **Step 3: Security-focused checks**
+- [x] **Step 3: Security-focused checks**
 
 Search for forbidden profile regressions:
 
@@ -997,11 +997,11 @@ rg -n -- "mcpServers:\s*\[\]|outcome:\s*\{\s*outcome:\s*['\"]cancelled|run_termi
 
 Expected: forbidden one-shot/approval references are absent from intelligence execution; required empty-MCP, permission-cancel and terminal-disallow references are present. Inspect a fake ACP child environment dump and prove no unrelated secret names pass.
 
-- [ ] **Step 4: Install/distribution smoke**
+- [x] **Step 4: Install/distribution smoke**
 
 Install into a temporary home, run local doctor, both manual commands with fake wrapper, all family behavior tests, canonical evidence validation, export, retention cleanup and uninstall. Confirm template/plugin runtime hashes match.
 
-- [ ] **Step 5: Final staged/unstaged review**
+- [x] **Step 5: Final staged/unstaged review**
 
 ```powershell
 git status --short
