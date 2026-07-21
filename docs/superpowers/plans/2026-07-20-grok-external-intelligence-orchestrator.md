@@ -838,7 +838,7 @@ git commit -m "feat(workflows): add opt-in Grok intelligence gates"
 - Test: `src/utils/__tests__/grokIntelligenceWorkflowBehavior.test.ts`
 - Test: `src/utils/__tests__/pluginParity.test.ts`
 
-- [ ] **Step 1: Expand coverage manifest by family**
+- [x] **Step 1: Expand coverage manifest by family**
 
 Required families and representative executable cases:
 
@@ -854,15 +854,15 @@ quality gates
 
 Git-only commands (`commit`, `rollback`, `clean-branches`, `worktree`, `context`) remain default skips unless the user explicitly invokes a Grok command.
 
-- [ ] **Step 2: Use one shared route contract everywhere**
+- [x] **Step 2: Use one shared route contract everywhere**
 
 Every workflow calls the installed mirrored `route.mjs`, supplies task/mode/phase/plan/diff/dependency/state paths, honors disabled config, propagates exit 2/3/4, persists a reason, and re-evaluates when plan/dependency/target/diff/phase digest changes.
 
-- [ ] **Step 3: Add family behavior tests**
+- [x] **Step 3: Add family behavior tests**
 
 Each family uses fake runner to verify invocation order and state mutation. Team tests prove one shared evidence decision rather than duplicate calls per teammate. Spec tests bind proposal/plan/diff digests. Quality tests run only when external triggers exist.
 
-- [ ] **Step 4: Green, parity and commit**
+- [x] **Step 4: Green, parity and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/grokIntelligenceWorkflowBehavior.test.ts src/utils/__tests__/pluginParity.test.ts src/utils/__tests__/installWorkflows.test.ts

@@ -3,6 +3,14 @@ name: executor
 description: Run the CCG workflow inside Codex. Use when the user invokes /ccg, /ccg:workflow, /ccg:execute, /ccg:excute, /ccg:codex-exec, asks Codex to execute a .codex/ccg/plans/*.md or legacy .claude/plan/*.md file, or wants Codex to orchestrate Gemini and Claude evidence while implementing a CCG plan.
 ---
 
+## Automatic External Intelligence Gate
+
+Before ordinary work, run the shared route once from the controller:
+
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow execute --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+
+Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+
 # CCG Executor
 
 You are the Codex-side orchestrator for CCG workflow plans. New plans are produced by `/ccg:plan` under `.codex/ccg/plans/`; legacy Claude CCG planning files under `.claude/plan/` remain readable compatibility inputs. Codex owns execution, final code edits, verification, and delivery. Gemini and Claude are external evidence helpers under the Codex-native CCG parity rules from `fengshao1227/ccg-workflow`: use both for M+ analysis/review and risky work, while keeping Codex as the only final workspace owner. Gemini is mandatory for frontend/UI prototypes and frontend/UI post-change review.

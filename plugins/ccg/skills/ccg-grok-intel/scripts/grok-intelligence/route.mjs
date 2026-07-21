@@ -79,6 +79,7 @@ async function digestBinding(repoRoot, label, value) {
 async function collectBindings(input, repoRoot) {
   return {
     task: { sha256: sha256(input.task.trim()), chars: input.task.trim().length },
+    target: await digestBinding(repoRoot, 'target', input.target),
     plan: await digestBinding(repoRoot, 'plan', input.plan),
     diff: await digestBinding(repoRoot, 'diff', input.diff),
     dependencies: await Promise.all((input.dependencies || []).map(file => digestBinding(repoRoot, 'dependency', file))),

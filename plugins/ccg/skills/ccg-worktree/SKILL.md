@@ -3,6 +3,8 @@ name: worktree
 description: Manage Git worktrees safely. Use when the user invokes /ccg:worktree.
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # CCG Worktree
 
 Provide safe worktree list, add, and remove assistance.

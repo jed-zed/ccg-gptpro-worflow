@@ -3,6 +3,14 @@ name: plan
 description: Create or revise a CCG implementation plan with Codex as planner and Gemini plus Claude read-only analysis evidence. Use when the user invokes /ccg:plan, asks to generate a .codex/ccg/plans/*.md CCG plan, asks to revise an existing CCG plan, or wants Codex-native multi-model planning without modifying product code.
 ---
 
+## Automatic External Intelligence Gate
+
+Before ordinary work, run the shared route once from the controller:
+
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow plan --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+
+Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+
 # CCG Plan
 
 Create decision-complete CCG plans for later `/ccg:execute`. This skill follows the Codex-native CCG parity rules from `fengshao1227/ccg-workflow`: Codex gathers context and writes the final plan under `.codex/ccg/plans/`; Gemini and Claude provide read-only external model evidence when a real plan is created or revised.

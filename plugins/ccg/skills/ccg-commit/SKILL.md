@@ -3,6 +3,8 @@ name: commit
 description: Prepare a safe commit with CCG gates. Use when the user invokes /ccg:commit.
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # CCG Commit
 
 Help prepare a commit without surprising the user.

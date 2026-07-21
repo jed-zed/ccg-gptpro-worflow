@@ -2,6 +2,8 @@
 description: '管理 Git Worktree：在 ../.ccg/项目名/ 目录创建，支持 IDE 集成和内容迁移'
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # Worktree - Git Worktree 管理
 
 在结构化目录管理 Git worktree，支持智能默认和 IDE 集成。

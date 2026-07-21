@@ -19,17 +19,34 @@ describe('Grok workflow routing behavior', () => {
     await fs.remove(tempRoot)
   })
 
-  it('declares the initial executable workflow coverage and mirrors every listed surface', () => {
+  it('declares executable coverage for every automatic-routing family and mirrors every listed surface', () => {
     const coveragePath = join(packageRoot, 'templates', 'engine', 'tools', 'grok-intelligence', 'workflow-coverage.json')
     expect(fs.pathExistsSync(coveragePath)).toBe(true)
     const coverage = fs.readJsonSync(coveragePath)
     expect(coverage).toMatchObject({ schemaVersion: 1, runtime: 'tools/grok-intelligence/route.mjs' })
-    expect(coverage.workflows.map((entry: any) => entry.id)).toEqual([
-      'go', 'gptpro-plan', 'gptpro-exc', 'gptpro-review',
+    const families = new Set(coverage.workflows.flatMap((entry: any) => entry.families))
+    expect(families).toEqual(new Set([
+      'go-plan',
+      'execute-feat',
+      'review-verify',
+      'team',
+      'spec',
+      'gptpro',
+      'quality-gates',
+    ]))
+    expect(coverage.defaultSkips).toEqual([
+      'commit', 'rollback', 'clean-branches', 'worktree', 'context',
     ])
+    for (const entry of coverage.defaultSkipSurfaces) {
+      expect(coverage.defaultSkips).toContain(entry.id)
+      for (const relativePath of entry.surfaces) {
+        const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
+        expect(content, relativePath).not.toContain(routeCommand)
+        expect(content, relativePath).toMatch(/does not invoke|不调用.*Grok/i)
+      }
+    }
 
     for (const entry of coverage.workflows) {
-      expect(entry.families).toEqual(expect.arrayContaining(['initial-auto-route']))
       expect(entry.surfaces.length).toBeGreaterThan(0)
       for (const relativePath of entry.surfaces) {
         const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
@@ -39,6 +56,159 @@ describe('Grok workflow routing behavior', () => {
         expect(content, relativePath).toMatch(/exit (?:code )?`?2(?:`, `3`, or `4|\/3\/4)/i)
       }
     }
+  })
+
+  it('runs one shared Team decision and reuses it for identical teammate context', async () => {
+    const repoRoot = join(tempRoot, 'team-family')
+    await fs.ensureDir(repoRoot)
+    await fs.writeJson(join(repoRoot, 'package.json'), { name: 'fixture' })
+    const stateFile = join(repoRoot, '.ccg', 'tasks', 'team-task', 'intelligence-route.json')
+    const invocations: any[] = []
+    const events: string[] = []
+    const input = {
+      repoRoot,
+      config: { enabled: true, auto_route: true, require_web_search: true, x_search_policy: 'preferred' },
+      workflow: 'team',
+      phase: 'team-intake',
+      task: 'Upgrade the current SDK contract for all builders.',
+      stateFile,
+    }
+    const runtime = {
+      invoke: async (request: any) => {
+        invocations.push(request)
+        return { exitCode: 0, status: 'valid' }
+      },
+      onEvent: (event: string) => events.push(event),
+    }
+
+    const leader = await (routeRuntime as any).runWorkflowRoute(input, runtime)
+    const teammate = await (routeRuntime as any).runWorkflowRoute(input, runtime)
+
+    expect(leader).toMatchObject({ invoked: true, reused: false, workflow: 'team', phase: 'team-intake' })
+    expect(teammate).toMatchObject({ invoked: false, reused: true })
+    expect(invocations).toHaveLength(1)
+    expect(events).toEqual(['decision', 'state:pending', 'state:complete', 'decision'])
+    expect(await fs.readJson(stateFile)).toMatchObject({ decision: { status: 'valid' }, execution: { invoked: true } })
+  })
+
+  it.each([
+    ['go-plan', 'plan', 'intake', undefined],
+    ['execute-feat', 'feat', 'implementation', undefined],
+    ['review-verify', 'review', 'final-verify', 'final_diff_verify'],
+    ['gptpro', 'gptpro-plan', 'intake', undefined],
+  ])('runs the %s family gate before its ordinary workflow', async (_family, workflow, phase, trigger) => {
+    const repoRoot = join(tempRoot, `family-${workflow}`)
+    await fs.ensureDir(repoRoot)
+    const stateFile = join(repoRoot, 'route.json')
+    const order: string[] = []
+    const result = await (routeRuntime as any).runWorkflowRoute({
+      repoRoot,
+      config: { enabled: true, auto_route: true, require_web_search: true, x_search_policy: 'disabled' },
+      workflow,
+      phase,
+      trigger,
+      task: 'Use the latest SDK API contract in this workflow.',
+      stateFile,
+    }, {
+      onEvent: (event: string) => order.push(event),
+      invoke: async () => {
+        order.push('runner')
+        return { exitCode: 0, status: 'valid' }
+      },
+    })
+
+    expect(result).toMatchObject({ invoked: true, workflow, phase, decision: { status: 'valid' } })
+    expect(order).toEqual(['decision', 'state:pending', 'runner', 'state:complete'])
+    expect(await fs.readJson(stateFile)).toMatchObject({ workflow, phase, execution: { invoked: true } })
+  })
+
+  it('invalidates Spec evidence when proposal, plan, diff, target, or phase bindings change', async () => {
+    const repoRoot = join(tempRoot, 'spec-family')
+    await fs.ensureDir(repoRoot)
+    const proposal = join(repoRoot, 'proposal.md')
+    const plan = join(repoRoot, 'plan.md')
+    const diff = join(repoRoot, 'change.diff')
+    const target = join(repoRoot, 'target.txt')
+    await Promise.all([
+      fs.writeFile(proposal, 'proposal-v1'),
+      fs.writeFile(plan, 'plan-v1'),
+      fs.writeFile(diff, 'diff-v1'),
+      fs.writeFile(target, 'target-v1'),
+    ])
+    const stateFile = join(repoRoot, 'spec-route.json')
+    const invocations: any[] = []
+    const runtime = { invoke: async (request: any) => {
+      invocations.push(request)
+      return { exitCode: 0, status: 'valid' }
+    } }
+    const base = {
+      repoRoot,
+      config: { enabled: true, auto_route: true, require_web_search: true, x_search_policy: 'disabled' },
+      workflow: 'spec-plan',
+      phase: 'spec-plan',
+      task: 'Plan an SDK API compatibility upgrade.',
+      plan,
+      target,
+      dependencies: [proposal],
+      stateFile,
+    }
+
+    expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ invoked: true })
+    expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ reused: true })
+    await fs.writeFile(proposal, 'proposal-v2')
+    expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ invoked: true })
+    await fs.writeFile(plan, 'plan-v2')
+    expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ invoked: true })
+    await fs.writeFile(target, 'target-v2')
+    expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ invoked: true })
+    expect(await (routeRuntime as any).runWorkflowRoute({
+      ...base,
+      phase: 'final-verify',
+      trigger: 'final_diff_verify',
+      diff,
+    }, runtime)).toMatchObject({ invoked: true, phase: 'final-verify' })
+    await fs.writeFile(diff, 'diff-v2')
+    expect(await (routeRuntime as any).runWorkflowRoute({
+      ...base,
+      phase: 'final-verify',
+      trigger: 'final_diff_verify',
+      diff,
+    }, runtime)).toMatchObject({ invoked: true })
+    expect(invocations).toHaveLength(6)
+  })
+
+  it('keeps local quality gates offline and invokes external-contract quality checks in order', async () => {
+    const repoRoot = join(tempRoot, 'quality-family')
+    await fs.ensureDir(repoRoot)
+    const target = join(repoRoot, 'changed.ts')
+    await fs.writeFile(target, 'export const value = 1\n')
+    const invocations: any[] = []
+    const events: string[] = []
+    const runtime = {
+      invoke: async (request: any) => {
+        invocations.push(request)
+        return { exitCode: 0, status: 'valid' }
+      },
+      onEvent: (event: string) => events.push(event),
+    }
+    const common = {
+      repoRoot,
+      config: { enabled: true, auto_route: true, require_web_search: true, x_search_policy: 'disabled' },
+      workflow: 'verify-quality',
+      phase: 'quality-verify',
+      target,
+      stateFile: join(repoRoot, 'quality-route.json'),
+    }
+
+    const local = await (routeRuntime as any).runWorkflowRoute({ ...common, task: 'Check local formatting.' }, runtime)
+    expect(local).toMatchObject({ invoked: false, decision: { trigger: 'no_initial_trigger' } })
+    const external = await (routeRuntime as any).runWorkflowRoute({
+      ...common,
+      task: 'Verify compatibility with the latest external SDK API contract.',
+    }, runtime)
+    expect(external).toMatchObject({ invoked: true, decision: { trigger: 'dependency_api_contract' } })
+    expect(invocations).toHaveLength(1)
+    expect(events).toEqual(['decision', 'state:complete', 'decision', 'state:pending', 'state:complete'])
   })
 
   it('places the executable Grok gate before ordinary work on representative entrypoints', () => {

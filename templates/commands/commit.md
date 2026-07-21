@@ -2,6 +2,8 @@
 description: '智能 Git 提交：分析改动生成 Conventional Commit 信息，支持拆分建议'
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # Commit - 智能 Git 提交
 
 分析当前改动，生成 Conventional Commits 风格的提交信息。

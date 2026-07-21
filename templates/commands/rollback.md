@@ -2,6 +2,8 @@
 description: '交互式 Git 回滚：安全回滚分支到历史版本，支持 reset/revert 模式'
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # Rollback - 交互式 Git 回滚
 
 安全地将分支回滚到指定历史版本，默认 dry-run 模式。

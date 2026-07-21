@@ -4,6 +4,8 @@ argument-hint: "init|log <note>|summarize|history|clear [--dry-run|--confirm]"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write, WebFetch]
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # CCG Context
 
 The user invoked:

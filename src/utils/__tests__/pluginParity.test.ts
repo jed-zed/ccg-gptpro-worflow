@@ -31,4 +31,19 @@ describe('Codex plugin release parity', () => {
     expect(preview).toContain('/api/stream/')
     expect(preview).toContain('STATE.complete(')
   })
+
+  it('keeps the Grok routing runtime and coverage manifest byte-identical across distributions', () => {
+    const pairs = [
+      [
+        join(root, 'templates', 'engine', 'tools', 'grok-intelligence', 'route.mjs'),
+        join(root, 'plugins', 'ccg', 'skills', 'ccg-grok-intel', 'scripts', 'grok-intelligence', 'route.mjs'),
+      ],
+      [
+        join(root, 'templates', 'engine', 'tools', 'grok-intelligence', 'workflow-coverage.json'),
+        join(root, 'plugins', 'ccg', 'skills', 'ccg-grok-intel', 'scripts', 'grok-intelligence', 'workflow-coverage.json'),
+      ],
+    ]
+    for (const [template, plugin] of pairs)
+      expect(fs.readFileSync(plugin, 'utf8'), plugin).toBe(fs.readFileSync(template, 'utf8'))
+  })
 })
