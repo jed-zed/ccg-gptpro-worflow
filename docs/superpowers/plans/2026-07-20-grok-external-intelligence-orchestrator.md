@@ -4,7 +4,7 @@
 
 **Goal:** 将官方 Grok Build CLI 落地为 CCG 的外部情报与事实核验层，以真实 Web/X 工具事件建立可审计证据，接入 GPT Pro 与全部 CCG 工作流，并在用户明确同意后由主编排器自动判断是否搜索。
 
-**Architecture:** 保留现有通用 `codeagent-wrapper --backend grok`；另增隔离的 intelligence profile。Go wrapper 负责最小权限启动、精确环境、私有原始事件文件和进程限制；零第三方依赖的 Node.js ESM runtime 负责路由、只读聚焦快照、真实事件归一化、运行时 source registry、证据校验、缓存、canonical task evidence 和报告。required gate 首版只使用契约探针验证过的单 agent 模型；deep multi-agent 仅作 advisory，并明确 leader-only 可见性。
+**Architecture:** 保留现有通用 `codeagent-wrapper --backend grok` 兼容路径，但 intelligence profile 不再经过 one-shot wrapper。真实 Windows 探针证明 `grok -p` 会错误启动已禁用的 Claude MCP，故情报层改用零第三方依赖的 Node.js ESM ACP client 启动 `grok agent stdio`：复用专用私有 `GROK_HOME` 中的官方浏览器登录态，使用 exact env、无文件系统/终端客户端能力、`mcpServers: []`、权限请求全拒绝和进程限制。runtime 同时负责路由、只读聚焦快照、真实 ACP 事件归一化、运行时 source registry、证据校验、缓存、canonical task evidence 和报告。required gate 首版只使用契约探针验证过的单 agent 模型；deep multi-agent 仅作 advisory，并明确 leader-only 可见性。
 
 **Tech Stack:** Node.js 20 ESM、TypeScript 5.9、Vitest、Go 1.21+ 标准库、PowerShell doctor、Markdown command/skill templates、TOML/JSON/JSONL、GitHub Actions Windows/Ubuntu matrix。
 
@@ -16,7 +16,7 @@
 
 本地核验结果：
 
-- 接受：脏工作区必须真正隔离；intelligence profile 禁止 `--always-approve`；不得继承完整 `os.Environ()`；真实 CLI contract probe 必须先于事件实现；旧配置必须默认关闭；deep multi-agent 只能声称 leader 可见事件；必须复用 `.ccg/tasks/<task-id>/evidence.json`；必须增加 Windows CI。
+- 接受：脏工作区必须真正隔离；intelligence profile 禁止 `--always-approve`；不得继承完整 `process.env`；真实 CLI/ACP contract probe 必须先于事件实现；旧配置必须默认关闭；deep multi-agent 只能声称 leader 可见事件；必须复用 `.ccg/tasks/<task-id>/evidence.json`；必须增加 Windows CI。
 - 接受：`grok-cli` 与既有 `grok-search` MCP 明确仲裁；required evidence 只接受官方 CLI 内置搜索事件，默认不 fallback。
 - 拒绝：附件声称本地包/插件版本为 `3.1.3`/`3.1.0`。本地 `package.json`、两个 marketplace 和 Codex plugin manifest 均为 `3.2.2`；目标版本仍为 `3.3.0`。
 - 动态处理：不得把任何远端 SHA 或本地 `cb7039d` 写成通过条件；以执行时记录的 branch、HEAD 和 patch SHA-256 为准。
@@ -38,7 +38,7 @@
 
 完成定义：
 
-- 普通 Grok backend 行为兼容；intelligence profile 不含 `--always-approve`，不开放 Bash/Edit/任意 terminal。
+- 普通 Grok backend 行为兼容；intelligence ACP profile 不含 `--always-approve`，不开放 Bash/Edit/任意 terminal，且对所有 `session/request_permission` 返回 `cancelled`。
 - `/ccg:grok-intel`、`/ccg:grok-verify`、`ccg doctor --grok`、`ccg doctor --grok-live` 可用。
 - 主编排器在用户 opt-in 后自动判断是否需要搜索；required 失败两次重试后 fail closed，只有显式 user waiver 可继续。
 - 严格证据的 URL 全部来自真实 built-in CLI tool events；模型不能新增 URL、伪造 retrieved time 或自行决定 blocker tier。
@@ -161,7 +161,7 @@ git diff --cached
 
 No later task may use `git add .`, `git add -A`, `reset`, `stash`, or `checkout --`.
 
-## Task 0B: 先完成真实 Grok CLI contract probe
+## Task 0B: 先完成真实 Grok CLI/ACP contract probe
 
 **Files:**
 
@@ -169,7 +169,7 @@ No later task may use `git add .`, `git add -A`, `reset`, `stash`, or `checkout 
 - Create from redacted real output: `templates/engine/tools/grok-intelligence/fixtures/*.jsonl`
 - Mirror: `plugins/ccg/skills/ccg-grok-intel/scripts/grok-intelligence/fixtures/*.jsonl`
 
-- [ ] **Step 1: 检查安装和认证，不自动复制用户 Grok home**
+- [x] **Step 1: 检查安装并完成专用 Home 的官方浏览器登录**
 
 ```powershell
 grok version
@@ -178,41 +178,83 @@ grok models
 grok inspect --json
 ```
 
-If `grok` is absent, use the official Windows installer only after the user has authorized installation. Required v1 automation auth is `XAI_API_KEY`. Do not copy the whole `~/.grok` browser-login state into a temporary home; other auth providers require a later, separately probed design.
+If `grok` is absent, use the official Windows installer only after the user has authorized installation. Developer workstations support `grok login --oauth` in an ACL-restricted dedicated `%LOCALAPPDATA%\CCG\grok-intelligence\grok-home`; the runner reuses this home and never copies or prints `auth.json`. `XAI_API_KEY` remains an optional CI authentication path.
 
-- [ ] **Step 2: 建立 neutral home 并验证配置发现隔离**
+- [x] **Step 2: 建立专用 credential home、neutral cwd 并验证配置隔离**
 
 ```powershell
-$probeRoot = Join-Path $env:TEMP ("ccg-grok-probe-" + [guid]::NewGuid().ToString("N"))
-$neutralHome = Join-Path $probeRoot "home"
-$grokHome = Join-Path $probeRoot "grok"
+$probeRoot = Join-Path $env:LOCALAPPDATA "CCG\grok-intelligence"
+$neutralHome = Join-Path $probeRoot "neutral-home"
+$grokHome = Join-Path $probeRoot "grok-home"
 New-Item -ItemType Directory -Force $neutralHome,$grokHome | Out-Null
 @"
 [compat.claude]
+skills = false
+rules = false
+agents = false
 mcps = false
+hooks = false
+
+[compat.cursor]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+
+[features]
+write_file = false
+tool_search = false
+web_fetch = false
+
+[subagents]
+enabled = false
+
+[memory]
+enabled = false
+
+[cli]
+auto_update = false
+
+[session]
+load_envrc = false
 "@ | Set-Content (Join-Path $grokHome "config.toml") -Encoding utf8
 $env:HOME = $neutralHome
 $env:USERPROFILE = $neutralHome
 $env:GROK_HOME = $grokHome
+$env:GROK_DISABLE_AUTOUPDATER = "1"
+$env:GROK_WRITE_FILE = "0"
+$env:GROK_TOOL_SEARCH = "0"
+$env:GROK_MEMORY = "0"
+$env:GROK_SUBAGENTS = "0"
+$env:GROK_WEB_FETCH = "0"
+$env:GROK_CRASH_HANDLER = "0"
+@(
+  "GROK_CURSOR_SKILLS_ENABLED", "GROK_CURSOR_RULES_ENABLED",
+  "GROK_CURSOR_AGENTS_ENABLED", "GROK_CURSOR_MCPS_ENABLED",
+  "GROK_CURSOR_HOOKS_ENABLED", "GROK_CLAUDE_SKILLS_ENABLED",
+  "GROK_CLAUDE_RULES_ENABLED", "GROK_CLAUDE_AGENTS_ENABLED",
+  "GROK_CLAUDE_MCPS_ENABLED", "GROK_CLAUDE_HOOKS_ENABLED"
+) | ForEach-Object { Set-Item -Path "Env:$_" -Value "0" }
 grok inspect --json | Set-Content (Join-Path $probeRoot "inspect.json") -Encoding utf8
 ```
 
-Inspect must prove there are no loaded MCP servers, plugins, hooks, skills, agents, marketplaces, project/user instruction origins, or unexpected tools. An empty neutral `AGENTS.md` is not a substitute for inspecting origins.
+Grok CLI `0.2.106` on Windows inventories some Claude sources even when their compatibility surface is disabled. `inspect`, `plugin list` and `mcp list` remain diagnostics, but are not a sufficient runtime gate: the rejected `grok -p` probe still attempted to start disabled MCPs. ACP must therefore create every session with `mcpServers: []` and require both `_x.ai/mcp/servers_updated.mcpServers=[]` and `_x.ai/mcp_initialized.mcpToolCount=0` before sending a paid prompt.
 
-- [ ] **Step 3: 探测准确 flag、工具名和单 agent Web/X 事件**
+- [x] **Step 3: 探测 ACP 认证、权限和单 agent Web/X 事件**
 
-Run bounded paid probes only with explicit live consent. Start without guessed `--tools`; use `--help`/`inspect` to derive the actual allow/deny syntax, then repeat with the narrowest working allowlist.
+Run bounded paid probes only with explicit live consent. Use the official JSON-RPC sequence and the narrowest observed policy:
 
-```powershell
-$webPrompt = "Use the built-in Web Search exactly once. Find the official xAI Grok CLI reference page, return its canonical URL and one dated fact. Do not run shell commands or edit files."
-$xPrompt = "Use the built-in X Search exactly once. Find an official xAI account post about Grok Build CLI, return the post URL and date. Do not run shell commands or edit files."
-grok --no-auto-update --permission-mode dontAsk --no-memory --no-subagents --max-turns 6 --output-format streaming-json -p $webPrompt 2>&1 | Set-Content (Join-Path $probeRoot "web.jsonl") -Encoding utf8
-grok --no-auto-update --permission-mode dontAsk --no-memory --no-subagents --max-turns 6 --output-format streaming-json -p $xPrompt 2>&1 | Set-Content (Join-Path $probeRoot "x.jsonl") -Encoding utf8
+```text
+initialize(clientCapabilities.fs=false, terminal=false)
+authenticate(methodId=cached_token | xai.api_key)
+session/new(cwd=<neutral-or-focused-snapshot>, mcpServers=[])
+session/prompt(...)
 ```
 
-Record the exact working tool identifiers and policy syntax in the contract report. Required fields are: CLI version, available models, search start/result/error event kinds, call ID stability, source URL field, result payload field, final assistant event, exit code behavior, timeout/cancel behavior, and whether usage metadata is present.
+Launch ACP with `dontAsk`, no plan/memory/subagents, bounded turns, `--tools web_search`, a complete `--disallowed-tools` list for every other observed runtime tool ID, and explicit `Bash/Edit/Read/Grep/MCPTool/WebFetch` deny rules. Every inbound `session/request_permission` receives ACP's standard `{outcome:{outcome:"cancelled"}}`; it is never auto-approved. Record the exact event contract in `docs/verification/grok-cli-contract-windows.md`.
 
-- [ ] **Step 4: 探测 deep model 的可见性边界**
+- [x] **Step 4: 探测 deep model 的可见性边界**
 
 Run one bounded deep probe with and without `--no-subagents` only if the model exists. Verify whether the flag affects CLI client subagents, server-side multi-agent, or both. The acceptance rule is fixed:
 
@@ -225,31 +267,26 @@ Run one bounded deep probe with and without `--no-subagents` only if the model e
 }
 ```
 
-Even if usage metadata is present, deep remains advisory in v1.
+Only `grok-4.5` was advertised by the authenticated CLI, so no deep paid probe was run. Even if a later CLI advertises deep, it remains advisory in v1.
 
-- [ ] **Step 5: 探测错误边界**
+- [x] **Step 5: 冻结 live contract，移交确定性错误边界测试**
 
-Exercise: invalid model, denied tool, timeout, Ctrl+C/cancellation, nonzero exit, malformed/truncated stream, raw cap, missing auth, and Windows process-tree termination. Save exit codes and the last redacted event.
+Live probes established missing-auth behavior, unsafe one-shot MCP startup, ACP empty-MCP preflight, a valid Web result and an X empty-source negative result. Invalid model, denied permission, timeout/cancel, malformed/truncated JSON-RPC, raw cap and Windows process-tree termination are deterministic transport tests in Task 2 and must not consume additional model calls.
 
-- [ ] **Step 6: 由真实输出生成脱敏 fixtures**
+- [x] **Step 6: 由真实输出生成脱敏 fixtures**
 
 Redact tokens, cookies, local usernames, drive paths, query identifiers and account IDs while preserving event keys, event ordering, call IDs, URLs, status and usage shapes. Required fixtures:
 
 ```text
-web-success.jsonl
-x-success.jsonl
-web-error.jsonl
-denied-tool.jsonl
-timeout-truncated.jsonl
-deep-leader-only.jsonl
-inspect-clean.json
+acp-web-success.jsonl
+acp-x-empty-sources.jsonl
 ```
 
-Add a fixture provenance table with original file SHA-256, redacted fixture SHA-256, CLI version, capture date and redaction rules. Hand-authored idealized event schemas are forbidden.
+The verification report contains original private file SHA-256, redacted fixture SHA-256, CLI version, capture date, costs and redaction rules. Hand-authored idealized event schemas are forbidden; deterministic synthetic error fixtures belong to Task 2 tests and must be labeled synthetic.
 
-- [ ] **Step 7: Contract Gate**
+- [x] **Step 7: Contract Gate**
 
-Do not continue unless Windows single-agent probes expose stable built-in search events containing source URLs and a distinguishable final assistant payload. If this fails, revise the architecture to the official xAI API or ACP in a new design; do not fake compatibility.
+ACP passed the Windows single-agent contract: `tool_call` and correlated `tool_call_update` expose `rawOutput.action.sources[].url`, followed by distinguishable assistant and turn-completed events. The one-shot CLI path failed and is permanently excluded from intelligence. X has no distinct tool ID; X evidence is a domain-restricted WebSearch and is accepted only when the event's own `sources` contains the X URL.
 
 ## Task 1: 同步设计勘误并加入 opt-in 配置契约
 
@@ -271,6 +308,8 @@ expect(normalizeIntelligenceConfig(undefined, { existingInstall: true })).toMatc
   deep_research_enabled: false,
   live_checks_on_init: false,
   provider: 'grok-cli',
+  transport: 'acp',
+  auth_mode: 'browser_oauth',
   legacy_search_provider: 'grok-search-mcp',
   allow_provider_fallback: false,
 })
@@ -300,6 +339,8 @@ export interface IntelligenceConfig {
   enabled: boolean
   auto_route: boolean
   provider: 'grok-cli'
+  transport: 'acp'
+  auth_mode: 'browser_oauth' | 'api_key'
   legacy_search_provider: 'grok-search-mcp'
   allow_provider_fallback: false
   default_model: string
@@ -311,20 +352,21 @@ export interface IntelligenceConfig {
   max_bundle_bytes: number
   retention_days: number
   exported_retention_days: number
+  cleanup_credential_artifacts: true
   require_web_search: boolean
   x_search_policy: XSearchPolicy
 }
 ```
 
-Defaults: disabled/false for old or non-interactive installs; `grok-4.5`, `grok-4.20-multi-agent`, 2 retries, 16 MiB bundle, 7-day local retention, 30-day exported retention, Web required, X preferred. `incident` elevates preferred to required; `landscape` remains preferred; `disabled` is never elevated. X-only evidence can never create a blocker.
+Defaults: disabled/false for old or non-interactive installs; provider `grok-cli`, transport `acp`, local auth `browser_oauth`, `grok-4.5`, unavailable deep model disabled, 2 retries, 16 MiB bundle, 7-day local retention, 30-day exported retention, credential-home cleanup enabled, Web required, X preferred. `incident` elevates preferred to required; `landscape` remains preferred; `disabled` is never elevated. X-only evidence can never create a blocker.
 
 - [ ] **Step 4: Add explicit init consent disclosure**
 
-The prompt must state data sent (focused source snapshot and task text), Web/X use, token/tool-call cost, local artifact path, fail-closed behavior and that init itself performs no paid smoke. `--intelligence` is the only non-interactive opt-in; `--no-intelligence` is explicit opt-out.
+The prompt must state data sent (focused source snapshot and task text), Web/X use, token/tool-call cost, local artifact path, direct browser login and private credential-home path, fail-closed behavior and that init itself performs no login or paid smoke. `--intelligence` is the only non-interactive opt-in; `--no-intelligence` is explicit opt-out.
 
 - [ ] **Step 5: Update the design document**
 
-Replace unsafe defaults, arbitrary snapshot writes, mandatory landscape X, `/ccg:doctor --grok` paid behavior and deep full-audit claims with this plan's consent, safety, doctor split and leader-only rules.
+Replace unsafe defaults, arbitrary snapshot writes, mandatory landscape X, `/ccg:doctor --grok` paid behavior, one-shot CLI transport and deep full-audit claims with this plan's consent, ACP/direct-login contract, safety, doctor split and leader-only rules. Link `docs/verification/grok-cli-contract-windows.md` as the authoritative runtime evidence.
 
 - [ ] **Step 6: Green and commit**
 
@@ -339,59 +381,55 @@ git diff --cached
 git commit -m "feat(config): add opt-in external intelligence settings"
 ```
 
-## Task 2: 实现 Go wrapper 的最小权限 intelligence transport
+## Task 2: 实现最小权限 ACP intelligence transport
 
 **Files:**
 
-- Modify: `codeagent-wrapper/config.go`
-- Modify: `codeagent-wrapper/backend.go`
-- Modify: `codeagent-wrapper/executor.go`
-- Modify: `codeagent-wrapper/main.go`
-- Modify: `codeagent-wrapper/logger.go`
-- Modify: `codeagent-wrapper/backend_test.go`
-- Modify: `codeagent-wrapper/main_test.go`
-- Create: `codeagent-wrapper/intelligence_transport_test.go`
-- Modify: `src/utils/installer.ts`
+- Create: `templates/engine/tools/grok-intelligence/lib/acp-client.mjs`
+- Create: `templates/engine/tools/grok-intelligence/lib/exact-env.mjs`
+- Mirror: `plugins/ccg/skills/ccg-grok-intel/scripts/grok-intelligence/lib/acp-client.mjs`
+- Mirror: `plugins/ccg/skills/ccg-grok-intel/scripts/grok-intelligence/lib/exact-env.mjs`
+- Test: `src/utils/__tests__/grokIntelligenceAcp.test.ts`
 
-- [ ] **Step 1: 写安全参数、exact env 和普通 backend 兼容测试**
+- [ ] **Step 1: 写 ACP handshake、exact env 和权限失败测试**
 
 Required test assertions:
 
 ```text
-generic Grok stays compatible and receives --no-auto-update
-intelligence never contains --always-approve
-intelligence contains permission-mode=dontAsk, no-memory, no-subagents, bounded max-turns
-tool allowlist exactly matches the probe contract
-Bash/Edit/terminal tools are denied or absent
-Linux/macOS may add sandbox=strict; Windows never claims sandbox support
-intelligence uses SetExactEnv; generic backends retain SetEnv behavior
-intelligence starts no WebServer and creates no normal wrapper log
+generic codeagent-wrapper Grok backend remains unchanged
+intelligence launches grok agent stdio, never grok -p
+initialize advertises fs read/write false and terminal false
+authenticate chooses cached_token first on a logged-in workstation, xai.api_key only when explicitly configured
+session/new always sends mcpServers=[] and a validated neutral/snapshot cwd
+MCP preflight requires empty servers and mcpToolCount=0 before session/prompt
+every session/request_permission response is outcome=cancelled
+arguments contain dontAsk, no-plan, no-memory, no-subagents, bounded turns
+tool allow/disallow and deny lists exactly match the probe contract
+no inherited environment outside the explicit allowlist
 ```
 
-- [ ] **Step 2: 写 raw event 私有目录和 cap 的失败测试**
+- [ ] **Step 2: 写 JSON-RPC framing、raw event cap 和进程生命周期失败测试**
 
-Replace caller-selected `--raw-events-file` with:
+The client owns a private capture directory and never accepts a caller-selected file path:
 
 ```text
---grok-intelligence
---raw-events-dir <absolute-private-directory>
---raw-events-max-bytes <1..8388608>
---raw-events-max-events <1..20000>
+rawEventsDir <absolute-private-directory>
+rawEventsMaxBytes <1..8388608>
+rawEventsMaxEvents <1..20000>
+timeoutMs <bounded-positive-integer>
 ```
 
-Tests require exclusive random filename creation, refusal of existing file selection, symlink/junction/reparse rejection, owner-only directory validation, byte/event cap termination, cleanup on cancel, and one machine-readable `CCG_RAW_EVENTS_FILE=<absolute-path>` stderr line.
+Tests require exclusive random filename creation, refusal of existing file selection, symlink/junction/reparse rejection, owner-only directory validation, line-size/byte/event caps, malformed JSON-RPC rejection, unknown-response correlation rejection, timeout cancellation, child termination, cleanup and no secret-bearing stderr.
 
 - [ ] **Step 3: Run red**
 
 ```powershell
-Push-Location codeagent-wrapper
-go test ./...
-Pop-Location
+pnpm vitest run src/utils/__tests__/grokIntelligenceAcp.test.ts
 ```
 
 - [ ] **Step 4: Add exact environment semantics**
 
-Add `SetExactEnv(map[string]string)` to `commandRunner`. The intelligence allowlist is only:
+Build the child environment from an empty object. The intelligence allowlist is only:
 
 ```text
 PATH, HOME, USERPROFILE, GROK_HOME, TEMP, TMP, TMPDIR,
@@ -399,41 +437,47 @@ SystemRoot, WINDIR, ComSpec, PATHEXT,
 LANG, LC_ALL,
 XAI_API_KEY,
 HTTPS_PROXY, HTTP_PROXY, NO_PROXY,
-SSL_CERT_FILE, SSL_CERT_DIR, NODE_EXTRA_CA_CERTS
+SSL_CERT_FILE, SSL_CERT_DIR, NODE_EXTRA_CA_CERTS,
+GROK_DISABLE_AUTOUPDATER, GROK_WRITE_FILE, GROK_TOOL_SEARCH,
+GROK_MEMORY, GROK_SUBAGENTS, GROK_WEB_FETCH, GROK_CRASH_HANDLER,
+GROK_CURSOR_SKILLS_ENABLED, GROK_CURSOR_RULES_ENABLED,
+GROK_CURSOR_AGENTS_ENABLED, GROK_CURSOR_MCPS_ENABLED,
+GROK_CURSOR_HOOKS_ENABLED, GROK_CLAUDE_SKILLS_ENABLED,
+GROK_CLAUDE_RULES_ENABLED, GROK_CLAUDE_AGENTS_ENABLED,
+GROK_CLAUDE_MCPS_ENABLED, GROK_CLAUDE_HOOKS_ENABLED,
+GROK_CURSOR_SESSIONS_ENABLED, GROK_CLAUDE_SESSIONS_ENABLED,
+GROK_CODEX_SKILLS_ENABLED, GROK_CODEX_RULES_ENABLED,
+GROK_CODEX_AGENTS_ENABLED, GROK_CODEX_MCPS_ENABLED,
+GROK_CODEX_HOOKS_ENABLED, GROK_CODEX_SESSIONS_ENABLED,
+GROK_MANAGED_MCPS_ENABLED, GROK_MCP_AUTO_RESTART
 ```
 
-Omit unset variables. Point HOME/USERPROFILE/GROK_HOME to runner-created neutral directories. Never pass GitHub, cloud, database, npm, Anthropic, OpenAI, Gemini or arbitrary `CCG_*` variables.
+Omit unset variables. Point HOME/USERPROFILE to runner-created neutral directories. Point GROK_HOME to the ACL-restricted dedicated credential home for browser login, or a temporary CI home containing only an injected API key config. Never copy `auth.json`; never pass GitHub, cloud, database, npm, Anthropic, OpenAI, Gemini or arbitrary `CCG_*` variables.
 
-- [ ] **Step 5: Build arguments from the checked-in contract**
+- [ ] **Step 5: Implement ACP request/response and fail-closed permissions**
 
-Use the contract's exact tool IDs and syntax. All automated Grok calls get `--no-auto-update --output-format streaming-json`. Intelligence adds `dontAsk`, no memory/subagents, max turns, explicit search/read allowlist and shell/edit deny rules. The generic backend may retain its existing approval behavior for compatibility, but the intelligence branch must not share that argument slice.
+Spawn `grok --no-auto-update --permission-mode dontAsk --no-plan --no-memory --no-subagents --max-turns 6 --tools web_search ... agent stdio`. Correlate JSON-RPC IDs, bound every request, reject malformed/duplicate responses, and send standard ACP cancellation for every permission request. Search evidence is accepted only from `session/update` events matching Task 0B fixtures. The generic backend is not modified.
 
-- [ ] **Step 6: Disable side channels and bound raw tee**
+- [ ] **Step 6: Disable side channels, close sessions and clean the credential home**
 
-The profile forces no WebServer and no persistent logger before either is initialized. Tee stdout bytes to an exclusively created `0600` file inside the validated directory; count bytes and newline-delimited events; cancel the process tree and return a distinct nonzero code when a cap is reached. Do not truncate and continue.
+Capture bounded ACP lines to an exclusive owner-only file, then redact and delete raw data in `finally`. Call `session/close` when advertised, otherwise cancel the turn and terminate stdio. After extracting evidence, remove run-specific `sessions/`, prompt history and logs created after the pre-run watermark while preserving `auth.json`, the pinned config, model cache and official bundled metadata. A cleanup mismatch fails required runs closed and is surfaced by doctor.
 
-- [ ] **Step 7: Version wrapper protocol together**
+- [ ] **Step 7: Prove deterministic cancellation and Windows cleanup**
 
-```text
-codeagent-wrapper/main.go: version = "5.13.0"
-src/utils/installer.ts: EXPECTED_BINARY_VERSION = "5.13.0"
-```
+Use fake ACP child fixtures to prove missing auth, non-empty MCP lists, permission requests, invalid model, timeout, explicit cancel, malformed/truncated stream, raw cap and process termination. No paid model call is needed. The Go wrapper and its binary version remain unchanged because intelligence no longer uses that protocol.
 
 - [ ] **Step 8: Green, security gate and commit**
 
 ```powershell
-Push-Location codeagent-wrapper
-go test ./...
-go test -race ./...
-Pop-Location
-pnpm vitest run src/utils/__tests__/installer.test.ts
+pnpm vitest run src/utils/__tests__/grokIntelligenceAcp.test.ts
 pnpm typecheck
-git add -p -- codeagent-wrapper/config.go codeagent-wrapper/backend.go codeagent-wrapper/executor.go codeagent-wrapper/main.go codeagent-wrapper/logger.go codeagent-wrapper/backend_test.go codeagent-wrapper/main_test.go src/utils/installer.ts
-git add -- codeagent-wrapper/intelligence_transport_test.go
+git add -- templates/engine/tools/grok-intelligence/lib/acp-client.mjs templates/engine/tools/grok-intelligence/lib/exact-env.mjs
+git add -- plugins/ccg/skills/ccg-grok-intel/scripts/grok-intelligence/lib/acp-client.mjs plugins/ccg/skills/ccg-grok-intel/scripts/grok-intelligence/lib/exact-env.mjs
+git add -- src/utils/__tests__/grokIntelligenceAcp.test.ts
 git diff --cached --check
 git diff --cached --name-status
 git diff --cached
-git commit -m "feat(wrapper): isolate Grok intelligence transport"
+git commit -m "feat(intelligence): add isolated Grok ACP transport"
 ```
 
 ## Task 3: 实现真实事件 normalizer 和运行时 source registry
@@ -505,15 +549,15 @@ Copy only router-selected source/config/lockfile/diff context. Never copy VCS me
 
 - [ ] **Step 3: Create private temp roots**
 
-POSIX requires mode `0700`. Windows uses `icacls` from the trusted runner to remove inheritance, grant the current SID full control and verify the resulting DACL. Create separate neutral home, GROK_HOME, snapshot and raw directories; write `[compat.claude] mcps=false`; reject reparse points after creation.
+POSIX requires mode `0700`. Windows uses `icacls` from the trusted runner to remove inheritance, grant the current SID full control and verify the resulting DACL. Create separate neutral HOME/USERPROFILE, snapshot and raw directories; use the dedicated ACL-restricted credential GROK_HOME created by `ccg grok login`, or a temporary CI Grok home. Write/verify the fully disabled Claude/Cursor/Codex compatibility, file-write, tool-search, WebFetch, subagent, memory, auto-update and envrc configuration proven in Task 0B; reject reparse points after creation.
 
 - [ ] **Step 4: Add clean inspect preflight**
 
-Before every paid run, execute `grok inspect --json` under exact env and verify the checked-in contract's allowed origins/tools. A mismatch is `unsafe_cli_context`, is not retried, and fails required runs closed.
+Before every paid run, execute local `grok version`, `grok models`, `grok inspect --json`, `grok plugin list` and `grok mcp list` diagnostics under exact env. Then start ACP, authenticate, create a session with `mcpServers: []`, and require the two empty-MCP notifications from Task 0B before `session/prompt`. A mismatch is `unsafe_cli_context`, is not retried, and fails required runs closed; `inspect` alone is never sufficient.
 
 - [ ] **Step 5: Implement runner lifecycle**
 
-The runner validates config/consent, creates temp roots, snapshots, runs inspect, invokes wrapper, parses `CCG_RAW_EVENTS_FILE`, redacts the stream, validates events, retries transient errors in a new session up to two times, kills process trees on timeout/cap, and deletes every unredacted temp file in `finally`.
+The runner validates config/consent, creates temp roots, snapshots, runs local diagnostics, invokes the ACP client, parses its bounded private JSON-RPC capture, redacts the stream, validates events, retries transient errors in a new ACP process up to two times, cancels/closes the session and kills the process on timeout/cap, cleans run-specific credential-home artifacts, and deletes every unredacted temp file in `finally`.
 
 Exit contract:
 
@@ -674,8 +718,9 @@ Assert command registration, installed runtime executability, byte-identical sha
 - [ ] **Step 3: Split doctor behavior**
 
 ```text
-ccg doctor --grok       = binary, version, help flags, models, auth presence,
-                          isolated inspect, config/provider conflict, retention cleanup;
+ccg doctor --grok       = binary, version, help flags, models, browser/API auth presence,
+                          dedicated-home ACL/config, isolated inspect, ACP handshake +
+                          empty-MCP session preflight, provider conflict, retention cleanup;
                           no model prompt and no paid Web/X call
 ccg doctor --grok-live  = explicit bounded paid Web/X smoke and event validation
 ```
@@ -684,7 +729,7 @@ Init may call only the local doctor checks after explicit opt-in. It never calls
 
 - [ ] **Step 4: Diagnose provider arbitration**
 
-Doctor warns if `grok-search` MCP exists but does not remove it. It verifies `provider=grok-cli`, `legacy_search_provider=grok-search-mcp`, fallback false, Claude MCP compatibility disabled in the neutral home, and strict gates accepting only built-in CLI events.
+Doctor warns if `grok-search` MCP exists but does not remove it. It verifies `provider=grok-cli`, `transport=acp`, `auth_mode=browser_oauth|api_key`, `legacy_search_provider=grok-search-mcp`, fallback false, all compatibility surfaces disabled, `session/new.mcpServers=[]`, runtime `mcpToolCount=0`, and strict gates accepting only built-in ACP WebSearch events.
 
 - [ ] **Step 5: Add cleanup checks**
 
@@ -850,7 +895,7 @@ Go uses `os: [ubuntu-latest, windows-latest]`. Coverage upload remains Ubuntu/No
 
 - [ ] **Step 2: Add Windows-specific offline coverage**
 
-Tests must execute Windows path validation, junction/reparse rejection, exact env, exclusive temp file, process-tree timeout, PowerShell doctor JSON and wrapper argument construction.
+Tests must execute Windows path validation, junction/reparse rejection, credential-home ACL checks, exact env, exclusive temp file, ACP framing/permission denial, process-tree timeout, cleanup and PowerShell doctor JSON.
 
 - [ ] **Step 3: Keep paid live smoke manual**
 
@@ -881,7 +926,6 @@ git commit -m "ci: test Grok intelligence on Windows"
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
 - Modify: `src/CLAUDE.md`
-- Modify: `codeagent-wrapper/CLAUDE.md`
 - Modify: `package.json`
 - Modify: `.claude-plugin/marketplace.json`
 - Modify: `.codex-plugin/marketplace.json`
@@ -895,7 +939,7 @@ Document explicit consent, what is uploaded, possible fees, strict provider arbi
 
 - [ ] **Step 2: Update version consistently**
 
-Set all npm/plugin/marketplace versions from local `3.2.2` to `3.3.0`. Keep wrapper protocol at `5.13.0`. Update command counts and changelog for the actual added commands. Do not publish, push or manually upload binary artifacts.
+Set all npm/plugin/marketplace versions from local `3.2.2` to `3.3.0`. Keep the existing wrapper protocol unchanged because intelligence uses ACP directly. Update command counts and changelog for the actual added commands. Do not publish, push or manually upload binary artifacts.
 
 - [ ] **Step 3: Verify package contents and parity**
 
@@ -909,7 +953,7 @@ Expected: runtime, fixtures, commands and skills are included; four release vers
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add -p -- README.md README_EN.md CHANGELOG.md AGENTS.md CLAUDE.md src/CLAUDE.md codeagent-wrapper/CLAUDE.md package.json .claude-plugin/marketplace.json .codex-plugin/marketplace.json plugins/ccg/.codex-plugin/plugin.json
+git add -p -- README.md README_EN.md CHANGELOG.md AGENTS.md CLAUDE.md src/CLAUDE.md package.json .claude-plugin/marketplace.json .codex-plugin/marketplace.json plugins/ccg/.codex-plugin/plugin.json
 git diff --cached --check
 git diff --cached --name-status
 git diff --cached
@@ -947,10 +991,11 @@ Pop-Location
 Search for forbidden profile regressions:
 
 ```powershell
-rg -n -- "always-approve|run_terminal_command|Bash\(|Edit\(|os\.Environ\(\)|allow_provider_fallback\s*=\s*true" codeagent-wrapper templates/engine/tools/grok-intelligence plugins/ccg/skills/ccg-grok-intel
+rg -n -- "always-approve|grok -p|output-format streaming-json|allow_provider_fallback\s*=\s*true" templates/engine/tools/grok-intelligence plugins/ccg/skills/ccg-grok-intel
+rg -n -- "mcpServers:\s*\[\]|outcome:\s*\{\s*outcome:\s*['\"]cancelled|run_terminal_command" templates/engine/tools/grok-intelligence plugins/ccg/skills/ccg-grok-intel
 ```
 
-Expected: generic backend references may remain documented/tested; no intelligence execution path contains them. Inspect a fake-runner environment dump and prove no unrelated secret names pass.
+Expected: forbidden one-shot/approval references are absent from intelligence execution; required empty-MCP, permission-cancel and terminal-disallow references are present. Inspect a fake ACP child environment dump and prove no unrelated secret names pass.
 
 - [ ] **Step 4: Install/distribution smoke**
 
