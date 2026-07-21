@@ -10,7 +10,7 @@ import { diagnoseMcp, fixMcp } from './commands/diagnose-mcp'
 import { init } from './commands/init'
 import { showMainMenu } from './commands/menu'
 import { i18n, initI18n } from './i18n'
-import { readCcgConfig } from './utils/config'
+import { readCcgConfig, resolveCliIntelligenceFlag } from './utils/config'
 import { installCodexMode, uninstallCodexMode, uninstallWorkflows } from './utils/installer'
 
 function customizeHelp(sections: any[]): any[] {
@@ -52,6 +52,8 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.green('--mode, -m')} <mode>         ${i18n.t('cli:help.optionDescriptions.collaborationMode')}`,
       `  ${ansis.green('--workflows, -w')} <list>    ${i18n.t('cli:help.optionDescriptions.workflows')}`,
       `  ${ansis.green('--install-dir, -d')} <path>  ${i18n.t('cli:help.optionDescriptions.installDir')}`,
+      `  ${ansis.green('--intelligence')}            ${i18n.t('cli:help.optionDescriptions.enableIntelligence')}`,
+      `  ${ansis.green('--no-intelligence')}         ${i18n.t('cli:help.optionDescriptions.disableIntelligence')}`,
     ].join('\n'),
   })
 
@@ -99,7 +101,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
     })
 
   // Init command
-  cli
+  const initCommand = cli
     .command('init', i18n.t('cli:help.commandDescriptions.initConfig'))
     .alias('i')
     .option('--lang, -l <lang>', `${i18n.t('cli:help.optionDescriptions.displayLanguage')} (zh-CN, en)`)
@@ -111,12 +113,22 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .option('--mode, -m <mode>', i18n.t('cli:help.optionDescriptions.collaborationMode'))
     .option('--workflows, -w <workflows>', i18n.t('cli:help.optionDescriptions.workflows'))
     .option('--install-dir, -d <path>', i18n.t('cli:help.optionDescriptions.installDir'))
+    .option('--intelligence', i18n.t('cli:help.optionDescriptions.enableIntelligence'))
+    .option('--no-intelligence', i18n.t('cli:help.optionDescriptions.disableIntelligence'))
     .action(async (options: CliOptions) => {
+      options.intelligence = resolveCliIntelligenceFlag(process.argv.slice(2))
       if (options.lang) {
         await initI18n(options.lang)
       }
       await init(options)
     })
+
+  // CAC assigns `true` by default to every negated option. Intelligence is
+  // intentionally tri-state so an absent flag can preserve an existing
+  // explicit choice (and old configs remain disabled).
+  const noIntelligenceOption = initCommand.options.find(option => option.rawName === '--no-intelligence')
+  if (noIntelligenceOption)
+    noIntelligenceOption.config.default = undefined
 
   // Diagnose MCP command
   cli

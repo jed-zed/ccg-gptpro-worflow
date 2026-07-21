@@ -1,4 +1,4 @@
-import type { CollaborationMode, InitOptions, ModelRouting, ModelType, SupportedLang } from '../types'
+import type { CollaborationMode, InitOptions, IntelligenceConfig, ModelRouting, ModelType, SupportedLang } from '../types'
 import ansis from 'ansis'
 import fs from 'fs-extra'
 import inquirer from 'inquirer'
@@ -6,7 +6,7 @@ import ora from 'ora'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { i18n, initI18n } from '../i18n'
-import { createDefaultConfig, ensureCcgDir, readCcgConfig, writeCcgConfig } from '../utils/config'
+import { createDefaultConfig, ensureCcgDir, readCcgConfig, resolveNonInteractiveIntelligenceConsent, writeCcgConfig } from '../utils/config'
 import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryDownloadWarning, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 
@@ -128,7 +128,7 @@ For example, when using the \`fastapi\` library to encapsulate an API endpoint, 
 // "← back" (step 2+) and "× cancel". Users can also jump to any
 // step from the final summary page.
 
-type StepId = 'api' | 'model' | 'mcp' | 'perf'
+type StepId = 'api' | 'model' | 'mcp' | 'perf' | 'intelligence'
 type StepReturn = 'next' | 'back' | 'cancel'
 type SummaryAction = 'confirm' | 'cancel' | StepId
 
@@ -275,6 +275,17 @@ export async function init(options: InitOptions = {}): Promise<void> {
   let grokApiUrl = ''
   let grokApiKey = ''
 
+  // Grok external intelligence is opt-in. Existing explicit consent is
+  // preserved, while old configs without this section stay disabled.
+  let existingIntelligence: Partial<IntelligenceConfig> | undefined
+  let intelligenceConsent = false
+  const intelligenceCredentialHome = join(
+    process.env.LOCALAPPDATA || join(homedir(), '.local', 'share'),
+    'CCG',
+    'grok-intelligence',
+    'grok-home',
+  )
+
   // Claude Code API configuration
   let apiUrl = ''
   let apiKey = ''
@@ -284,6 +295,8 @@ export async function init(options: InitOptions = {}): Promise<void> {
   // ═══════════════════════════════════════════════════════
   if (options.skipPrompt) {
     const existingConfig = await readCcgConfig()
+    existingIntelligence = existingConfig?.intelligence
+    intelligenceConsent = resolveNonInteractiveIntelligenceConsent(existingIntelligence, options.intelligence)
     if (existingConfig?.performance?.liteMode !== undefined) {
       liteMode = existingConfig.performance.liteMode
     }
@@ -305,6 +318,8 @@ export async function init(options: InitOptions = {}): Promise<void> {
   // ═══════════════════════════════════════════════════════
   if (!options.skipPrompt) {
     const existingConfig = await readCcgConfig()
+    existingIntelligence = existingConfig?.intelligence
+    intelligenceConsent = existingIntelligence?.enabled === true
 
     // Initialize from existing config so re-running init shows saved values as defaults
     if (existingConfig?.routing) {
@@ -327,7 +342,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
     async function runApiStep(canGoBack: boolean): Promise<StepReturn> {
       console.log()
-      console.log(ansis.cyan.bold(`  🔑 Step 1/4 — ${i18n.t('init:api.title')}`))
+      console.log(ansis.cyan.bold(`  🔑 Step 1/5 — ${i18n.t('init:api.title')}`))
       console.log()
 
       const { apiProvider } = await inquirer.prompt([{
@@ -395,7 +410,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
     async function runModelStep(canGoBack: boolean): Promise<StepReturn> {
       console.log()
-      console.log(ansis.cyan.bold(`  🧠 Step 2/4 — ${i18n.t('init:model.title')}`))
+      console.log(ansis.cyan.bold(`  🧠 Step 2/5 — ${i18n.t('init:model.title')}`))
       console.log()
 
       const { selectedFrontend } = await inquirer.prompt([{
@@ -498,7 +513,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
       }
 
       console.log()
-      console.log(ansis.cyan.bold(`  🔧 Step 3/4 — ${i18n.t('init:mcp.title')}`))
+      console.log(ansis.cyan.bold(`  🔧 Step 3/5 — ${i18n.t('init:mcp.title')}`))
       console.log()
 
       // Pre-step gate: since the main prompt is a checkbox (can't embed
@@ -686,7 +701,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
     async function runPerfStep(canGoBack: boolean): Promise<StepReturn> {
       console.log()
-      console.log(ansis.cyan.bold(`  ⚡ Step 4/4 — ${i18n.t('init:perf.title')}`))
+      console.log(ansis.cyan.bold(`  ⚡ Step 4/5 — ${i18n.t('init:perf.title')}`))
       console.log()
 
       const { perfMode } = await inquirer.prompt([{
@@ -737,6 +752,40 @@ export async function init(options: InitOptions = {}): Promise<void> {
       return 'next'
     }
 
+    async function runIntelligenceStep(canGoBack: boolean): Promise<StepReturn> {
+      console.log()
+      console.log(ansis.cyan.bold(`  🌐 Step 5/5 — ${i18n.t('init:intelligence.title')}`))
+      console.log()
+      console.log(ansis.gray(`  ${i18n.t('init:intelligence.disclosureData')}`))
+      console.log(ansis.gray(`  ${i18n.t('init:intelligence.disclosureSearch')}`))
+      console.log(ansis.gray(`  ${i18n.t('init:intelligence.disclosureCost')}`))
+      console.log(ansis.gray(`  ${i18n.t('init:intelligence.disclosureArtifacts', { path: '.codex/ccg/intelligence' })}`))
+      console.log(ansis.gray(`  ${i18n.t('init:intelligence.disclosureLogin', { path: intelligenceCredentialHome })}`))
+      console.log(ansis.gray(`  ${i18n.t('init:intelligence.disclosureSafety')}`))
+      console.log(ansis.gray(`  ${i18n.t('init:intelligence.disclosureInit')}`))
+      console.log()
+
+      const { intelligenceMode } = await inquirer.prompt([{
+        type: 'list',
+        name: 'intelligenceMode',
+        message: i18n.t('init:intelligence.prompt'),
+        choices: [
+          { name: `${ansis.green('●')} ${i18n.t('init:intelligence.enableOption')}`, value: 'enable' },
+          { name: `${ansis.gray('○')} ${i18n.t('init:intelligence.disableOption')}`, value: 'disable' },
+          ...navSentinels(canGoBack),
+        ],
+        default: intelligenceConsent ? 'enable' : 'disable',
+      }])
+
+      if (intelligenceMode === BACK_SENTINEL)
+        return 'back'
+      if (intelligenceMode === CANCEL_SENTINEL)
+        return 'cancel'
+
+      intelligenceConsent = intelligenceMode === 'enable'
+      return 'next'
+    }
+
     // Summary page renderer — returns 'confirm' | 'cancel' | StepId
     const runSummaryStep = async (workflowsCount: number): Promise<SummaryAction> => {
       console.log()
@@ -772,6 +821,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
       })()
       console.log(`  ${ansis.cyan(i18n.t('init:summary.mcpTool'))}      ${mcpSummary}`)
       console.log(`  ${ansis.cyan(i18n.t('init:summary.webUI'))}        ${liteMode ? ansis.gray(i18n.t('init:summary.disabled')) : ansis.green(i18n.t('init:summary.enabled'))}`)
+      console.log(`  ${ansis.cyan(i18n.t('init:summary.intelligence'))}  ${intelligenceConsent ? ansis.green(`Grok CLI / ACP / ${i18n.t('init:summary.enabled')}`) : ansis.gray(i18n.t('init:summary.disabled'))}`)
       if (wantGrokSearch) {
         console.log(`  ${ansis.cyan('grok-search')}    ${tavilyKey ? ansis.green('✓') : ansis.yellow(`(${i18n.t('init:summary.pendingConfig')})`)}`)
       }
@@ -789,6 +839,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
           { name: `${ansis.cyan('✎')} ${i18n.t('init:summaryMenu.editModel')}`, value: 'model' },
           { name: `${ansis.cyan('✎')} ${i18n.t('init:summaryMenu.editMcp')}`, value: 'mcp' },
           { name: `${ansis.cyan('✎')} ${i18n.t('init:summaryMenu.editPerf')}`, value: 'perf' },
+          { name: `${ansis.cyan('✎')} ${i18n.t('init:summaryMenu.editIntelligence')}`, value: 'intelligence' },
           new inquirer.Separator(),
           { name: `${ansis.red('×')} ${i18n.t('init:summaryMenu.cancel')}`, value: 'cancel' },
         ],
@@ -803,7 +854,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
     // driven by sentinels inside each step's first list prompt. The
     // summary page is a separate jump-back menu that can land on any
     // step; after completing that jumped-to step we return to summary.
-    const stepOrder: StepId[] = ['api', 'model', 'mcp', 'perf']
+    const stepOrder: StepId[] = ['api', 'model', 'mcp', 'perf', 'intelligence']
     let stepIdx = 0
     let jumpingToSummary = false
 
@@ -825,6 +876,9 @@ export async function init(options: InitOptions = {}): Promise<void> {
             break
           case 'perf':
             result = await runPerfStep(canGoBack)
+            break
+          case 'intelligence':
+            result = await runIntelligenceStep(canGoBack)
             break
         }
 
@@ -897,6 +951,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
     const bmName = backendModels[0].charAt(0).toUpperCase() + backendModels[0].slice(1)
     console.log(`  ${ansis.cyan(i18n.t('init:summary.modelRouting'))}  ${ansis.green(fmName)} (Frontend) + ${ansis.blue(bmName)} (Backend)`)
     console.log(`  ${ansis.cyan(i18n.t('init:summary.commandCount'))}  ${ansis.yellow(selectedWorkflows.length.toString())}`)
+    console.log(`  ${ansis.cyan(i18n.t('init:summary.intelligence'))}  ${intelligenceConsent ? ansis.green('Grok CLI / ACP') : ansis.gray(i18n.t('init:summary.disabled'))}`)
     console.log(ansis.yellow('━'.repeat(50)))
     console.log()
   }
@@ -947,6 +1002,9 @@ export async function init(options: InitOptions = {}): Promise<void> {
       mcpProvider,
       liteMode,
       skipImpeccable,
+      intelligenceConsent,
+      intelligence: existingIntelligence,
+      existingInstall: existingIntelligence !== undefined,
     })
 
     // Save config FIRST - ensure it's created even if installation fails

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultConfig, createDefaultRouting } from '../config'
+import { createDefaultConfig, createDefaultRouting, normalizeIntelligenceConfig, resolveCliIntelligenceFlag, resolveNonInteractiveIntelligenceConsent } from '../config'
 
 describe('createDefaultRouting', () => {
   it('returns gemini as frontend primary', () => {
@@ -87,5 +87,111 @@ describe('createDefaultConfig', () => {
     const routing = createDefaultRouting()
     const config = createDefaultConfig({ ...baseOptions, routing })
     expect(config.routing).toEqual(routing)
+  })
+
+  it('keeps external intelligence disabled without explicit consent', () => {
+    const config = createDefaultConfig(baseOptions)
+
+    expect(config.intelligence).toMatchObject({
+      enabled: false,
+      auto_route: false,
+      provider: 'grok-cli',
+      transport: 'acp',
+      auth_mode: 'browser_oauth',
+      legacy_search_provider: 'grok-search-mcp',
+      allow_provider_fallback: false,
+      live_checks_on_init: false,
+    })
+  })
+
+  it('enables auto routing only after explicit consent', () => {
+    const config = createDefaultConfig({ ...baseOptions, intelligenceConsent: true })
+
+    expect(config.intelligence).toMatchObject({
+      enabled: true,
+      auto_route: true,
+      transport: 'acp',
+      auth_mode: 'browser_oauth',
+    })
+  })
+})
+
+describe('normalizeIntelligenceConfig', () => {
+  it('defaults old and missing config to disabled', () => {
+    expect(normalizeIntelligenceConfig(undefined, { existingInstall: true })).toMatchObject({
+      enabled: false,
+      auto_route: false,
+      deep_research_enabled: false,
+      live_checks_on_init: false,
+      provider: 'grok-cli',
+      transport: 'acp',
+      auth_mode: 'browser_oauth',
+      legacy_search_provider: 'grok-search-mcp',
+      allow_provider_fallback: false,
+      cleanup_credential_artifacts: true,
+      require_web_search: true,
+      x_search_policy: 'preferred',
+    })
+  })
+
+  it('preserves an explicitly enabled existing install', () => {
+    expect(normalizeIntelligenceConfig({
+      enabled: true,
+      auto_route: true,
+      auth_mode: 'api_key',
+      x_search_policy: 'disabled',
+    }, { existingInstall: true })).toMatchObject({
+      enabled: true,
+      auto_route: true,
+      auth_mode: 'api_key',
+      x_search_policy: 'disabled',
+    })
+  })
+
+  it('lets explicit opt-out override an enabled existing install', () => {
+    expect(normalizeIntelligenceConfig({
+      enabled: true,
+      auto_route: true,
+    }, { existingInstall: true, explicitConsent: false })).toMatchObject({
+      enabled: false,
+      auto_route: false,
+    })
+  })
+
+  it('never enables auto routing while intelligence is disabled', () => {
+    expect(normalizeIntelligenceConfig({
+      enabled: false,
+      auto_route: true,
+    }, { existingInstall: true })).toMatchObject({
+      enabled: false,
+      auto_route: false,
+    })
+  })
+})
+
+describe('resolveNonInteractiveIntelligenceConsent', () => {
+  it('keeps --skip-prompt disabled for an old config without an explicit flag', () => {
+    expect(resolveNonInteractiveIntelligenceConsent(undefined, undefined)).toBe(false)
+  })
+
+  it('only opts in through --intelligence and honors --no-intelligence', () => {
+    expect(resolveNonInteractiveIntelligenceConsent(undefined, true)).toBe(true)
+    expect(resolveNonInteractiveIntelligenceConsent({ enabled: true }, false)).toBe(false)
+  })
+
+  it('preserves an existing explicit opt-in when no flag is supplied', () => {
+    expect(resolveNonInteractiveIntelligenceConsent({ enabled: true }, undefined)).toBe(true)
+  })
+})
+
+describe('resolveCliIntelligenceFlag', () => {
+  it('keeps an absent flag tri-state instead of inheriting CAC negation defaults', () => {
+    expect(resolveCliIntelligenceFlag(['init', '--skip-prompt'])).toBeUndefined()
+  })
+
+  it('recognizes explicit opt-in and opt-out with the last flag winning', () => {
+    expect(resolveCliIntelligenceFlag(['init', '--intelligence'])).toBe(true)
+    expect(resolveCliIntelligenceFlag(['init', '--no-intelligence'])).toBe(false)
+    expect(resolveCliIntelligenceFlag(['init', '--intelligence', '--no-intelligence'])).toBe(false)
   })
 })

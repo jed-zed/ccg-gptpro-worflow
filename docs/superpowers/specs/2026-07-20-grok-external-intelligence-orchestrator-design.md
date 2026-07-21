@@ -1,6 +1,6 @@
 # Grok External Intelligence Orchestrator Design
 
-**Status:** Approved design
+**Status:** Approved design, corrected by the Windows runtime contract probe
 
 **Date:** 2026-07-20
 
@@ -12,7 +12,7 @@
 
 CCG will promote Grok from a generic fifth model backend into the harness's external intelligence layer. Grok will investigate the current external world before implementation and verify current external facts after implementation. Codex remains the final orchestrator, implementation owner, test runner, and adjudicator.
 
-The first release will use the official Grok Build CLI in headless mode. It will add two user-facing commands:
+The first release will use the official Grok Build CLI through a short-lived ACP session (`grok agent stdio`). The one-shot `grok -p` path is excluded from the intelligence profile because the Windows contract probe showed that it can start disabled compatibility MCPs and does not expose a reliable evidence event contract. It will add two user-facing commands:
 
 - `/ccg:grok-intel` for pre-implementation research;
 - `/ccg:grok-verify` for post-implementation freshness and external-fact review.
@@ -21,7 +21,7 @@ The same intelligence decision and execution path will also be invoked automatic
 
 ## 2. Goals
 
-- Use Grok's Web Search and X Search through the official Grok Build CLI.
+- Use Grok's built-in WebSearch through the official Grok Build CLI, including source-backed X-domain queries. The probed CLI exposes no distinct X-search tool ID.
 - Prove that a search occurred by validating CLI tool events, not by trusting prose.
 - Convert search results into claim-level evidence that other CCG components can consume.
 - Trigger external research automatically for time-sensitive and externally coupled tasks.
@@ -35,27 +35,28 @@ The same intelligence decision and execution path will also be invoked automatic
 - Grok will not replace Codex as the main orchestrator or implementation owner.
 - The intelligence role will not write, commit, merge, push, or modify the real repository.
 - The first release will not add a direct xAI Responses API execution path.
-- The first release will not use a long-lived Grok ACP process.
+- The first release will not keep a shared, long-lived Grok ACP process or session pool.
+- Required gates will not depend on deep multi-agent research; deep runs are advisory and expose leader-visible events only.
 - The GPT Pro bridge will not automate ChatGPT login, submission, DOM access, or response extraction.
 - Social posts, search summaries, and unverified community reports will not independently block a change.
 
 ## 4. Current State and Gap
 
-The repository already contains a `grok` backend in `codeagent-wrapper`. It resolves the official `grok` executable, runs headless prompts with `streaming-json`, accepts a Grok model flag, and supports session resume. This is a generic model backend and does not enforce search, retain search tool events as evidence, validate claim-to-source relationships, or implement a dedicated read-only intelligence role.
+The repository already contains a `grok` backend in `codeagent-wrapper`. It resolves the official `grok` executable, runs headless prompts with `streaming-json`, accepts a Grok model flag, and supports session resume. This remains a generic coding backend. The intelligence role is a separate ACP client because it must enforce search, validate the runtime source registry, deny permissions, and prove an empty MCP context.
 
-The local machine did not have a `grok` executable installed when this design was written. Installation, authentication, capability probing, and live search checks are therefore part of the delivery scope.
+The Windows contract probe installed the official CLI, completed direct browser OAuth in an ACL-restricted dedicated `GROK_HOME`, and validated the ACP event contract. The authoritative probe result is [Grok CLI contract on Windows](../../verification/grok-cli-contract-windows.md). Installation, direct login, non-paid capability diagnosis, and explicit paid live checks remain separate delivery surfaces.
 
 ## 5. Chosen Approach
 
-CCG will add a dedicated Grok Intelligence Runner on top of the existing wrapper infrastructure.
+CCG will add a dedicated, zero-third-party-dependency Node.js ACP client and Grok Intelligence Runner alongside the existing generic wrapper infrastructure.
 
 Rejected alternatives:
 
 1. **Prompt-only templates over the generic backend:** inexpensive to build, but cannot prove that search tools ran and cannot enforce evidence quality.
-2. **Long-lived ACP bridge:** offers finer protocol control, but adds process lifecycle, reconnect, concurrency, and session-isolation complexity that is unnecessary for the first release.
+2. **One-shot `grok -p` transport:** rejected after the Windows probe showed disabled MCP startup attempts and no stable source-event contract for strict evidence.
 3. **Direct xAI API integration:** offers deterministic server-side tool configuration, but would duplicate authentication and transport paths and would not satisfy the CLI-first requirement.
 
-ACP remains a future extension after the one-shot intelligence runner is stable.
+Each intelligence run owns one bounded ACP process. Shared persistent ACP sessions remain a future optimization.
 
 ## 6. Architecture
 
@@ -63,9 +64,9 @@ ACP remains a future extension after the one-shot intelligence runner is stable.
 flowchart LR
     A["User command or CCG workflow"] --> B["Intelligence Router"]
     B --> C["Grok Intelligence Runner"]
-    C --> D["Focused disposable repository snapshot"]
-    C --> E["Grok Build CLI: Web Search and X Search"]
-    E --> F["Streaming Event Normalizer"]
+    C --> D["Focused redacted read-only snapshot"]
+    C --> E["Grok Build ACP: built-in WebSearch"]
+    E --> F["ACP Event Normalizer and Source Registry"]
     F --> G["Evidence Validator"]
     G --> H["Evidence Store"]
     H --> I["Trellis task state"]
@@ -96,12 +97,15 @@ The router combines deterministic hard-trigger rules with Codex semantic judgmen
 
 The runner:
 
-- invokes the official `grok` executable in headless mode;
+- invokes `grok agent stdio`, never one-shot `grok -p`;
+- uses an exact environment and a dedicated private `GROK_HOME` containing the user's official browser login;
 - disables background CLI updates for automated runs;
-- requests `streaming-json` output;
+- initializes ACP with no filesystem or terminal capabilities, creates every session with `mcpServers: []`, and requires empty-MCP preflight notifications;
+- rejects every ACP permission request and disables plan, memory, subagents, shell, edit, read, fetch, and non-search tools;
 - applies an intelligence-specific system prompt and mode template;
-- limits available tools and runs against a disposable snapshot;
+- limits the tool surface to built-in WebSearch and runs against a validated neutral or focused snapshot directory;
 - stores the raw, redacted event stream;
+- accepts a URL only from the correlated ACP tool event's `rawOutput.action.sources`, never from assistant prose;
 - returns normalized text, session metadata, search events, citations, errors, and usage metadata;
 - retries transient failures in a new session at most twice.
 
@@ -109,9 +113,9 @@ The existing generic `--backend grok` behavior remains available and separate.
 
 ### 6.3 Isolation Boundary
 
-Grok never receives write access to the real workspace. The runner creates a focused disposable snapshot using the same isolation principle as the existing Gemini helper. The snapshot excludes secrets, credentials, `.git`, dependency trees, caches, and user-configured `.ccgignore` paths.
+Grok never receives write access to the real workspace. Trusted CCG code creates a focused, size-bounded snapshot containing only router-selected source, configuration, lockfile, and diff context. The snapshot excludes secrets, credentials, `.git`, dependency trees, caches, instruction/plugin surfaces, links and reparse escapes, and user-configured `.ccgignore` paths. It is data minimization, not the security boundary; the ACP client still advertises no filesystem or terminal capability.
 
-Grok may write scripts or patches inside the snapshot or system temporary directory to reproduce behavior. These artifacts are advisory evidence only and are never synchronized automatically into the real repository.
+Snapshot files are marked read-only where supported. Grok cannot write scripts, patches, or reproduction artifacts in the first release. Any future trusted reproduction must be implemented by CCG-side fixed code and re-reviewed as a separate capability.
 
 ### 6.4 Evidence Validator
 
@@ -137,31 +141,31 @@ Each run uses:
 
 Research current libraries, open-source foundations, official recommendations, maintenance health, releases, unresolved defects, alternatives, migration cost, and production feedback.
 
-Web Search is required. X Search is required only when current maintainer direction or ecosystem activity materially affects the decision.
+Web Search is required. Source-backed X-domain evidence may become required only when the configured policy permits it and current maintainer direction or ecosystem activity materially affects the decision.
 
 ### 7.2 `contract`
 
 Verify third-party APIs, SDK behavior, deprecations, compatibility, cloud limits, database behavior, financial rules, regulations, standards, CVEs, and security advisories.
 
-Web Search is required. X Search becomes required when the contract depends on a recent maintainer statement, rollout, or breaking-change report.
+Web Search is required. Source-backed X-domain evidence may become required only when the configured policy permits it and the contract depends on a recent maintainer statement, rollout, or breaking-change report.
 
 ### 7.3 `incident`
 
 Investigate current outages, newly released regressions, recent GitHub reports, status pages, certificates, DNS, CDN, regions, and maintainer workarounds.
 
-Both Web Search and X Search are required.
+Web Search is required. When the configured X policy is `preferred`, incident mode elevates it to required. An explicit `disabled` policy is never elevated.
 
 ### 7.4 `landscape`
 
 Research competitors, product changes, user complaints, demand trends, pricing, business models, emerging projects, and market language.
 
-Both Web Search and X Search are required.
+Web Search is required. X evidence is preferred but not mandatory; landscape research must remain useful when no source-backed X result exists.
 
 ### 7.5 `verify`
 
 Review a plan, applied diff, dependency changes, and tests against current external reality. Check current documentation, known defects, advisories, compatibility, deprecations, and realistic failure scenarios.
 
-Web Search is required. X Search is also required when the original research used X Search or the task concerns an incident or current rollout.
+Web Search is required. X evidence follows the configured policy and is required for an incident/current rollout only when that policy permits elevation.
 
 ## 8. Commands and Configuration
 
@@ -185,29 +189,38 @@ When `--mode` is omitted, the router selects a mode. Manual and automatic invoca
 
 ```toml
 [intelligence]
-enabled = true
-auto_route = true
+enabled = false
+auto_route = false
 provider = "grok-cli"
+transport = "acp"
+auth_mode = "browser_oauth"
+legacy_search_provider = "grok-search-mcp"
+allow_provider_fallback = false
 default_model = "grok-4.5"
-deep_research_model = "grok-4.20-multi-agent"
+deep_research_model = ""
 deep_research_enabled = false
+live_checks_on_init = false
 artifact_root = ".codex/ccg/intelligence"
 max_retries = 2
+max_bundle_bytes = 16777216
+retention_days = 7
+exported_retention_days = 30
+cleanup_credential_artifacts = true
 require_web_search = true
-x_search_modes = ["incident", "landscape"]
+x_search_policy = "preferred"
 ```
 
-`x_search_modes` defines the baseline. The router may elevate X Search to required for `discover`, `contract`, or `verify` based on task context.
+Old configurations and non-interactive installs without `--intelligence` remain disabled. Interactive init presents a disclosure covering the focused task/snapshot sent, Web/X use, cost, artifacts, browser login, private credential home, and fail-closed behavior. `--no-intelligence` explicitly opts out. Init performs no login and no paid live smoke.
 
-The runner probes `grok models` before using the deep-research model. If the model is unavailable, it falls back to `grok-4.5`, records `depth_degraded`, and never reports the result as multi-agent research.
+`x_search_policy` is `required`, `preferred`, or `disabled`. Incident mode may elevate `preferred` to required; landscape leaves it preferred; `disabled` is never elevated. X-only evidence can never create a blocker because X is a discovery radar, not independent final authority.
 
-`grok-4.20-multi-agent` remains disabled by default because it is beta and may consume substantially more tokens and tool calls. It is used only for explicit deep research or a complex, multi-faceted investigation selected by the orchestrator.
+The unavailable deep model is represented by an empty model name and remains disabled. If a future deep model is enabled and available, its manifest must record `evidence_visibility = "leader_only"`; observed leader events must never be presented as total server-side tool usage. Deep output is advisory and cannot satisfy a required gate by itself.
 
 ## 9. Automatic Routing
 
 ### 9.1 Hard Triggers
 
-Grok is mandatory for:
+After the user opts in, Grok is mandatory for:
 
 - external APIs, SDKs, protocols, or third-party services;
 - dependency additions, replacements, or upgrades;
@@ -346,8 +359,8 @@ The final package separates official claims, observed implementation behavior, c
 
 A successful run requires:
 
-- successful CLI completion;
-- all mode-required `web_search` and `x_search` events;
+- successful ACP turn completion;
+- all mode-required built-in WebSearch events and source-registry entries;
 - at least one valid source URL;
 - a schema-valid evidence package;
 - at least one eligible source for every `verified` claim;
@@ -355,7 +368,7 @@ A successful run requires:
 
 Transient CLI, network, or JSON failures retry at most twice in new sessions. Mandatory gates fail closed after retries. Optional intelligence may continue with `degraded` status and a visible final warning.
 
-Mode-required X Search failure blocks `incident` and `landscape`. Conditional X Search failure in other modes is evaluated against the routing decision. Unreachable or unsupported sources downgrade affected claims to `unresolved`. Contradictions are preserved for Codex adjudication.
+Required X evidence failure blocks incident mode only when the effective policy is required. Missing preferred X evidence never blocks landscape mode. A URL that appears only in model prose is rejected. Unreachable or unsupported sources downgrade affected claims to `unresolved`. Contradictions are preserved for Codex adjudication.
 
 A user may explicitly waive a gate. The decision becomes `external_intelligence_waived`; the workflow may continue but must not claim external verification passed.
 
@@ -375,23 +388,26 @@ Evidence expires immediately when the plan, diff, lockfile, dependency target, e
 
 ## 15. Installation and Doctor
 
-`/ccg:init` and `/ccg:doctor --grok` will:
+`/ccg:init` only records explicit consent and configuration. It never logs in or performs a paid model/tool call. `ccg grok login` launches the official browser OAuth flow under the dedicated ACL-restricted credential home.
+
+`/ccg:doctor --grok` is non-paid and will:
 
 1. resolve `grok` from `PATH` and the official user install directory;
 2. probe required CLI capabilities rather than trust a hard-coded version alone;
-3. verify local authentication or `XAI_API_KEY` availability without printing secrets;
-4. run a real Web Search smoke test;
-5. run a real X Search smoke test;
-6. verify corresponding search events and source URLs;
-7. report full, degraded, or unavailable capability status with a concrete remediation.
+3. verify browser OAuth or explicitly configured API-key authentication without printing secrets;
+4. verify dedicated-home ACL/config, isolated inspect, provider arbitration, and credential-artifact cleanup;
+5. complete an ACP handshake and empty-MCP session preflight without sending a model prompt;
+6. report full, degraded, or unavailable capability status with a concrete remediation.
 
-Automated runs use `--no-auto-update`. Missing installation produces the official Windows installation guidance. Authentication uses supported device login or API-key mechanisms.
+`/ccg:doctor --grok-live` is the separate, explicit, bounded paid Web/X smoke and source-event validation. Automated runs use `--no-auto-update`. Missing installation produces official platform guidance. Browser OAuth is the local default; API-key authentication is accepted only when explicitly configured.
 
 ## 16. Security and Privacy
 
 - Exclude `.env`, credential files, certificates, private keys, tokens, `.git`, caches, dependencies, and `.ccgignore` paths from snapshots.
 - Redact credentials and token-bearing URLs before storing raw events.
 - Never store Grok or ChatGPT cookies, browser sessions, or account tokens in the repository.
+- Preserve `auth.json` only in the ACL-restricted dedicated `GROK_HOME`; clean run-created sessions, prompt history, and logs after each intelligence run.
+- Pass an exact environment allowlist, create every ACP session with `mcpServers: []`, require `mcpToolCount = 0`, and cancel every permission request.
 - Treat Grok output and fetched content as untrusted input.
 - Validate structured data before downstream use.
 - Preserve the real-workspace write boundary even when CLI permission flags change between versions.
@@ -403,8 +419,8 @@ Automated runs use `--no-auto-update`. Missing installation produces the officia
 
 - hard and semantic routing decisions;
 - mode selection and skip decisions;
-- CLI argument construction and capability probing;
-- streaming event normalization for search, text, session, usage, and errors;
+- ACP framing, exact environment, argument construction, permission cancellation, and capability probing;
+- ACP event normalization for tool calls, source updates, text, session, usage, and errors;
 - claim/source schema and source-tier rules;
 - blocker eligibility;
 - cache hit and invalidation behavior;
@@ -413,13 +429,13 @@ Automated runs use `--no-auto-update`. Missing installation produces the officia
 
 ### 17.2 Integration Tests
 
-Use a fake Grok executable and event fixtures for successful Web/X Search, missing search events, missing X Search, malformed JSON, timeout, rate limiting, retry, resume, and process interruption. Verify that snapshot writes cannot affect the real repository and that automatic and manual routes share the same runner.
+Use a fake Grok ACP child and real redacted event fixtures for successful Web/X evidence, missing search events, missing X sources, invented prose URLs, malformed JSON-RPC, timeout, rate limiting, retry, permission requests, MCP contamination, and process interruption. Verify that snapshot writes are unavailable and that automatic and manual routes share the same runner.
 
 Verify intelligence decisions and evidence provenance across main CCG, Spec, Team, quality-gate, and GPT Pro workflows.
 
 ### 17.3 Live End-to-End Tests
 
-Live tests are explicit and separate from offline unit tests. They run `/ccg:doctor --grok`, prove a real Web Search and X Search event, validate returned sources, and exercise a public SDK contract through `grok-intel -> plan -> grok-verify`.
+Live tests are explicit and separate from offline unit tests. They run `/ccg:doctor --grok-live`, prove a real source-backed Web event and domain-restricted X evidence when available, validate returned sources, and exercise a public SDK contract through `grok-intel -> plan -> grok-verify`.
 
 ## 18. Acceptance Criteria
 
@@ -431,7 +447,7 @@ The feature is complete when:
 - every supported workflow creates an auditable intelligence decision;
 - mandatory search failures cannot silently continue;
 - claim-level evidence maps to real sources and passes schema validation;
-- required Web/X Search tool events are proven from the CLI stream;
+- required Web/X evidence is proven from correlated ACP source events, never model prose;
 - GPT Pro Plan, Exc, and Review contain Grok evidence provenance;
 - Trellis can reference validated evidence and status;
 - type checking, build, TypeScript tests, Go tests, and live Grok smoke tests pass;
@@ -439,7 +455,7 @@ The feature is complete when:
 
 ## 19. Future Extension
 
-After the one-shot CLI runner is stable, CCG may add `grok agent stdio` ACP support for persistent sessions, finer-grained tool control, and lower per-turn process overhead. ACP will reuse the same router, evidence schema, validator, source policy, and artifact store rather than create a second intelligence system.
+After the short-lived ACP runner is stable, CCG may evaluate a persistent session pool or direct xAI API transport. Either extension must preserve the same consent, exact-environment, permission, evidence, source-registry, validator, cache, and artifact contracts and must not create a second intelligence authority.
 
 ## 20. References
 

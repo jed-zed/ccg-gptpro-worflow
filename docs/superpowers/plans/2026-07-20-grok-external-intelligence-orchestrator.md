@@ -299,7 +299,7 @@ ACP passed the Windows single-agent contract: `tool_call` and correlated `tool_c
 - Modify: `src/i18n/index.ts`
 - Test: `src/utils/__tests__/config.test.ts`
 
-- [ ] **Step 1: 先写旧配置默认关闭和新安装显式同意的失败测试**
+- [x] **Step 1: 先写旧配置默认关闭和新安装显式同意的失败测试**
 
 ```ts
 expect(normalizeIntelligenceConfig(undefined, { existingInstall: true })).toMatchObject({
@@ -322,7 +322,7 @@ expect(createDefaultConfig({ ...baseOptions, intelligenceConsent: true }).intell
 
 Also test non-interactive `--skip-prompt` without an explicit intelligence flag remains disabled.
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/config.test.ts
@@ -330,7 +330,7 @@ pnpm vitest run src/utils/__tests__/config.test.ts
 
 Expected: FAIL because the intelligence types and consent path do not exist.
 
-- [ ] **Step 3: Implement the exact typed config**
+- [x] **Step 3: Implement the exact typed config**
 
 ```ts
 export type XSearchPolicy = 'required' | 'preferred' | 'disabled'
@@ -360,15 +360,15 @@ export interface IntelligenceConfig {
 
 Defaults: disabled/false for old or non-interactive installs; provider `grok-cli`, transport `acp`, local auth `browser_oauth`, `grok-4.5`, unavailable deep model disabled, 2 retries, 16 MiB bundle, 7-day local retention, 30-day exported retention, credential-home cleanup enabled, Web required, X preferred. `incident` elevates preferred to required; `landscape` remains preferred; `disabled` is never elevated. X-only evidence can never create a blocker.
 
-- [ ] **Step 4: Add explicit init consent disclosure**
+- [x] **Step 4: Add explicit init consent disclosure**
 
 The prompt must state data sent (focused source snapshot and task text), Web/X use, token/tool-call cost, local artifact path, direct browser login and private credential-home path, fail-closed behavior and that init itself performs no login or paid smoke. `--intelligence` is the only non-interactive opt-in; `--no-intelligence` is explicit opt-out.
 
-- [ ] **Step 5: Update the design document**
+- [x] **Step 5: Update the design document**
 
 Replace unsafe defaults, arbitrary snapshot writes, mandatory landscape X, `/ccg:doctor --grok` paid behavior, one-shot CLI transport and deep full-audit claims with this plan's consent, ACP/direct-login contract, safety, doctor split and leader-only rules. Link `docs/verification/grok-cli-contract-windows.md` as the authoritative runtime evidence.
 
-- [ ] **Step 6: Green and commit**
+- [x] **Step 6: Green and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/config.test.ts
