@@ -29,6 +29,15 @@ function envValue(env, name) {
   return key ? env[key] : undefined
 }
 
+export function resolveDoctorAuthentication({ env = {}, loggedIn = false } = {}) {
+  const apiKey = envValue(env, 'XAI_API_KEY')
+  if (typeof apiKey === 'string' && apiKey.trim())
+    return { authMode: 'api_key', apiKey }
+  if (loggedIn)
+    return { authMode: 'browser_oauth', apiKey: undefined }
+  throw new Error('Grok doctor requires browser login or an explicit XAI_API_KEY')
+}
+
 export function getDefaultGrokIntelligencePaths({
   platform = process.platform,
   env = process.env,
@@ -161,18 +170,24 @@ async function inventoryRetention(projectRoot, paths) {
   return result
 }
 
-async function localDoctor({ cleanup = false, projectRoot = process.cwd(), command = 'grok' } = {}) {
-  const paths = getDefaultGrokIntelligencePaths()
+async function localDoctor({ cleanup = false, projectRoot = process.cwd(), command = 'grok', sourceEnv = process.env } = {}) {
+  const paths = getDefaultGrokIntelligencePaths({ env: sourceEnv })
+  if (envValue(sourceEnv, 'XAI_API_KEY'))
+    await ensureDedicatedGrokHome({ paths })
   const status = await readDedicatedStatus(paths)
   if (!status.configSafe)
     throw new Error(`Dedicated Grok config is unsafe: ${status.configIssues.join(', ')}`)
-  if (!status.loggedIn)
-    throw new Error('Dedicated Grok browser login is missing; run: ccg grok login')
+  const authentication = resolveDoctorAuthentication({ env: sourceEnv, loggedIn: status.loggedIn })
   for (const path of [paths.root, paths.grokHome, paths.neutralHome, paths.tempParent]) {
     if (!isAbsolute(path) || !(await pathExists(path)))
       throw new Error(`Dedicated Grok path is missing: ${path}`)
   }
-  const env = buildExactGrokEnvironment({ sourceEnv: process.env, neutralHome: paths.neutralHome, grokHome: paths.grokHome })
+  const env = buildExactGrokEnvironment({
+    sourceEnv,
+    neutralHome: paths.neutralHome,
+    grokHome: paths.grokHome,
+    apiKey: authentication.apiKey,
+  })
   const help = await runBoundedProcess(command, ['--no-auto-update', '--help'], { cwd: paths.neutralHome, env })
   if (help.exitCode !== 0 || !/agent|models|inspect/i.test(help.stdout))
     throw new Error('Grok help contract is missing required local commands')
@@ -191,8 +206,9 @@ async function localDoctor({ cleanup = false, projectRoot = process.cwd(), comma
       rawEventsMaxEvents: 2000,
       timeoutMs: 30_000,
       maxTurns: 6,
-      authMode: 'browser_oauth',
-      sourceEnv: process.env,
+      authMode: authentication.authMode,
+      apiKey: authentication.apiKey,
+      sourceEnv,
     })
   }
   finally {
@@ -225,7 +241,9 @@ async function localDoctor({ cleanup = false, projectRoot = process.cwd(), comma
 
 async function liveDoctor(options = {}) {
   const local = await localDoctor(options)
-  const paths = getDefaultGrokIntelligencePaths()
+  const sourceEnv = options.sourceEnv || process.env
+  const paths = getDefaultGrokIntelligencePaths({ env: sourceEnv })
+  const authentication = resolveDoctorAuthentication({ env: sourceEnv, loggedIn: local.status.loggedIn })
   const probeRoot = resolve(paths.root, `live-probe-${process.pid}`)
   await securePrivateDirectory(probeRoot)
   await writeFile(resolve(probeRoot, 'probe.txt'), 'CCG bounded Grok Web and X live evidence smoke test.\n', { flag: 'wx', mode: 0o400 })
@@ -236,7 +254,7 @@ async function liveDoctor(options = {}) {
       consent: true,
       config: {
         enabled: true,
-        auth_mode: 'browser_oauth',
+        auth_mode: authentication.authMode,
         require_web_search: true,
         x_search_policy: 'required',
         max_retries: 0,
@@ -249,7 +267,8 @@ async function liveDoctor(options = {}) {
       dirtyDiffs: [],
       tempParent: paths.tempParent,
       grokHome: paths.grokHome,
-      sourceEnv: process.env,
+      sourceEnv,
+      apiKey: authentication.apiKey,
       timeoutMs: 120_000,
     })
   }

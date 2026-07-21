@@ -46,4 +46,20 @@ describe('Codex plugin release parity', () => {
     for (const [template, plugin] of pairs)
       expect(fs.readFileSync(plugin, 'utf8'), plugin).toBe(fs.readFileSync(template, 'utf8'))
   })
+
+  it('runs offline CI on Linux and Windows while keeping paid Grok smoke manual', () => {
+    const ci = fs.readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8')
+    expect(ci.match(/os:\s*\[ubuntu-latest, windows-latest\]/g)).toHaveLength(2)
+    expect(ci).toContain("runner.os == 'Linux' && matrix.node-version == 22")
+    expect(ci).toContain("runner.os == 'Windows' && matrix.node-version == 22")
+    expect(ci).not.toContain('/dev/null')
+
+    const live = fs.readFileSync(join(root, '.github', 'workflows', 'grok-live-smoke.yml'), 'utf8')
+    expect(live).toContain('workflow_dispatch:')
+    expect(live).toContain('environment: grok-live-smoke')
+    expect(live).toContain('secrets.XAI_API_KEY')
+    expect(live).toContain('@xai-official/grok')
+    expect(live).toContain('doctor --grok-live')
+    expect(live).not.toMatch(/upload-artifact|\.codex\/ccg\/intelligence.*artifact/i)
+  })
 })

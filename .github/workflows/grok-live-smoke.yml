@@ -1,0 +1,89 @@
+name: Grok Live Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  grok-live:
+    runs-on: windows-latest
+    environment: grok-live-smoke
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Require the approved live secret
+        shell: pwsh
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:XAI_API_KEY)) {
+            throw 'The grok-live-smoke environment must provide secrets.XAI_API_KEY.'
+          }
+          $isolatedData = Join-Path $env:RUNNER_TEMP 'ccg-grok-live'
+          New-Item -ItemType Directory -Path $isolatedData -Force | Out-Null
+          "LOCALAPPDATA=$isolatedData" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install dependencies and the official Grok CLI
+        run: |
+          pnpm install --frozen-lockfile
+          npm install --global @xai-official/grok
+          grok --version
+
+      - name: Configure explicit CCG consent for this approved run
+        shell: pwsh
+        run: |
+          $ccgDir = Join-Path $HOME '.claude/.ccg'
+          New-Item -ItemType Directory -Path $ccgDir -Force | Out-Null
+          @'
+          [intelligence]
+          enabled = true
+          auto_route = true
+          provider = "grok-cli"
+          transport = "acp"
+          auth_mode = "api_key"
+          legacy_search_provider = "grok-search-mcp"
+          allow_provider_fallback = false
+          require_web_search = true
+          x_search_policy = "required"
+          '@ | Set-Content -LiteralPath (Join-Path $ccgDir 'config.toml') -Encoding utf8
+
+      - name: Run the explicit paid Web and X smoke
+        shell: pwsh
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          pnpm exec tsx src/cli.ts doctor --grok-live
+          $raw = node templates/engine/tools/grok-intelligence/manage.mjs doctor --live --json
+          $result = $raw | ConvertFrom-Json
+          if (-not $result.ok -or -not $result.paidModelPromptSent) {
+            throw 'Grok live doctor did not report a valid paid prompt.'
+          }
+          if ($result.live.webSearches -lt 1 -or $result.live.xSearches -lt 1) {
+            throw 'Grok live doctor did not validate both Web and X events.'
+          }
+          if (-not $result.mcpServersEmpty -or $result.mcpToolCount -ne 0) {
+            throw 'Grok live doctor observed an unexpected MCP surface.'
+          }
+
+      - name: Prove raw run cleanup without uploading evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $runParent = Join-Path $env:LOCALAPPDATA 'CCG/grok-intelligence/runs'
+          if (Test-Path -LiteralPath $runParent) {
+            $orphans = @(Get-ChildItem -LiteralPath $runParent -Directory -Filter 'ccg-grok-run-*')
+            if ($orphans.Count -gt 0) {
+              throw "Unredacted Grok run directories remain: $($orphans.FullName -join ', ')"
+            }
+          }

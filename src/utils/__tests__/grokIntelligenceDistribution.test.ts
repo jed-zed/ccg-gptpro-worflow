@@ -8,7 +8,7 @@ import { getCoreCommandIds, installWorkflows } from '../installer'
 // @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
 import { parseIntelligenceToml, runManualCommand } from '../../../templates/engine/tools/grok-intelligence/command.mjs'
 // @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
-import { getDefaultGrokIntelligencePaths } from '../../../templates/engine/tools/grok-intelligence/manage.mjs'
+import { getDefaultGrokIntelligencePaths, resolveDoctorAuthentication } from '../../../templates/engine/tools/grok-intelligence/manage.mjs'
 
 const ROOT = process.cwd()
 const TEMPLATE_RUNTIME = join(ROOT, 'templates', 'engine', 'tools', 'grok-intelligence')
@@ -39,6 +39,17 @@ describe('Grok intelligence distribution', () => {
       env: { LOCALAPPDATA: 'C:\\PrivateData' },
       userHome: 'C:\\Users\\test',
     }).grokHome).toBe('C:\\PrivateData\\CCG\\grok-intelligence\\grok-home')
+  })
+
+  it('uses an explicit API key for headless doctor runs and preserves browser OAuth otherwise', () => {
+    expect(resolveDoctorAuthentication({
+      env: { XAI_API_KEY: 'xai-ci-secret' },
+      loggedIn: false,
+    })).toEqual({ authMode: 'api_key', apiKey: 'xai-ci-secret' })
+    expect(resolveDoctorAuthentication({ env: {}, loggedIn: true }))
+      .toEqual({ authMode: 'browser_oauth', apiKey: undefined })
+    expect(() => resolveDoctorAuthentication({ env: {}, loggedIn: false }))
+      .toThrow(/login|XAI_API_KEY/i)
   })
 
   it('ships strict command and skill surfaces without legacy MCP or unresolved variables', () => {

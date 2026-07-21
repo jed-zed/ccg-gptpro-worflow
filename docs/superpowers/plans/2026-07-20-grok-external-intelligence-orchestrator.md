@@ -881,7 +881,7 @@ git commit -m "feat(workflows): route external intelligence across CCG"
 - Create: `.github/workflows/grok-live-smoke.yml`
 - Modify tests where platform guards are required
 
-- [ ] **Step 1: Convert Node and Go jobs to OS matrices**
+- [x] **Step 1: Convert Node and Go jobs to OS matrices**
 
 ```yaml
 strategy:
@@ -893,15 +893,15 @@ runs-on: ${{ matrix.os }}
 
 Go uses `os: [ubuntu-latest, windows-latest]`. Coverage upload remains Ubuntu/Node 22 only. Use platform-neutral Go output paths instead of `/dev/null` on Windows.
 
-- [ ] **Step 2: Add Windows-specific offline coverage**
+- [x] **Step 2: Add Windows-specific offline coverage**
 
 Tests must execute Windows path validation, junction/reparse rejection, credential-home ACL checks, exact env, exclusive temp file, ACP framing/permission denial, process-tree timeout, cleanup and PowerShell doctor JSON.
 
-- [ ] **Step 3: Keep paid live smoke manual**
+- [x] **Step 3: Keep paid live smoke manual**
 
 `grok-live-smoke.yml` uses `workflow_dispatch`, repository environment approval and secrets; it never runs on push/PR. It runs `doctor --grok-live`, Web/X event validation and public contract verify without uploading raw artifacts.
 
-- [ ] **Step 4: Validate workflow and commit**
+- [x] **Step 4: Validate workflow and commit**
 
 ```powershell
 pnpm test
