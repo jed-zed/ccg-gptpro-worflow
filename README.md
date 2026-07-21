@@ -89,9 +89,9 @@ Validated evidence is local-only by default:
 └── task.json            # intelligence pointer + hashes
 ```
 
-Cache keys bind the task, mode, plan, target, dependencies, diff, and phase. `--force-refresh` bypasses reuse. Local bundles retain for 7 days; sanitized explicit exports retain for 30 days. Export requires `--export <directory>` and never happens automatically. A required decision can be waived only by explicit user authorization with an auditable reason and timestamp.
+Cache keys bind the task, mode, model/CLI/policy versions, selected-file state, plan, dependencies, and diff. Manual cache hits revalidate both the evidence and manifest hashes before reuse; `--force-refresh` replaces the same-key entry after a successful fresh run. Local bundles retain for 7 days; sanitized explicit exports retain for 30 days. Export requires `--export <directory>` and never happens automatically. A required decision can be waived only by explicit user authorization with an auditable reason and timestamp.
 
-On Windows, the dedicated credential and run roots are protected with owner-only ACLs and reject junction/reparse traversal. Browser OAuth is the normal desktop path; the manual GitHub Actions live smoke uses an environment-approved `XAI_API_KEY`. Junction tests can be skipped by Windows itself when the runner lacks link-creation privilege, but production paths still fail closed on observed links/reparse points.
+On Windows, the dedicated credential and run roots are protected with owner-only ACLs and reject junction/reparse traversal. Local diagnostics snapshot and restore volatile credential state, and doctor runs purge historical sessions, logs, memtrace, and active-session indexes while preserving browser login, pinned config, and model metadata. Browser OAuth is the normal desktop path; the manual GitHub Actions live smoke uses an environment-approved `XAI_API_KEY`. Junction tests can be skipped by Windows itself when the runner lacks link-creation privilege, but production paths still fail closed on observed links/reparse points.
 
 ## How It Works
 

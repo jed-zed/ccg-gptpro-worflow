@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 Fixes
 
+- **Manual Grok evidence caching** — Wire `grok-intel` and `grok-verify` through the versioned cache, same-key lock, bound-input invalidation, dual-hash artifact validation, and `--force-refresh` replacement path so identical manual requests do not repeat paid model calls.
+- **Grok credential-home diagnostics cleanup** — Snapshot and restore volatile credential state around every local diagnostic, purge historical sessions/logs/memtrace during doctor runs, and prevent `unified.jsonl` authentication key prefixes from persisting while preserving browser login, pinned config, and model metadata.
 - **Automatic route invalidation** — Re-run intelligence when task phase, plan, target, dependency, or diff digests change; reuse identical valid Team decisions instead of invoking once per teammate.
 - **Headless live doctor authentication** — Use explicit `XAI_API_KEY` authentication in approved CI runs while preserving direct browser OAuth as the desktop default.
 - **Coverage runner parity** — Align `vitest` with `@vitest/coverage-v8` 3.2.7 so release coverage runs no longer mix unsupported tool versions.

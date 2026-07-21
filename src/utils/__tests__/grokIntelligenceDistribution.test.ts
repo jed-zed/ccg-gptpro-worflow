@@ -2,13 +2,15 @@ import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { tmpdir } from 'node:os'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import fs from 'fs-extra'
 import { getCoreCommandIds, installWorkflows } from '../installer'
 // @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
 import { parseIntelligenceToml, runManualCommand } from '../../../templates/engine/tools/grok-intelligence/command.mjs'
 // @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
-import { getDefaultGrokIntelligencePaths, resolveDoctorAuthentication } from '../../../templates/engine/tools/grok-intelligence/manage.mjs'
+import * as grokManage from '../../../templates/engine/tools/grok-intelligence/manage.mjs'
+
+const { ensureDedicatedGrokHome, getDefaultGrokIntelligencePaths, resolveDoctorAuthentication } = grokManage
 
 const ROOT = process.cwd()
 const TEMPLATE_RUNTIME = join(ROOT, 'templates', 'engine', 'tools', 'grok-intelligence')
@@ -122,6 +124,8 @@ describe('Grok intelligence distribution', () => {
       }, {
         repoRoot: root,
         paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
+        runDiagnostics: async () => ({ safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] }),
+        gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'selected-files-digest' }),
         runner: async () => ({
           exitCode: 0,
           status: 'valid',
@@ -144,4 +148,142 @@ describe('Grok intelligence distribution', () => {
       await fs.remove(root)
     }
   })
+
+  it('reuses identical manual evidence while invalidating changed and force-refreshed requests', async () => {
+    const root = join(tmpdir(), `ccg-grok-manual-cache-${Date.now()}`)
+    await fs.ensureDir(root)
+    await Promise.all([
+      fs.writeFile(join(root, 'config.toml'), '[intelligence]\nenabled = true\nauth_mode = "browser_oauth"\ndefault_model = "grok-4.5"\nartifact_root = ".codex/ccg/intelligence"\n'),
+      fs.writeFile(join(root, 'package.json'), '{}\n'),
+      fs.writeFile(join(root, 'change.diff'), '+current contract\n'),
+    ])
+    const runner = vi.fn(async () => {
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 5))
+      return {
+        exitCode: 0,
+        status: 'valid',
+        evidence: {
+          normalized: { searches: [{ tool: 'web_search', status: 'completed' }] },
+          registry: { sources: [{ id: 'source-1', canonical_url: 'https://docs.x.ai/build/cli/reference' }] },
+          claims: [],
+        },
+        raw: { notifications: [] },
+      }
+    })
+    const runtime = {
+      repoRoot: root,
+      paths: { grokHome: join(root, 'grok'), neutralHome: join(root, 'neutral'), tempParent: join(root, 'runs') },
+      runner,
+      runDiagnostics: async () => ({ safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] }),
+      gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'selected-files-digest' }),
+    }
+    const options = {
+      task: 'Verify current API support.',
+      config: join(root, 'config.toml'),
+      diff: 'change.diff',
+      files: ['package.json'],
+    }
+    try {
+      const first = await runManualCommand('verify', options, runtime)
+      const second = await runManualCommand('verify', options, runtime)
+      expect(runner).toHaveBeenCalledTimes(1)
+      expect(first.cache).toMatchObject({ hit: false, reason: 'missing' })
+      expect(second.cache).toMatchObject({ hit: true, reason: 'valid' })
+      expect(second.manifestPath).toBe(first.manifestPath)
+      expect(second.manifestSha256).toBe(first.manifestSha256)
+
+      await fs.writeFile(join(root, 'change.diff'), '+changed contract\n')
+      const changed = await runManualCommand('verify', options, runtime)
+      expect(runner).toHaveBeenCalledTimes(2)
+      expect(changed.cache).toMatchObject({ hit: false })
+      expect(changed.manifestPath).not.toBe(first.manifestPath)
+
+      const refreshed = await runManualCommand('verify', { ...options, forceRefresh: true }, runtime)
+      expect(runner).toHaveBeenCalledTimes(3)
+      expect(refreshed.cache).toMatchObject({ hit: false, reason: 'force_refresh' })
+      expect(refreshed.manifestPath).not.toBe(changed.manifestPath)
+    }
+    finally {
+      await fs.remove(root)
+    }
+  })
+
+  it('runs doctor diagnostics in a disposable credential-home copy', async () => {
+    const root = join(tmpdir(), `ccg-grok-doctor-isolation-${Date.now()}`)
+    const paths = {
+      root,
+      grokHome: join(root, 'grok-home'),
+      neutralHome: join(root, 'neutral-home'),
+      tempParent: join(root, 'runs'),
+    }
+    await ensureDedicatedGrokHome({ paths, platform: process.platform })
+    await fs.ensureDir(join(paths.grokHome, 'logs'))
+    const realLog = join(paths.grokHome, 'logs', 'unified.jsonl')
+    await fs.writeFile(realLog, 'baseline\n')
+    const runProcess = vi.fn(async (_command: string, args: string[], options: any) => {
+      const isolatedLog = join(options.env.GROK_HOME, 'logs', 'unified.jsonl')
+      await fs.ensureDir(join(options.env.GROK_HOME, 'logs'))
+      await fs.appendFile(isolatedLog, '{"key_prefix":"must-not-persist"}\n')
+      if (args.includes('--help'))
+        return { stdout: 'agent models inspect', stderr: '', exitCode: 0 }
+      if (args.includes('inspect'))
+        return { stdout: '{"externalCompat":{"remoteSettingsLoaded":false,"cells":[]}}', stderr: '', exitCode: 0 }
+      return { stdout: args.includes('version') ? 'grok 0.2.106' : 'none configured', stderr: '', exitCode: 0 }
+    })
+    try {
+      const isolate = (grokManage as any).runIsolatedGrokDiagnostics
+      expect(isolate).toBeTypeOf('function')
+      const result = await isolate({
+        paths,
+        authentication: { authMode: 'browser_oauth' },
+        command: 'grok',
+        sourceEnv: { PATH: process.env.PATH },
+        runProcess,
+      })
+      expect(result.diagnostics).toMatchObject({ safe: true, version: 'grok 0.2.106' })
+      expect(runProcess).toHaveBeenCalledTimes(6)
+      expect(await fs.readFile(realLog, 'utf8')).toBe('baseline\n')
+      expect(await fs.readdir(paths.tempParent)).toEqual([])
+    }
+    finally {
+      await fs.remove(root)
+    }
+  }, 20_000)
+
+  it('routes local doctor help and inventory through isolated diagnostics', async () => {
+    const root = join(tmpdir(), `ccg-grok-local-doctor-${Date.now()}`)
+    const paths = {
+      root,
+      grokHome: join(root, 'grok-home'),
+      neutralHome: join(root, 'neutral-home'),
+      tempParent: join(root, 'runs'),
+    }
+    try {
+      await ensureDedicatedGrokHome({ paths, platform: process.platform })
+      await fs.writeFile(join(paths.grokHome, 'auth.json'), '{"cached":"token"}\n')
+      await fs.ensureDir(join(paths.grokHome, 'logs'))
+      const historicalLog = join(paths.grokHome, 'logs', 'unified.jsonl')
+      await fs.writeFile(historicalLog, '{"key_prefix":"historical-prefix"}\n')
+      const isolatedDiagnostics = vi.fn(async () => ({
+        help: { stdout: 'agent models inspect', stderr: '', exitCode: 0 },
+        diagnostics: { safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] },
+      }))
+      const localDoctor = (grokManage as any).localDoctor
+      expect(localDoctor).toBeTypeOf('function')
+      const result = await localDoctor({
+        paths,
+        projectRoot: root,
+        command: process.execPath,
+        prefixArgs: [join(ROOT, 'templates', 'engine', 'tools', 'grok-intelligence', 'fake-wrapper.mjs')],
+        sourceEnv: { PATH: process.env.PATH },
+        runIsolatedDiagnostics: isolatedDiagnostics,
+      })
+      expect(isolatedDiagnostics).toHaveBeenCalledTimes(1)
+      expect(result).toMatchObject({ ok: true, paidModelPromptSent: false, version: 'grok 0.2.106' })
+      expect(await fs.pathExists(historicalLog)).toBe(false)
+    }
+    finally {
+      await fs.remove(root)
+    }
+  }, 20_000)
 })

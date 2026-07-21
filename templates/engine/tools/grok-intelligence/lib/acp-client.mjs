@@ -271,6 +271,21 @@ async function snapshotCredentialHome(grokHome) {
   return snapshot
 }
 
+export async function withCredentialHomeVolatileSnapshot(grokHome, action, {
+  validateDirectory = validatePrivateDirectory,
+} = {}) {
+  if (typeof action !== 'function')
+    throw new Error('Credential-home snapshot action must be a function')
+  const root = await validateDirectory(grokHome)
+  const snapshot = await snapshotCredentialHome(root)
+  try {
+    return await action(root)
+  }
+  finally {
+    await restoreCredentialHome(root, snapshot)
+  }
+}
+
 async function assertNoLinksRecursively(path) {
   let metadata
   try {
@@ -295,6 +310,22 @@ function resolveCredentialChild(grokHome, name) {
   if (!rel || rel.startsWith('..') || isAbsolute(rel))
     throw new Error(`Credential-home cleanup target escaped its root: ${name}`)
   return target
+}
+
+export async function clearCredentialHomeVolatileState(grokHome, {
+  validateDirectory = validatePrivateDirectory,
+} = {}) {
+  const root = await validateDirectory(grokHome)
+  for (const name of VOLATILE_DIRECTORIES) {
+    const target = resolveCredentialChild(root, name)
+    await assertNoLinksRecursively(target)
+    await rm(target, { recursive: true, force: true })
+  }
+  for (const name of VOLATILE_FILES) {
+    const target = resolveCredentialChild(root, name)
+    await assertNoLinksRecursively(target)
+    await rm(target, { force: true })
+  }
 }
 
 async function restoreCredentialHome(grokHome, snapshot) {

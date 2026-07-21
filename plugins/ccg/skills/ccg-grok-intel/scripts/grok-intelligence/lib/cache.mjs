@@ -187,6 +187,25 @@ export async function writeCacheEntry({ cacheRoot, fingerprint, entry, randomNam
   }
 }
 
+export async function removeCacheEntry({ cacheRoot, fingerprint }) {
+  const key = validateFingerprint(fingerprint)
+  const root = await ensureCacheRoot(cacheRoot)
+  const target = resolve(root, key)
+  let metadata
+  try {
+    metadata = await lstat(target)
+  }
+  catch (error) {
+    if (error?.code === 'ENOENT')
+      return false
+    throw error
+  }
+  if (!metadata.isDirectory() || metadata.isSymbolicLink())
+    throw new Error('Cache entry must not be a link or reparse point')
+  await removeContainedDirectory(root, target)
+  return true
+}
+
 function parsedTimestamp(value) {
   if (typeof value !== 'string')
     return null

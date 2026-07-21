@@ -1,4 +1,4 @@
-import { createGrokAcpClient } from './lib/acp-client.mjs'
+import { createGrokAcpClient, withCredentialHomeVolatileSnapshot } from './lib/acp-client.mjs'
 import { buildExactGrokEnvironment } from './lib/exact-env.mjs'
 import { normalizeAcpEvents } from './lib/events.mjs'
 import { createPrivateRunRoots } from './lib/private-temp.mjs'
@@ -123,13 +123,13 @@ export async function runGrokIntelligence(options) {
     while (attempts <= maxRetries) {
       attempts++
       try {
-        await dependencies.diagnostics({
+        await withCredentialHomeVolatileSnapshot(roots.grokHome, () => dependencies.diagnostics({
           command: options.command || 'grok',
           prefixArgs: options.prefixArgs || [],
           cwd: roots.neutralHome,
           env,
           timeoutMs: options.diagnosticTimeoutMs,
-        })
+        }), { validateDirectory: async path => path })
         const acpOptions = {
           prompt,
           cwd: roots.snapshotRoot,

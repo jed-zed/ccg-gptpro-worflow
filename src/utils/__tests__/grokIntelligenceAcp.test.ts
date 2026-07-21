@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { GROK_ACP_DENY_RULES, GROK_ACP_DISALLOWED_TOOLS, GROK_INTELLIGENCE_SYSTEM_PROMPT, buildGrokAcpArgs, createExclusiveCapture, createGrokAcpClient, selectAcpAuthMethod, validatePrivateDirectory, validateWorkingDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
+import * as grokAcp from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
+// @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { FORCED_GROK_ENV, INTELLIGENCE_ENV_ALLOWLIST, buildExactGrokEnvironment } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -454,5 +456,27 @@ describe('Grok intelligence ACP transport', () => {
     await expect(stat(join(grokHome, 'sessions', 'run-new'))).rejects.toThrow()
     await expect(stat(join(grokHome, 'logs', 'run-new.log'))).rejects.toThrow()
     await expect(stat(join(grokHome, 'memtrace', 'run-new.jsonl'))).rejects.toThrow()
+  })
+
+  it('purges historical volatile credential artifacts without deleting persistent login state', async () => {
+    await Promise.all([
+      mkdir(join(grokHome, 'sessions', 'stale-session'), { recursive: true }),
+      mkdir(join(grokHome, 'logs'), { recursive: true }),
+      mkdir(join(grokHome, 'memtrace'), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(grokHome, 'sessions', 'stale-session', 'prompt.json'), '{"prompt":"private"}'),
+      writeFile(join(grokHome, 'logs', 'unified.jsonl'), '{"key_prefix":"must-be-removed"}\n'),
+      writeFile(join(grokHome, 'memtrace', 'trace.jsonl'), '{}\n'),
+      writeFile(join(grokHome, 'active_sessions.json'), '{}\n'),
+    ])
+    const purge = (grokAcp as any).clearCredentialHomeVolatileState
+    expect(purge).toBeTypeOf('function')
+    await purge(grokHome, { validateDirectory: async (path: string) => path })
+    for (const name of ['sessions', 'logs', 'memtrace', 'active_sessions.json'])
+      await expect(stat(join(grokHome, name))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(join(grokHome, 'auth.json'), 'utf8')).toContain('preserve-me')
+    expect(await readFile(join(grokHome, 'config.toml'), 'utf8')).toContain('write_file = false')
+    expect(await readFile(join(grokHome, 'models_cache.json'), 'utf8')).toBe('{}')
   })
 })

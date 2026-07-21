@@ -5,7 +5,7 @@ import { access, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/p
 import { homedir } from 'node:os'
 import { isAbsolute, resolve, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createGrokAcpClient } from './lib/acp-client.mjs'
+import { clearCredentialHomeVolatileState, createGrokAcpClient, withCredentialHomeVolatileSnapshot } from './lib/acp-client.mjs'
 import { cleanupIntelligenceArtifacts } from './lib/artifacts.mjs'
 import { buildExactGrokEnvironment } from './lib/exact-env.mjs'
 import { createPrivateRunRoots, securePrivateDirectory, validatePinnedGrokConfig, writePinnedGrokConfig } from './lib/private-temp.mjs'
@@ -170,8 +170,57 @@ async function inventoryRetention(projectRoot, paths) {
   return result
 }
 
-async function localDoctor({ cleanup = false, projectRoot = process.cwd(), command = 'grok', sourceEnv = process.env } = {}) {
-  const paths = getDefaultGrokIntelligencePaths({ env: sourceEnv })
+export async function runIsolatedGrokDiagnostics({
+  paths,
+  authentication,
+  command = 'grok',
+  prefixArgs = [],
+  sourceEnv = process.env,
+  createRoots = createPrivateRunRoots,
+  runProcess = runBoundedProcess,
+  runDiagnostics = runGrokDiagnostics,
+} = {}) {
+  if (!paths?.tempParent || !paths?.grokHome)
+    throw new Error('Isolated Grok diagnostics require dedicated paths')
+  const roots = await createRoots({ parent: paths.tempParent, grokHome: paths.grokHome })
+  try {
+    const env = buildExactGrokEnvironment({
+      sourceEnv,
+      neutralHome: roots.neutralHome,
+      grokHome: roots.grokHome,
+      apiKey: authentication?.authMode === 'api_key' ? authentication.apiKey : undefined,
+    })
+    return await withCredentialHomeVolatileSnapshot(roots.grokHome, async () => {
+      const help = await runProcess(command, [...prefixArgs, '--no-auto-update', '--help'], {
+        cwd: roots.neutralHome,
+        env,
+      })
+      if (help.exitCode !== 0 || !/agent|models|inspect/i.test(help.stdout))
+        throw new Error('Grok help contract is missing required local commands')
+      const diagnostics = await runDiagnostics({
+        command,
+        prefixArgs,
+        cwd: roots.neutralHome,
+        env,
+        runProcess,
+      })
+      return { help, diagnostics }
+    }, { validateDirectory: async path => path })
+  }
+  finally {
+    await roots.cleanup()
+  }
+}
+
+async function localDoctor(options = {}) {
+  const {
+    cleanup = false,
+    projectRoot = process.cwd(),
+    command = 'grok',
+    prefixArgs = [],
+    sourceEnv = process.env,
+  } = options
+  const paths = options.paths || getDefaultGrokIntelligencePaths({ env: sourceEnv })
   if (envValue(sourceEnv, 'XAI_API_KEY'))
     await ensureDedicatedGrokHome({ paths })
   const status = await readDedicatedStatus(paths)
@@ -182,60 +231,65 @@ async function localDoctor({ cleanup = false, projectRoot = process.cwd(), comma
     if (!isAbsolute(path) || !(await pathExists(path)))
       throw new Error(`Dedicated Grok path is missing: ${path}`)
   }
-  const env = buildExactGrokEnvironment({
-    sourceEnv,
-    neutralHome: paths.neutralHome,
-    grokHome: paths.grokHome,
-    apiKey: authentication.apiKey,
-  })
-  const help = await runBoundedProcess(command, ['--no-auto-update', '--help'], { cwd: paths.neutralHome, env })
-  if (help.exitCode !== 0 || !/agent|models|inspect/i.test(help.stdout))
-    throw new Error('Grok help contract is missing required local commands')
-  const diagnostics = await runGrokDiagnostics({ command, cwd: paths.neutralHome, env })
-  const roots = await createPrivateRunRoots({ parent: paths.tempParent, grokHome: paths.grokHome })
-  let handshake
+  const clearCredentialState = options.clearCredentialState || clearCredentialHomeVolatileState
+  await clearCredentialState(paths.grokHome)
   try {
-    handshake = await createGrokAcpClient({ command }).run({
-      handshakeOnly: true,
-      cwd: roots.snapshotRoot,
-      allowedCwdRoots: [roots.snapshotRoot],
-      neutralHome: roots.neutralHome,
-      grokHome: roots.grokHome,
-      rawEventsDir: roots.rawEventsDir,
-      rawEventsMaxBytes: 1024 * 1024,
-      rawEventsMaxEvents: 2000,
-      timeoutMs: 30_000,
-      maxTurns: 6,
-      authMode: authentication.authMode,
-      apiKey: authentication.apiKey,
+    const diagnosticProbe = await (options.runIsolatedDiagnostics || runIsolatedGrokDiagnostics)({
+      paths,
+      authentication,
+      command,
+      prefixArgs,
       sourceEnv,
     })
+    const diagnostics = diagnosticProbe.diagnostics
+    const roots = await createPrivateRunRoots({ parent: paths.tempParent, grokHome: paths.grokHome })
+    let handshake
+    try {
+      handshake = await createGrokAcpClient({ command, prefixArgs }).run({
+        handshakeOnly: true,
+        cwd: roots.snapshotRoot,
+        allowedCwdRoots: [roots.snapshotRoot],
+        neutralHome: roots.neutralHome,
+        grokHome: roots.grokHome,
+        rawEventsDir: roots.rawEventsDir,
+        rawEventsMaxBytes: 1024 * 1024,
+        rawEventsMaxEvents: 2000,
+        timeoutMs: 30_000,
+        maxTurns: 6,
+        authMode: authentication.authMode,
+        apiKey: authentication.apiKey,
+        sourceEnv,
+      })
+    }
+    finally {
+      await roots.cleanup()
+    }
+    const retention = await inventoryRetention(projectRoot, paths)
+    let cleanupResult = null
+    if (cleanup && await pathExists(retention.artifactRoot)) {
+      cleanupResult = await cleanupIntelligenceArtifacts({
+        artifactRoot: retention.artifactRoot,
+        tempParent: paths.tempParent,
+        activeEvidenceIds: retention.activeEvidenceIds,
+        activePrivateRoots: [],
+      })
+    }
+    return {
+      ok: true,
+      paidModelPromptSent: false,
+      status,
+      version: diagnostics.version,
+      models: diagnostics.models,
+      compatibilitySafe: diagnostics.safe,
+      authMethod: handshake.authMethod,
+      mcpServersEmpty: handshake.mcpPreflight.serversEmpty,
+      mcpToolCount: handshake.mcpPreflight.toolCount,
+      retention,
+      cleanup: cleanupResult,
+    }
   }
   finally {
-    await roots.cleanup()
-  }
-  const retention = await inventoryRetention(projectRoot, paths)
-  let cleanupResult = null
-  if (cleanup && await pathExists(retention.artifactRoot)) {
-    cleanupResult = await cleanupIntelligenceArtifacts({
-      artifactRoot: retention.artifactRoot,
-      tempParent: paths.tempParent,
-      activeEvidenceIds: retention.activeEvidenceIds,
-      activePrivateRoots: [],
-    })
-  }
-  return {
-    ok: true,
-    paidModelPromptSent: false,
-    status,
-    version: diagnostics.version,
-    models: diagnostics.models,
-    compatibilitySafe: diagnostics.safe,
-    authMethod: handshake.authMethod,
-    mcpServersEmpty: handshake.mcpPreflight.serversEmpty,
-    mcpToolCount: handshake.mcpPreflight.toolCount,
-    retention,
-    cleanup: cleanupResult,
+    await clearCredentialState(paths.grokHome)
   }
 }
 
