@@ -53,6 +53,46 @@ npx ccg-workflow    # Install in 60 seconds
 
 **Claude Code** is the lead orchestrator. It analyzes your intent, selects a strategy, and manages the entire workflow. The **Hook Engine** injects state every turn so Claude never loses context — even after compaction. The **codeagent-wrapper** (a compiled Go binary) bridges Claude to external models for parallel analysis and review.
 
+## Grok External Intelligence
+
+Grok now has two deliberately separate roles:
+
+- **Generic coding backend:** `--backend grok` can draft or review code through `codeagent-wrapper` like the other model backends.
+- **External intelligence layer:** the official Grok Build CLI runs in a short-lived, read-only ACP session to collect current Web evidence and source-backed X-domain evidence. Codex decides when to invoke it and remains the final planner, editor, and verifier.
+
+External intelligence is opt-in. `ccg init --intelligence` records consent but never logs in or sends a paid prompt; `--no-intelligence` keeps it disabled. Before opting in, assume that a focused snapshot of the selected task files, lockfiles, plan/diff summaries, and query may be sent to xAI. Secrets, credentials, `.git`, dependency trees, caches, links/reparse escapes, and `.ccgignore` paths are excluded. Model and search use may consume account quota or incur API charges.
+
+```bash
+ccg grok login                  # Official browser OAuth in a dedicated private GROK_HOME
+ccg doctor --grok               # Local-only checks; no model prompt
+ccg doctor --grok-live          # Explicit bounded paid Web/X smoke
+
+/ccg:grok-intel <task> --mode discover|contract|incident|landscape
+/ccg:grok-verify [plan-or-diff]
+```
+
+Automatic routing covers planning, execution, review, Team, Spec, GPT Pro, and externally relevant quality gates. Hard triggers include current APIs/SDKs, dependency upgrades, incidents, CVEs, cloud/database versions, regulations, and deprecations; Codex may also make an explicit semantic decision. Local-only refactors and Git utilities remain offline by default. Decisions are re-evaluated when the task phase, plan, target, dependency, or diff digest changes. A required gate fails closed with no fallback to the legacy `grok-search` MCP or another provider.
+
+`x_search_policy` supports `required`, `preferred`, and `disabled`. Incident mode may elevate `preferred`; `disabled` is never elevated, and X-only material is discovery evidence rather than an independent blocker. Deep research is disabled by default; if enabled later, it remains leader-visible advisory evidence and cannot satisfy a required gate by itself.
+
+Validated evidence is local-only by default:
+
+```text
+.codex/ccg/intelligence/<evidence-id>/
+├── manifest.json
+├── evidence.json        # Machine-readable source of truth
+├── report.md
+└── raw-stream.jsonl     # Redacted audit stream
+
+.ccg/tasks/<task-id>/
+├── evidence.json        # Canonical bounded task item
+└── task.json            # intelligence pointer + hashes
+```
+
+Cache keys bind the task, mode, plan, target, dependencies, diff, and phase. `--force-refresh` bypasses reuse. Local bundles retain for 7 days; sanitized explicit exports retain for 30 days. Export requires `--export <directory>` and never happens automatically. A required decision can be waived only by explicit user authorization with an auditable reason and timestamp.
+
+On Windows, the dedicated credential and run roots are protected with owner-only ACLs and reject junction/reparse traversal. Browser OAuth is the normal desktop path; the manual GitHub Actions live smoke uses an environment-approved `XAI_API_KEY`. Junction tests can be skipped by Windows itself when the runner lacks link-creation privilege, but production paths still fail closed on observed links/reparse points.
+
 ## How It Works
 
 ```
@@ -143,7 +183,7 @@ When your message mentions security, caching, RAG, Kubernetes, etc., the relevan
 
 ## Commands
 
-### Core (v3.0 default: 13 commands)
+### Core (v3.3 default: 17 commands)
 
 | Command | Description |
 |---------|-------------|
@@ -154,6 +194,16 @@ When your message mentions security, caching, RAG, Kubernetes, etc., the relevan
 | `/ccg:worktree` | Worktree management |
 | `/ccg:init` | Initialize project CLAUDE.md |
 | `/ccg:context` | Project context management |
+
+### External Evidence
+
+| Command | Description |
+|---------|-------------|
+| `/ccg:grok-intel` | Collect validated current Web/X evidence through isolated Grok ACP |
+| `/ccg:grok-verify` | Verify a plan, diff, target, and dependencies against current facts |
+| `/ccg:gptpro-plan` | Manual GPT Pro planning evidence after required Grok routing |
+| `/ccg:gptpro-exc` | Manual GPT Pro execution-route review |
+| `/ccg:gptpro-review` | Manual GPT Pro final review with canonical Grok provenance |
 
 ### OpenSpec Integration
 
@@ -193,6 +243,9 @@ npx ccg-workflow codex-mode uninstall     # Uninstall Codex-Led mode
 npx ccg-workflow uninstall                # Uninstall CCG
 npx ccg-workflow config mcp               # Configure MCP tokens
 npx ccg-workflow diagnose-mcp             # Diagnose MCP issues
+ccg grok login                             # Direct official Grok browser login
+ccg doctor --grok                          # Non-paid Grok contract doctor
+ccg doctor --grok-live                     # Explicit paid Web/X smoke
 ```
 
 ## Configuration
@@ -219,6 +272,7 @@ Set in `~/.claude/settings.json` under `"env"`:
 | `CODEX_TIMEOUT` | `7200` | Wrapper timeout (seconds) |
 | `CODEAGENT_POST_MESSAGE_DELAY` | `5` | Post-completion delay |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | unset | Set `1` for parallel Agent Teams |
+| `XAI_API_KEY` | unset | Explicit API-key auth for approved headless/CI Grok intelligence runs |
 
 ## Update / Uninstall
 
@@ -271,4 +325,4 @@ MIT
 
 ---
 
-v3.2.2 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.3.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)

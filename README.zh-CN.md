@@ -53,6 +53,46 @@ npx ccg-workflow    # 60 秒安装
 
 **Claude Code** 是主控编排器。它分析你的意图、选择策略、管理整个工作流。**Hook 引擎**每轮注入状态，确保 Claude 永不丢失上下文 —— 即使上下文被压缩。**codeagent-wrapper**（编译的 Go 二进制）作为桥梁，将 Claude 连接到外部模型进行并行分析和审查。
 
+## Grok 外部情报层
+
+Grok 现在有两个刻意隔离的定位：
+
+- **通用编码后端**：`--backend grok` 与其他模型后端一样，可通过 `codeagent-wrapper` 起草或审查代码。
+- **外部情报层**：官方 Grok Build CLI 在短生命周期、只读的 ACP 会话中收集最新 Web 证据和有来源的 X 域证据。Codex 自主判断何时启用，并始终保留最终规划、编辑和验收权。
+
+外部情报必须明确选择加入。`ccg init --intelligence` 只记录同意，不登录、不发送付费 prompt；`--no-intelligence` 会保持关闭。选择加入前请知悉：CCG 可能向 xAI 发送经过筛选的任务文件、锁文件、计划/diff 摘要和查询文本。秘密、凭据、`.git`、依赖目录、缓存、链接/重解析逃逸路径及 `.ccgignore` 路径会被排除。模型与搜索调用可能消耗账户额度或产生 API 费用。
+
+```bash
+ccg grok login                  # 在独立私有 GROK_HOME 中进行官方浏览器 OAuth
+ccg doctor --grok               # 仅本地检查，不发送模型 prompt
+ccg doctor --grok-live          # 显式、有限额的付费 Web/X 冒烟
+
+/ccg:grok-intel <任务> --mode discover|contract|incident|landscape
+/ccg:grok-verify [计划或 diff]
+```
+
+自动路由覆盖规划、执行、审查、Team、Spec、GPT Pro，以及涉及外部事实的质量门禁。API/SDK、依赖升级、线上事故、CVE、云/数据库版本、法规和弃用属于硬触发；Codex 也可给出带理由的语义判断。本地重构和纯 Git 工具默认不联网。任务阶段、计划、目标、依赖或 diff 摘要变化时会重新判断。必需门禁失败会关闭式阻断，不会回退到旧 `grok-search` MCP 或其他提供方。
+
+`x_search_policy` 可设为 `required`、`preferred`、`disabled`。事故模式可把 `preferred` 提升为必需；`disabled` 永不提升，且仅来自 X 的材料只能作为发现线索，不能独立形成阻塞结论。Deep research 默认关闭；未来即使启用，也只是 leader 可见的建议证据，不能单独满足必需门禁。
+
+验证后的证据默认只保存在本地：
+
+```text
+.codex/ccg/intelligence/<evidence-id>/
+├── manifest.json
+├── evidence.json        # 机器可读的事实源
+├── report.md
+└── raw-stream.jsonl     # 已脱敏审计流
+
+.ccg/tasks/<task-id>/
+├── evidence.json        # 规范化、有限大小的任务证据项
+└── task.json            # intelligence 指针与哈希
+```
+
+缓存键绑定任务、模式、计划、目标、依赖、diff 和阶段；`--force-refresh` 可跳过缓存。本地证据默认保留 7 天，显式导出的脱敏包保留 30 天。只有传入 `--export <目录>` 才会导出，系统绝不自动导出。必需门禁只能由用户明确授权豁免，并记录理由和时间。
+
+Windows 上的凭据目录和运行目录使用仅所有者 ACL，并拒绝 junction/重解析路径穿越。桌面默认使用浏览器 OAuth；手动 GitHub Actions live smoke 通过受 environment 审批的 `XAI_API_KEY` 运行。若 Windows 运行器没有创建链接的权限，junction 测试会被系统跳过，但生产路径一旦观察到链接或重解析点仍会关闭式拒绝。
+
 ## 工作流程
 
 ```
@@ -143,7 +183,7 @@ CCG 引擎:
 
 ## 命令
 
-### 核心命令（v3.0 默认安装 13 个）
+### 核心命令（v3.3 默认安装 17 个）
 
 | 命令 | 说明 |
 |------|------|
@@ -154,6 +194,16 @@ CCG 引擎:
 | `/ccg:worktree` | Worktree 管理 |
 | `/ccg:init` | 初始化项目 CLAUDE.md |
 | `/ccg:context` | 项目上下文管理 |
+
+### 外部证据命令
+
+| 命令 | 说明 |
+|------|------|
+| `/ccg:grok-intel` | 通过隔离的 Grok ACP 收集并验证最新 Web/X 证据 |
+| `/ccg:grok-verify` | 根据最新事实核验计划、diff、目标和依赖 |
+| `/ccg:gptpro-plan` | 必需 Grok 路由后，手动获取 GPT Pro 规划证据 |
+| `/ccg:gptpro-exc` | 手动进行 GPT Pro 执行路线审查 |
+| `/ccg:gptpro-review` | 使用规范 Grok 来源记录进行 GPT Pro 最终审查 |
 
 ### OpenSpec 集成
 
@@ -193,6 +243,9 @@ npx ccg-workflow codex-mode uninstall     # 卸载 Codex 主导模式
 npx ccg-workflow uninstall                # 卸载 CCG
 npx ccg-workflow config mcp               # 配置 MCP Token
 npx ccg-workflow diagnose-mcp             # 诊断 MCP 问题
+ccg grok login                             # 直接进行官方 Grok 浏览器登录
+ccg doctor --grok                          # 非付费 Grok 合约检查
+ccg doctor --grok-live                     # 显式付费 Web/X 冒烟
 ```
 
 ## 配置
@@ -219,6 +272,7 @@ npx ccg-workflow diagnose-mcp             # 诊断 MCP 问题
 | `CODEX_TIMEOUT` | `7200` | Wrapper 超时（秒） |
 | `CODEAGENT_POST_MESSAGE_DELAY` | `5` | 完成后延迟（秒） |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | 未设置 | 设为 `1` 启用 Agent Teams 并行 |
+| `XAI_API_KEY` | 未设置 | 经批准的无界面/CI Grok 情报运行所用显式 API Key |
 
 ## 更新 / 卸载
 
@@ -271,4 +325,4 @@ MIT
 
 ---
 
-v3.2.2 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.3.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)

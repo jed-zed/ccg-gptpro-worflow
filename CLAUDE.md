@@ -2,15 +2,21 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-07-15 (v3.2.2)
+**Last Updated**: 2026-07-21 (v3.3.0)
 
-> ⚠ 本文档主体仍停留在 v2.1.16 架构描述（v3.0 引擎重构后未全量同步）。下方变更记录保留 v3.x 修复轨迹，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.3.0 的版本、分发计数和 Grok 外部情报边界；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-07-21 (v3.3.0)
+- ✨ **Grok 外部情报层**：新增显式同意、自动路由、官方 Grok CLI ACP 隔离执行、Web/X 证据验证、缓存/保留/导出和 canonical task evidence。
+- ✨ **命令接入**：新增 `/ccg:grok-intel`、`/ccg:grok-verify` 与 GPT Pro plan/review/execute 证据入口；CLI 新增 `ccg grok login|status|logout` 和 Grok 本地/付费 doctor 分层。
+- 🔒 **安全边界**：Grok 情报层固定空 MCP、取消权限请求、禁用终端命令、严格禁止 provider fallback；CI 仅通过环境密钥运行手动 live smoke。
+- 🔄 **分发口径**：17 个 core + 18 个 legacy 命令，Codex 插件暴露 44 个入口；36 个专家提示词；通用 wrapper 保持 v5.12.1。
 
 ### 2026-07-15 (v3.2.2)
 - 🐛 **doctor/status ESM 修复**：改用静态 `node:child_process` import，恢复 binary 与 npm 版本探测。
@@ -264,18 +270,19 @@
 
 ## 模块职责
 
-**CCG (Claude + Codex + Gemini)** - 多模型协作系统的核心实现，提供：
+**CCG 多模型协作系统** - 由主编排器协调 Claude、Codex、Gemini、Grok 等模型，提供：
 
 1. **多模型协作编排**：可配置路由 Gemini（前端）+ Codex（后端）+ Claude（编排），v2.1.0+ 支持切换
-2. **29 个斜杠命令**：开发工作流 + Git 工具 + 项目管理 + OPSX + Agent Teams + Codex 执行 + Prompt 增强 + Skill Registry 自动生成
-3. **19 个专家提示词**：Claude 6 个 + Codex 6 个 + Gemini 7 个
+2. **35 个工作流命令**：17 个 core + 18 个可选 legacy；Codex 插件提供 44 个命令入口
+3. **36 个专家提示词**：Claude 6 个 + Codex 7 个 + Gemini 7 个 + Antigravity 8 个 + Grok 8 个
 4. **7 个子智能体**：planner / ui-ux-designer / init-architect / get-current-datetime / team-architect / team-qa / team-reviewer
 5. **Skill Registry**：SKILL.md frontmatter 驱动，user-invocable 技能自动生成 slash commands
 6. **100+ 技能文件**：6 质量关卡 + 10 域知识秘典（61 文件）+ 20 impeccable 工具 + scrapling + override-refusal
 7. **跨平台 CLI 工具**：一键安装（支持 macOS、Linux、Windows）
 8. **MCP 集成**：fast-context（推荐）/ ace-tool / ContextWeaver + context7（自动安装）+ Codex & Gemini MCP 同步
-9. **Agent Teams 并行实施**：Team 系列 5 个命令（含统一工作流），spawn Builder teammates 并行写代码
-10. **8 种输出风格**：默认 + 专业工程师 + 猫娘 + 老王 + 大小姐 + 邪修 + 冷刃简报 + 铁律军令 + 祭仪长卷
+9. **Grok 外部情报层**：在用户明确同意后自动判断是否搜索，通过隔离 ACP 会话收集和验证 Web/X 证据
+10. **Agent Teams 并行实施**：Team 系列 5 个命令（含统一工作流），spawn Builder teammates 并行写代码
+11. **8 种输出风格**：默认 + 专业工程师 + 猫娘 + 老王 + 大小姐 + 邪修 + 冷刃简报 + 铁律军令 + 祭仪长卷
 
 ---
 
@@ -310,6 +317,8 @@ npx ccg-workflow menu
   - `menu` - 交互式菜单（`src/commands/menu.ts`）
   - `config` - MCP 配置管理（`src/commands/config-mcp.ts`）
   - `diagnose-mcp` - MCP 诊断（`src/commands/diagnose-mcp.ts`）
+  - `doctor` / `status` - 安装、Grok ACP 与证据生命周期诊断（`src/commands/doctor.ts`）
+  - `grok login|status|logout` - 管理隔离的 Grok 浏览器登录（`src/commands/grok.ts`）
 
 ### codeagent-wrapper 入口
 
@@ -335,8 +344,11 @@ npx ccg-workflow menu
 | `npx ccg-workflow menu` | 交互式菜单 |
 | `npx ccg-workflow update` | 更新到最新版本 |
 | `npx ccg-workflow diagnose-mcp` | 诊断 MCP 配置 |
+| `npx ccg-workflow doctor --grok` | 本地 Grok ACP/登录/证据诊断，不调用模型 |
+| `npx ccg-workflow doctor --grok-live` | 显式运行可能计费的 Web/X live smoke |
+| `npx ccg-workflow grok login` | 使用浏览器登录隔离的 Grok 情报配置 |
 
-### Slash Commands 接口（29 个）
+### Slash Commands 接口（35 个：17 core + 18 legacy）
 
 **开发工作流**：
 | 命令 | 用途 | 模型 |
@@ -355,6 +367,7 @@ npx ccg-workflow menu
 | `/ccg:optimize` | 性能优化 | Codex ∥ Gemini |
 | `/ccg:test` | 测试生成 | 智能路由 |
 | `/ccg:review` | 代码审查（自动 git diff） | Codex ∥ Gemini |
+| `/ccg:go` | 主编排器执行任务并按配置调用多模型 | 智能路由 |
 
 **项目管理**：
 | 命令 | 用途 |
@@ -368,6 +381,15 @@ npx ccg-workflow menu
 | `/ccg:rollback` | 交互式回滚 |
 | `/ccg:clean-branches` | 清理已合并分支 |
 | `/ccg:worktree` | Worktree 管理 |
+
+**外部证据与 GPT Pro**：
+| 命令 | 用途 |
+|------|------|
+| `/ccg:grok-intel` | 按 contract/compatibility/research 等模式收集 Web/X 证据 |
+| `/ccg:grok-verify` | 用当前外部证据验证实现、diff 或计划 |
+| `/ccg:gptpro-plan` | 将 canonical Grok 证据纳入 GPT Pro 规划 |
+| `/ccg:gptpro-review` | 将 canonical Grok 证据纳入 GPT Pro 审查 |
+| `/ccg:gptpro-exc` | 将 canonical Grok 证据纳入 GPT Pro 执行 |
 
 **OpenSpec (OPSX) 封装**：
 | 命令 | 用途 |
@@ -399,7 +421,7 @@ npx ccg-workflow menu
 | Gemini 型号 | gemini-3.1-pro-preview | ✓ (v2.1.0+) | 选 gemini 时可配 |
 | Grok 型号 | grok-4.5 | ✓ (v3.2.0+) | 选 grok 时可配，代码任务可选 grok-composer-2.5-fast |
 | 协作模式 | smart | ✗ | 最佳实践 |
-| 命令数量 | 29 个 | ✗ | 全部安装 |
+| 命令数量 | 17 core + 18 legacy | ✓ | core 默认安装；legacy 可选；Codex 插件提供 44 个入口 |
 
 ---
 
@@ -481,7 +503,8 @@ src/
 
 ```
 templates/
-├── commands/                    # 29 个斜杠命令
+├── commands/                    # 17 个 core 命令
+├── commands-legacy/             # 18 个可选 legacy 命令
 │   ├── workflow.md              # 完整 6 阶段工作流
 │   ├── plan.md                  # 多模型协作规划
 │   ├── execute.md               # 多模型协作执行
@@ -519,7 +542,7 @@ templates/
 │       ├── team-architect.md    # 团队架构师（v1.8.3+）
 │       ├── team-qa.md           # QA 工程师（v1.8.3+）
 │       └── team-reviewer.md     # 代码审查员（v1.8.3+）
-├── prompts/                     # 19 个专家提示词
+├── prompts/                     # 36 个专家提示词（Claude/Codex/Gemini/Antigravity/Grok）
 │   ├── claude/                  # 6 个 Claude 提示词
 │   │   ├── analyzer.md
 │   │   ├── architect.md
@@ -606,10 +629,10 @@ graph TD
     User["用户"] --> CLI["npx ccg-workflow"]
     CLI --> Init["一键安装"]
 
-    Init --> Commands["~/.claude/commands/ccg/<br/>29 个命令"]
+    Init --> Commands["~/.claude/commands/ccg/<br/>17 core + 18 legacy"]
     Init --> Agents["~/.claude/agents/ccg/<br/>7 个子智能体"]
     Init --> Skills["~/.claude/skills/ccg/<br/>100+ 技能文件"]
-    Init --> Prompts["~/.claude/.ccg/prompts/<br/>19 个专家提示词"]
+    Init --> Prompts["~/.claude/.ccg/prompts/<br/>36 个专家提示词"]
     Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.1"]
     Init --> MCP["~/.claude.json<br/>MCP 配置（可选）"]
 

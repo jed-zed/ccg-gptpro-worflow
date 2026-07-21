@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.0] - 2026-07-21
+
+### ✨ Features
+
+- **Grok External Intelligence Orchestrator** — Add opt-in, automatic external-fact routing across CCG planning, execution, review, Team, Spec, quality-gate, and GPT Pro workflows. Codex remains the final orchestrator and implementation owner.
+- **Official Grok ACP evidence path** — Run the official Grok Build CLI in a dedicated, short-lived ACP profile with exact environment allowlisting, empty MCP sessions, denied filesystem/terminal permissions, owner-only private directories, focused read-only snapshots, bounded raw capture, timeout/process-tree cleanup, and strict no-provider-fallback arbitration.
+- **Source-backed Web/X evidence** — Normalize correlated search events into source registries and claim-level evidence, reject prose-only URLs, enforce mode-specific Web/X policy, preserve contradictions, and fail closed when a required gate cannot produce valid evidence.
+- **Manual intelligence commands** — Add `/ccg:grok-intel` and `/ccg:grok-verify`, plus direct `ccg grok login|status|logout`, non-paid `ccg doctor --grok`, and explicitly paid `ccg doctor --grok-live` flows.
+- **Canonical evidence lifecycle** — Persist manifests, evidence, reports, redacted streams, hashes, cache fingerprints, task pointers, sanitized explicit exports, retention cleanup, and auditable user-only waivers.
+- **GPT Pro provenance** — Feed only bounded, validated Grok claim/source summaries into GPT Pro Plan, Exc, and Review; reject missing, escaped, stale, hash-mismatched, incorrectly scoped, or non-canonical evidence.
+
+### 🐛 Fixes
+
+- **Automatic route invalidation** — Re-run intelligence when task phase, plan, target, dependency, or diff digests change; reuse identical valid Team decisions instead of invoking once per teammate.
+- **Headless live doctor authentication** — Use explicit `XAI_API_KEY` authentication in approved CI runs while preserving direct browser OAuth as the desktop default.
+
+### 🔄 Changes
+
+- **Windows CI** — Run Node 20/22 and Go gates on Ubuntu and Windows, with dedicated Windows ACP, junction/reparse, ACL, exact-environment, timeout, cleanup, and PowerShell doctor coverage.
+- **Manual paid live smoke** — Add an environment-approved `workflow_dispatch` job that validates real Web/X events and cleanup without uploading raw evidence.
+- **Distribution version** — Bump npm and both plugin marketplaces to `3.3.0`. The unchanged generic `codeagent-wrapper` protocol remains at `5.12.1`; intelligence uses the separate Node ACP runtime.
+
 ## [3.2.2] - 2026-07-15
 
 ### 🐛 Fixes

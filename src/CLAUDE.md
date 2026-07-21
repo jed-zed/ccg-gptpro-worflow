@@ -2,13 +2,22 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-04-10
+**Last Updated**: 2026-07-21 (v3.3.0)
+
+---
+
+## 变更记录
+
+### 2026-07-21 (v3.3.0)
+- 新增 `commands/grok.ts`、Grok doctor 分层和 `external_intelligence` opt-in 配置迁移。
+- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 仍由 codeagent-wrapper v5.12.1 处理。
+- Grok 情报登录默认走浏览器 OAuth；无头 CI 可显式提供 `XAI_API_KEY`，live smoke 仅手动触发。
 
 ---
 
 ## 模块职责
 
-`src/` 是 CCG Workflow CLI 工具的全部 TypeScript 实现。负责：一键安装/更新 CCG 工作流到用户环境 (`~/.claude/`)，从 `templates/` 读取素材并经过模板变量替换后写入目标位置，管理 MCP 服务配置（Claude/Codex/Gemini 三端同步），提供中英双语交互界面，以及通过 Skill Registry 从 SKILL.md frontmatter 自动生成 slash commands。
+`src/` 是 CCG Workflow CLI 工具的全部 TypeScript 实现。负责：一键安装/更新 CCG 工作流到用户环境 (`~/.claude/`)，从 `templates/` 读取素材并经过模板变量替换后写入目标位置，管理 MCP 服务配置（Claude/Codex/Gemini 三端同步），提供中英双语交互界面，通过 Skill Registry 从 SKILL.md frontmatter 自动生成 slash commands，以及管理 Grok 外部情报层的用户同意、隔离登录、doctor 和 runtime 分发。
 
 打包产物由 `unbuild` 输出到 `dist/`，由 `bin/ccg.mjs` 加载，通过 `npx ccg-workflow` 或 `npx ccg-workflow menu` 调用。
 
@@ -39,6 +48,9 @@
 | `ccg diagnose-mcp` | — | 诊断 MCP 配置问题 | `commands/diagnose-mcp.ts:diagnoseMcp()` |
 | `ccg fix-mcp` | — | 修复 Windows MCP 配置 | `commands/diagnose-mcp.ts:fixMcp()` |
 | `ccg config mcp` | — | 配置 MCP Token | `commands/config-mcp.ts:configMcp()` |
+| `ccg doctor` | — | 安装健康检查；`--grok` 本地诊断，`--grok-live` 显式付费 Web/X smoke | `commands/doctor.ts:doctor()` |
+| `ccg status` | — | 安装、路由和任务概况 | `commands/doctor.ts:status()` |
+| `ccg grok login\|status\|logout` | — | 管理隔离 Grok 情报配置的浏览器登录 | `commands/grok.ts:grokAccount()` |
 
 **全局选项**：`--lang/-l`（覆盖语言）、`--force/-f`（强制覆盖）、`--skip-prompt/-s`（非交互模式）、`--frontend/-F`、`--backend/-B`、`--mode/-m`、`--install-dir/-d`
 
@@ -71,7 +83,7 @@ export { getCurrentVersion, checkForUpdates, compareVersions } from './utils/ver
 
 ## 源码结构
 
-### commands/（5 文件）
+### commands/（7 文件）
 
 | 文件 | 核心函数 | 职责 |
 |------|----------|------|
@@ -80,6 +92,8 @@ export { getCurrentVersion, checkForUpdates, compareVersions } from './utils/ver
 | `update.ts` | `update()` | 检查 npm 版本，触发 `npx ccg-workflow@latest init --skip-prompt --skip-mcp` |
 | `config-mcp.ts` | `configMcp()` | 独立 MCP Token 配置交互 |
 | `diagnose-mcp.ts` | `diagnoseMcp()`, `fixMcp()` | 诊断 `~/.claude.json` MCP 配置，Windows 修复 |
+| `doctor.ts` | `doctor()`, `status()` | 安装健康检查、本地 Grok ACP 检查、显式 live smoke 和证据保留诊断 |
+| `grok.ts` | `grokAccount()` | 调用分发的 Grok manager 管理隔离登录，不复用项目或全局 MCP 配置 |
 
 **`init.ts` 安装流程**（`src/commands/init.ts:152`）：
 
@@ -93,6 +107,14 @@ Step 4/4: 性能模式（standard|lite）+ Impeccable 可选安装
 ```
 
 **`menu.ts` CJK 对齐**（`src/commands/menu.ts:29`）：`visWidth()` 函数对 CJK 字符计宽 2，emoji 和全角符号同理，`pad()` 基于此对齐菜单列。
+
+### Grok 外部情报 runtime（v3.3.0）
+
+- `templates/engine/tools/grok-intelligence/` 是唯一 runtime 源，安装时复制到 `~/.claude/.ccg/engine/tools/grok-intelligence/`，并与 `plugins/ccg/skills/ccg-grok-intel/scripts/` 保持内容一致。
+- `ccg grok login` 使用专用本地根目录启动官方 Grok CLI 浏览器 OAuth；凭据不写入仓库或 evidence bundle。
+- `ccg doctor --grok` 只做本地版本、ACP、模型、登录与保留检查；只有 `--grok-live` 才允许实际 Web/X 模型调用。
+- CI 的 live workflow 只能手动触发，并把 `XAI_API_KEY` 限定在 live 步骤；常规 CI 不需要 Grok 凭据。
+- 情报层固定空 MCP、取消权限请求、禁用 terminal 命令并禁止 provider fallback；这些约束与 generic `--backend grok` 路由相互独立。
 
 ---
 

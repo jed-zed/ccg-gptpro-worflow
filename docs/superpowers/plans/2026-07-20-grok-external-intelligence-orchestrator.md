@@ -921,7 +921,7 @@ git commit -m "ci: test Grok intelligence on Windows"
 **Files:**
 
 - Modify: `README.md`
-- Modify: `README_EN.md`
+- Modify: `README.zh-CN.md` (`README.md` is the English primary document; this repository has no `README_EN.md`)
 - Modify: `CHANGELOG.md`
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
@@ -933,27 +933,27 @@ git commit -m "ci: test Grok intelligence on Windows"
 - Test: `src/utils/__tests__/pluginParity.test.ts`
 - Test: `src/utils/__tests__/installer.test.ts`
 
-- [ ] **Step 1: Document user-visible boundaries**
+- [x] **Step 1: Document user-visible boundaries**
 
 Document explicit consent, what is uploaded, possible fees, strict provider arbitration, generic Grok vs intelligence, commands, auto routing, X policy, deep advisory limitation, evidence layout, canonical task item, cache/retention/export, waiver, doctor split and Windows limitations.
 
-- [ ] **Step 2: Update version consistently**
+- [x] **Step 2: Update version consistently**
 
 Set all npm/plugin/marketplace versions from local `3.2.2` to `3.3.0`. Keep the existing wrapper protocol unchanged because intelligence uses ACP directly. Update command counts and changelog for the actual added commands. Do not publish, push or manually upload binary artifacts.
 
-- [ ] **Step 3: Verify package contents and parity**
+- [x] **Step 3: Verify package contents and parity**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/pluginParity.test.ts src/utils/__tests__/installer.test.ts src/utils/__tests__/installWorkflows.test.ts
-pnpm pack --dry-run
+npm pack --dry-run --json
 ```
 
 Expected: runtime, fixtures, commands and skills are included; four release versions equal `3.3.0`; no raw local evidence is packed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
-git add -p -- README.md README_EN.md CHANGELOG.md AGENTS.md CLAUDE.md src/CLAUDE.md package.json .claude-plugin/marketplace.json .codex-plugin/marketplace.json plugins/ccg/.codex-plugin/plugin.json
+git add -p -- README.md README.zh-CN.md CHANGELOG.md AGENTS.md CLAUDE.md src/CLAUDE.md package.json .claude-plugin/marketplace.json .codex-plugin/marketplace.json plugins/ccg/.codex-plugin/plugin.json
 git diff --cached --check
 git diff --cached --name-status
 git diff --cached
@@ -972,7 +972,7 @@ git commit -m "docs: document Grok external intelligence"
 pnpm typecheck
 pnpm test -- --coverage
 pnpm build
-pnpm pack --dry-run
+npm pack --dry-run --json
 ```
 
 - [ ] **Step 2: Go gates**
@@ -1058,7 +1058,7 @@ git diff --stat main...HEAD
 git diff main...HEAD
 ```
 
-Confirm npm/plugin versions `3.3.0`, wrapper `5.13.0`, all local/CI gates green, no live artifact staged, and no publish/push/release action performed. Present the commit series and residual risks to the user for approval.
+Confirm npm/plugin versions `3.3.0`, wrapper `5.12.1` (unchanged because the intelligence ACP transport is separate), all local/CI gates green, no live artifact staged, and no publish/push/release action performed. Present the commit series and residual risks to the user for approval.
 
 ---
 
