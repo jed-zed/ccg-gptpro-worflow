@@ -149,7 +149,7 @@ git rev-parse main
 
 Expected: current branch is `codex/grok-intelligence`, `main` still points to `baseline_head`, and the recorded dirty patch SHA-256 remains recoverable. Do not continue on `main`.
 
-- [ ] **Step 5: 固定所有后续提交门禁**
+- [x] **Step 5: 固定所有后续提交门禁**
 
 Every later commit must use `git add -p -- <overlapping-files>` for files that existed in the baseline patch, explicit `git add -- <new-files>` for new files, then run:
 
@@ -286,7 +286,7 @@ The verification report contains original private file SHA-256, redacted fixture
 
 - [x] **Step 7: Contract Gate**
 
-ACP passed the Windows single-agent contract: `tool_call` and correlated `tool_call_update` expose `rawOutput.action.sources[].url`, followed by distinguishable assistant and turn-completed events. The one-shot CLI path failed and is permanently excluded from intelligence. X has no distinct tool ID; X evidence is a domain-restricted WebSearch and is accepted only when the event's own `sources` contains the X URL.
+The initial Windows probe established the source-bearing WebSearch contract: `tool_call` and correlated `tool_call_update` expose `rawOutput.action.sources[].url`, followed by a distinguishable assistant response and correlated `session/prompt` completion; the xAI `turn_completed` extension is useful but optional. The one-shot CLI path failed and is permanently excluded from intelligence. A later v0.2.106 live probe also observed native `XSearch` events whose ACP updates contain no source URLs. They are retained as advisory discovery only; an X evidence gate is satisfied only by a domain-restricted WebSearch whose event-owned `sources` contains the X URL.
 
 ## Task 1: 同步设计勘误并加入 opt-in 配置契约
 
@@ -1019,7 +1019,7 @@ Expected: no feature changes remain unstaged, original baseline worktree is unto
 - Local evidence only under ignored `.codex/ccg/intelligence/`
 - Do not commit live raw streams
 
-- [ ] **Step 1: Re-run non-paid local contract checks**
+- [x] **Step 1: Re-run non-paid local contract checks**
 
 ```powershell
 pnpm exec tsx src/cli.ts doctor --grok
@@ -1027,7 +1027,7 @@ pnpm exec tsx src/cli.ts doctor --grok
 
 Expected: clean inspect, expected CLI/protocol/model/auth state, no model call.
 
-- [ ] **Step 2: Run explicit Web/X live smoke**
+- [x] **Step 2: Run explicit Web/X live smoke**
 
 ```powershell
 pnpm exec tsx src/cli.ts doctor --grok-live
@@ -1035,7 +1035,7 @@ pnpm exec tsx src/cli.ts doctor --grok-live
 
 Expected: validated built-in Web event and X event, URLs in runtime registry, bounded cost/turns, no MCP/plugin/hook origin, unredacted temp deleted.
 
-- [ ] **Step 3: Run public contract lifecycle**
+- [x] **Step 3: Run public contract lifecycle**
 
 Use a current public SDK/API contract task:
 
@@ -1045,11 +1045,11 @@ grok-intel(contract) -> CCG plan intake -> fake/local implementation digest -> g
 
 Assert cache miss/hit, dependency/diff invalidation, canonical task evidence, manifest/evidence hash validation and GPT Pro prompt provenance. Required path uses single-agent evidence only.
 
-- [ ] **Step 4: Run optional deep advisory smoke**
+- [x] **Step 4: Run optional deep advisory smoke**
 
-Only if enabled and available. Assert leader-only visibility fields, advisory-only status and no claim that observed search events equal total server tool usage.
+Only if enabled and available. Assert leader-only visibility fields, advisory-only status and no claim that observed search events equal total server tool usage. Skipped in this release-readiness run because the explicit local setting is `deep_research_enabled = false`.
 
-- [ ] **Step 5: Final release readiness**
+- [x] **Step 5: Final release readiness**
 
 ```powershell
 git status --short

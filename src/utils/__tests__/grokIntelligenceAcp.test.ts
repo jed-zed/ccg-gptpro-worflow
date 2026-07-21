@@ -23,6 +23,10 @@ let promptRequestId = null
 
 const send = value => process.stdout.write(JSON.stringify(value) + '\n')
 const respond = (id, result = {}) => send({ jsonrpc: '2.0', id, result })
+const sendTurnCompleted = () => send({
+  method: '_x.ai/session/update',
+  params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn', usage: {} } },
+})
 
 function createRunArtifacts() {
   for (const [directory, file] of [['sessions/run-new', 'events.jsonl'], ['logs', 'run-new.log'], ['memtrace', 'run-new.jsonl']]) {
@@ -110,12 +114,23 @@ rl.on('line', line => {
   }
 
   if (message.id === 900 && !message.method) {
-    respond(promptRequestId, {
+    const promptResult = {
       permissionResponse: message.result,
       receivedArgs,
       envKeys: Object.keys(process.env).sort(),
       sawApiKey: Boolean(process.env.XAI_API_KEY),
-    })
+    }
+    if (mode === 'no-turn') {
+      respond(promptRequestId, promptResult)
+    }
+    else if (mode === 'delayed-turn') {
+      respond(promptRequestId, promptResult)
+      setTimeout(sendTurnCompleted, 50)
+    }
+    else {
+      sendTurnCompleted()
+      respond(promptRequestId, promptResult)
+    }
     return
   }
 
@@ -290,6 +305,19 @@ describe('Grok intelligence ACP transport', () => {
     expect(result.promptResult.envKeys).not.toContain('GITHUB_TOKEN')
     expect(result.capture.path).toMatch(/[a-f0-9-]{36}\.jsonl$/i)
     await expect(stat(result.capture.path)).rejects.toThrow()
+  })
+
+  it('waits for a delayed turn_completed notification after session/prompt responds', async () => {
+    const result = await makeClient('delayed-turn').run(runOptions())
+    expect(result.notifications.some((message: any) => (
+      message.method === '_x.ai/session/update'
+      && message.params?.update?.sessionUpdate === 'turn_completed'
+    ))).toBe(true)
+  })
+
+  it('accepts the correlated session/prompt response when the optional turn notification is absent', async () => {
+    const result = await makeClient('no-turn').run(runOptions())
+    expect(result.completion).toEqual({ promptResponse: true, turnCompleted: false })
   })
 
   it('supports a local-only doctor handshake without sending session/prompt', async () => {

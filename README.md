@@ -73,7 +73,7 @@ ccg doctor --grok-live          # Explicit bounded paid Web/X smoke
 
 Automatic routing covers planning, execution, review, Team, Spec, GPT Pro, and externally relevant quality gates. Hard triggers include current APIs/SDKs, dependency upgrades, incidents, CVEs, cloud/database versions, regulations, and deprecations; Codex may also make an explicit semantic decision. Local-only refactors and Git utilities remain offline by default. Decisions are re-evaluated when the task phase, plan, target, dependency, or diff digest changes. A required gate fails closed with no fallback to the legacy `grok-search` MCP or another provider.
 
-`x_search_policy` supports `required`, `preferred`, and `disabled`. Incident mode may elevate `preferred`; `disabled` is never elevated, and X-only material is discovery evidence rather than an independent blocker. Deep research is disabled by default; if enabled later, it remains leader-visible advisory evidence and cannot satisfy a required gate by itself.
+`x_search_policy` supports `required`, `preferred`, and `disabled`. Incident mode may elevate `preferred`; `disabled` is never elevated, and X-only material is discovery evidence rather than an independent blocker. Current Grok ACP may also emit native `XSearch` events without source URLs: CCG records those as advisory discovery only, while source-backed X evidence must come from a correlated `WebSearch site:x.com/site:twitter.com` result. Deep research is disabled by default; if enabled later, it remains leader-visible advisory evidence and cannot satisfy a required gate by itself.
 
 Validated evidence is local-only by default:
 

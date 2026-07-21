@@ -503,6 +503,7 @@ export function createGrokAcpClient({
       let mcpServersSeen = false
       let mcpToolsSeen = false
       let mcpToolCount
+      let turnCompletedSeen = false
 
       const fail = (error) => {
         if (fatalError)
@@ -556,6 +557,12 @@ export function createGrokAcpClient({
         if (typeof message.method !== 'string')
           throw new Error('Malformed JSON-RPC notification')
         notifications.push(message)
+        if (
+          ['session/update', '_x.ai/session/update'].includes(message.method)
+          && message.params?.update?.sessionUpdate === 'turn_completed'
+        ) {
+          turnCompletedSeen = true
+        }
         if (message.method === '_x.ai/mcp/servers_updated') {
           mcpServersSeen = true
           if (!Array.isArray(message.params?.mcpServers) || message.params.mcpServers.length !== 0)
@@ -652,6 +659,18 @@ export function createGrokAcpClient({
         return { serversEmpty: true, toolCount: mcpToolCount }
       }
 
+      const drainOptionalTurnCompleted = async () => {
+        const deadline = Date.now() + Math.min(options.timeoutMs, 250)
+        while (!turnCompletedSeen) {
+          if (fatalError)
+            throw fatalError
+          if (Date.now() >= deadline)
+            return false
+          await new Promise(resolvePromise => setTimeout(resolvePromise, 5))
+        }
+        return true
+      }
+
       const cancelSession = () => {
         if (!sessionId || !child.stdin?.writable)
           return
@@ -724,6 +743,8 @@ export function createGrokAcpClient({
         await stdoutQueue
         if (fatalError)
           throw fatalError
+        if (options.handshakeOnly !== true)
+          await Promise.race([drainOptionalTurnCompleted(), fatal.promise])
 
         if (supportsSessionClose(initializeResult)) {
           expectedShutdown = true
@@ -742,6 +763,10 @@ export function createGrokAcpClient({
           authMethod,
           sessionResult: redactValue(sessionResult, secrets),
           promptResult: redactValue(promptResult, secrets),
+          completion: {
+            promptResponse: promptResult !== null,
+            turnCompleted: turnCompletedSeen,
+          },
           mcpPreflight,
           notifications: redactValue(notifications, secrets),
           stderr: stderrChunks.join('').split(/\r?\n/).filter(Boolean),

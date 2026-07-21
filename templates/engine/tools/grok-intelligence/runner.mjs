@@ -47,10 +47,14 @@ function validateTopLevel(options) {
 }
 
 function buildPrompt({ task, mode, requireWebSearch, xSearchPolicy }) {
+  const xInstruction = xSearchPolicy === 'disabled'
+    ? 'Do not perform an X-domain search.'
+    : 'To satisfy X-domain evidence, you MUST run WebSearch with a site:x.com or site:twitter.com query. Native XSearch may be used only for discovery and does not count as source-backed evidence because its ACP update contains no source URLs.'
   return [
     'You are the external intelligence collector for a software engineering workflow.',
     'Use the built-in WebSearch tool. Do not use files, terminal, MCP, plugins, memory, subagents, or any write tool.',
-    'Only state facts supported by URLs returned in WebSearch tool result sources. Never invent or copy a URL from prose.',
+    'Only state facts supported by URLs returned in WebSearch rawOutput.action.sources. Never invent or copy a URL from prose.',
+    xInstruction,
     `Mode: ${mode}. Web search required: ${requireWebSearch ? 'yes' : 'no'}. X-domain policy: ${xSearchPolicy}.`,
     'Task:',
     task.trim(),
@@ -149,7 +153,10 @@ export async function runGrokIntelligence(options) {
           unsafe.code = 'unsafe_cli_context'
           throw unsafe
         }
-        const normalized = normalizeAcpEvents(acpResult.notifications, { requireComplete: true })
+        const normalized = normalizeAcpEvents(acpResult.notifications, {
+          requireComplete: true,
+          promptCompleted: acpResult.completion?.promptResponse === true,
+        })
         const retrievedAt = (options.clock ? options.clock() : new Date()).toISOString()
         const registry = buildSourceRegistry(normalized, {
           retrievedAt,

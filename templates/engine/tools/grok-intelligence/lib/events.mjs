@@ -55,6 +55,7 @@ function normalizeSource(source, callId) {
 
 function normalizeSearchResult(update, startedCall) {
   const callId = requireNonEmptyString(update.toolCallId, 'tool_call_update.toolCallId')
+  const nativeXSearch = startedCall.observed_tool === 'x_search'
   const action = update.rawOutput?.action
   const status = typeof update.status === 'string'
     ? update.status
@@ -62,17 +63,34 @@ function normalizeSearchResult(update, startedCall) {
       ? update.rawOutput.status
       : action?.status
   if (status !== 'completed') {
-    const query = typeof action?.query === 'string' ? action.query.trim() : ''
+    const query = nativeXSearch
+      ? typeof update.rawOutput?.input === 'string' ? update.rawOutput.input.trim() : ''
+      : typeof action?.query === 'string' ? action.query.trim() : ''
     return {
       kind: 'search_error',
-      tool: isXDomainQuery(query) ? 'x_search' : 'web_search',
-      observed_tool: 'web_search',
+      tool: nativeXSearch || isXDomainQuery(query) ? 'x_search' : 'web_search',
+      observed_tool: startedCall.observed_tool,
       toolCallId: callId,
       query,
       status: status || 'failed',
       sources: [],
       backend: startedCall.backend === true,
       error: String(update.rawOutput?.error || update.error || 'WebSearch failed'),
+    }
+  }
+  if (nativeXSearch) {
+    const output = update.rawOutput
+    if (!isPlainObject(output) || output.id !== callId)
+      throw new Error(`XSearch ${callId} returned a malformed correlated result`)
+    return {
+      kind: 'search_advisory',
+      tool: 'x_search',
+      observed_tool: 'x_search',
+      toolCallId: callId,
+      query: requireNonEmptyString(output.input, `XSearch ${callId} query`),
+      status,
+      sources: [],
+      backend: startedCall.backend === true,
     }
   }
   if (!isPlainObject(action))
@@ -93,7 +111,7 @@ function normalizeSearchResult(update, startedCall) {
   }
 }
 
-export function normalizeAcpEvents(messages, { requireComplete = true } = {}) {
+export function normalizeAcpEvents(messages, { requireComplete = true, promptCompleted = false } = {}) {
   if (!Array.isArray(messages))
     throw new Error('ACP messages must be an array')
 
@@ -133,7 +151,8 @@ export function normalizeAcpEvents(messages, { requireComplete = true } = {}) {
         break
       }
       case 'tool_call': {
-        if (update.rawInput?.variant !== 'WebSearch' || update.kind !== 'search') {
+        const variant = update.rawInput?.variant
+        if (!['WebSearch', 'XSearch'].includes(variant) || update.kind !== 'search') {
           unknownEvents.push(message)
           break
         }
@@ -142,7 +161,7 @@ export function normalizeAcpEvents(messages, { requireComplete = true } = {}) {
           throw new Error(`Duplicate WebSearch tool_call id: ${callId}`)
         const event = {
           kind: 'search_start',
-          observed_tool: 'web_search',
+          observed_tool: variant === 'XSearch' ? 'x_search' : 'web_search',
           toolCallId: callId,
           status: update.status || 'in_progress',
           backend: update.rawInput.backend === true || update._meta?.backend === true,
@@ -155,9 +174,9 @@ export function normalizeAcpEvents(messages, { requireComplete = true } = {}) {
         const callId = requireNonEmptyString(update.toolCallId, 'tool_call_update.toolCallId')
         const startedCall = startedCalls.get(callId)
         if (!startedCall)
-          throw new Error(`Uncorrelated WebSearch tool_call_update: ${callId}`)
+          throw new Error(`Uncorrelated search tool_call_update: ${callId}`)
         if (completedCalls.has(callId))
-          throw new Error(`Duplicate WebSearch terminal update: ${callId}`)
+          throw new Error(`Duplicate search terminal update: ${callId}`)
         const result = normalizeSearchResult(update, startedCall)
         completedCalls.add(callId)
         searches.push(result)
@@ -171,6 +190,7 @@ export function normalizeAcpEvents(messages, { requireComplete = true } = {}) {
           stop_reason: update.stop_reason,
           prompt_id: update.prompt_id,
           usage: cloneJson(update.usage || {}),
+          observed: true,
         }
         events.push({ kind: 'turn_completed', ...turnCompleted })
         break
@@ -181,15 +201,23 @@ export function normalizeAcpEvents(messages, { requireComplete = true } = {}) {
   }
 
   if (requireComplete) {
-    if (!turnCompleted)
+    if (!turnCompleted && promptCompleted !== true)
       throw new Error('Required ACP stream is truncated or missing turn_completed')
+    if (!turnCompleted) {
+      turnCompleted = {
+        stop_reason: 'prompt_response',
+        prompt_id: null,
+        usage: {},
+        observed: false,
+      }
+    }
     if (searches.length === 0)
-      throw new Error('Required ACP stream contains no completed WebSearch update')
+      throw new Error('Required ACP stream contains no completed search update')
     if (agentMessages.length === 0)
       throw new Error('Required ACP stream contains no final agent message')
     for (const callId of startedCalls.keys()) {
       if (!completedCalls.has(callId))
-        throw new Error(`Required ACP stream is truncated before WebSearch ${callId} completed`)
+        throw new Error(`Required ACP stream is truncated before search ${callId} completed`)
     }
   }
 

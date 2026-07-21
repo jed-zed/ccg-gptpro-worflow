@@ -137,12 +137,25 @@ export function buildSourceRegistry(normalized, options = {}) {
   for (const search of normalized.searches) {
     if (!isPlainObject(search) || !['web_search', 'x_search'].includes(search.tool))
       throw new Error('Registry input contains an unsupported search kind')
-    if (search.observed_tool !== 'web_search')
-      throw new Error('Registry input must originate from a built-in WebSearch event')
     if (search.status !== 'completed')
       continue
     if (!Array.isArray(search.sources))
       throw new Error('Registry input search sources must be an array')
+    if (search.observed_tool === 'x_search') {
+      if (search.tool !== 'x_search' || search.sources.length !== 0)
+        throw new Error('Native XSearch is advisory-only and cannot provide registry sources')
+      searches.push({
+        tool_call_id: requireNonEmptyString(search.toolCallId, 'search.toolCallId'),
+        tool: 'x_search',
+        observed_tool: 'x_search',
+        query: requireNonEmptyString(search.query, 'search.query'),
+        status: search.status,
+        source_ids: [],
+      })
+      continue
+    }
+    if (search.observed_tool !== 'web_search')
+      throw new Error('Registry input must originate from a built-in WebSearch or advisory XSearch event')
     const sourceIds = []
     for (const observedSource of search.sources) {
       const observedUrl = requireNonEmptyString(observedSource?.url, 'observed source URL')

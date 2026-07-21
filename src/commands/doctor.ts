@@ -55,11 +55,36 @@ export function validateIntelligenceDoctorConfig(config: any): string[] {
   return errors
 }
 
-function execFileSafe(command: string, args: string[], timeout = 60_000): string | null {
+interface CapturedProcess {
+  ok: boolean
+  stdout: string
+  stderr: string
+}
+
+export function formatGrokDoctorFailure(value: string): string {
+  return String(value || 'Unknown Grok doctor failure')
+    .replace(/((?:api[_-]?key|token|authorization)\s*[:=]\s*)\S+/gi, '$1[REDACTED]')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .replace(/\bxai-[A-Za-z0-9_-]+/g, '[REDACTED]')
+    .trim()
+    .slice(0, 400)
+}
+
+function execFileCaptured(command: string, args: string[], timeout = 60_000): CapturedProcess {
   try {
-    return execFileSync(command, args, { stdio: 'pipe', timeout, encoding: 'utf8', cwd: process.cwd() }).trim()
+    return {
+      ok: true,
+      stdout: execFileSync(command, args, { stdio: 'pipe', timeout, encoding: 'utf8', cwd: process.cwd() }).trim(),
+      stderr: '',
+    }
   }
-  catch { return null }
+  catch (error: any) {
+    return {
+      ok: false,
+      stdout: String(error?.stdout || '').trim(),
+      stderr: [error?.stderr, error?.message].filter(Boolean).map(String).join('\n').trim(),
+    }
+  }
 }
 
 async function grokManagerPath(): Promise<string> {
@@ -195,16 +220,16 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
       })
     }
     const manager = await grokManagerPath()
-    const raw = execFileSafe(process.execPath, [manager, ...buildGrokDoctorArguments(options)], options.grokLive ? 180_000 : 60_000)
+    const execution = execFileCaptured(process.execPath, [manager, ...buildGrokDoctorArguments(options)], options.grokLive ? 180_000 : 60_000)
     let result: any = null
-    try { result = raw ? JSON.parse(raw) : null }
+    try { result = execution.stdout ? JSON.parse(execution.stdout) : null }
     catch {}
     checks.push({
       label: options.grokLive ? 'Grok live Web/X' : 'Grok local ACP',
       status: result?.ok === true ? OK : FAIL,
       detail: result?.ok === true
         ? `${result.version}; auth=${result.authMethod}; mcp=${String(result.mcpToolCount)}; paidPrompt=${String(result.paidModelPromptSent)}`
-        : 'Failed. Run ccg grok login, then retry the requested doctor mode.',
+        : formatGrokDoctorFailure(execution.stderr),
     })
     if (result?.retention) {
       checks.push({

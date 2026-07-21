@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGrokDoctorArguments, execSafe, validateIntelligenceDoctorConfig } from '../../commands/doctor'
+import { buildGrokDoctorArguments, execSafe, formatGrokDoctorFailure, validateIntelligenceDoctorConfig } from '../../commands/doctor'
 
 describe('doctor command helpers', () => {
   it('executes child commands from the ESM CLI', () => {
@@ -21,5 +21,12 @@ describe('doctor command helpers', () => {
       provider: 'other', transport: 'headless', auth_mode: 'cookie',
       legacy_search_provider: 'other', allow_provider_fallback: true,
     })).toHaveLength(5)
+  })
+
+  it('shows a bounded redacted Grok failure instead of a misleading login instruction', () => {
+    const detail = formatGrokDoctorFailure('Required X evidence failed; token=xai-secret-value\n')
+    expect(detail).toContain('Required X evidence failed')
+    expect(detail).not.toContain('xai-secret-value')
+    expect(detail.length).toBeLessThanOrEqual(400)
   })
 })

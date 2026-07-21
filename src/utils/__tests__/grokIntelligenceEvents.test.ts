@@ -83,12 +83,74 @@ describe('Grok ACP event normalization', () => {
     expect(() => normalizeAcpEvents(uncorrelated, { requireComplete: false })).toThrow(/uncorrelated/i)
   })
 
+  it('uses a correlated prompt response as completion when the optional xAI turn event is absent', async () => {
+    const messages = parseAcpJsonl(await readFixture('acp-web-success.jsonl'))
+      .filter((message: any) => message.params?.update?.sessionUpdate !== 'turn_completed')
+    const normalized = normalizeAcpEvents(messages, { requireComplete: true, promptCompleted: true })
+    expect(normalized.turnCompleted).toMatchObject({
+      stop_reason: 'prompt_response',
+      observed: false,
+    })
+    expect(normalized.searches).toHaveLength(1)
+    expect(normalized.finalText).toContain('docs.x.ai/build/cli/reference')
+  })
+
   it('preserves unknown events for diagnostics without treating them as evidence', () => {
     const normalized = normalizeAcpEvents([{ method: 'future/event', params: { value: 1 } }], {
       requireComplete: false,
     })
     expect(normalized.events).toEqual([])
     expect(normalized.unknownEvents).toEqual([{ method: 'future/event', params: { value: 1 } }])
+  })
+
+  it('correlates native XSearch as advisory-only evidence without inventing source URLs', () => {
+    const normalized = normalizeAcpEvents([
+      {
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId: 'x-native-1',
+            kind: 'search',
+            status: 'in_progress',
+            rawInput: { variant: 'XSearch', backend: true },
+          },
+        },
+      },
+      {
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'x-native-1',
+            status: 'completed',
+            rawOutput: {
+              call_id: 'xs-call-1',
+              input: 'from:xai Grok Build CLI',
+              name: 'x_keyword_search',
+              id: 'x-native-1',
+            },
+          },
+        },
+      },
+    ], { requireComplete: false })
+
+    expect(normalized.searches).toEqual([expect.objectContaining({
+      kind: 'search_advisory',
+      tool: 'x_search',
+      observed_tool: 'x_search',
+      toolCallId: 'x-native-1',
+      query: 'from:xai Grok Build CLI',
+      status: 'completed',
+      sources: [],
+    })])
+    const registry = buildSourceRegistry(normalized, registryOptions())
+    expect(registry.sources).toEqual([])
+    expect(registry.searches).toEqual([expect.objectContaining({
+      tool: 'x_search',
+      observed_tool: 'x_search',
+      source_ids: [],
+    })])
   })
 
   it('distinguishes a failed WebSearch update from a successful result', () => {
