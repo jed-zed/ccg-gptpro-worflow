@@ -13,7 +13,10 @@ ordinary `/ccg:plan` semantics have already run.
 
 ## Contract
 
-Run ordinary `/ccg:plan` first. Preserve the current CCG orchestrator semantics and the normal
+Run the Grok intelligence decision before ordinary `/ccg:plan`. When external intelligence is
+required, `/ccg:grok-intel` must produce canonical source-backed evidence before any Gemini/Claude
+planning evidence or GPT Pro session is created. Required exit 2/3/4 stops this workflow unless the
+user supplies an explicit canonical waiver. Then run ordinary `/ccg:plan`. Preserve the current CCG orchestrator semantics and the normal
 model routing for this installation, including Codex, Claude, Gemini, or any configured helper that
 ordinary planning would use. GPT Pro is fourth evidence: it is appended as a manual planning second
 opinion after ordinary routing evidence exists. In this command GPT Pro is a risk-triggered
@@ -50,12 +53,15 @@ Hard boundaries:
 
 1. Locate or create the active task under `.ccg/tasks/<task-id>/task.json`.
 2. Resolve the planning subject from `$ARGUMENTS`, an existing plan file, or task context.
-3. Run or verify the ordinary `/ccg:plan` route first and write a concise routing evidence file,
+3. Run `/ccg:grok-intel <planning-subject> --mode contract` when required. Validate the canonical
+   `grok/external-intelligence/required` item, artifact hash, manifest hash, and task pointer. Never
+   pass raw JSONL to GPT Pro.
+4. Run or verify the ordinary `/ccg:plan` route first and write a concise routing evidence file,
    for example `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
    actually exists, `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, the
    ordinary planner conclusion, and any skipped/failed model steps.
-4. Validate required Gemini planning/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
+5. Validate required Gemini planning/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
 
@@ -83,6 +89,7 @@ Create a concise prompt file with:
   status; if repository URL is unavailable, the prompt must say so and GPT Pro must not guess repo facts;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini evidence summary and artifact path;
+- validated Grok summary, claims, evidence/manifest paths and hashes; never raw events or page bodies;
 - explicit request to challenge the existing plan for requirement ambiguity, wrong assumptions,
   architecture risk, missing constraints, test gaps, and whether the plan is worth continuing;
 - required output sections: `Blockers`, `Risks`, `Missing Evidence`, `Plan Adjustments`, and `Go-NoGo`.
@@ -105,6 +112,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
+  --require-external-intelligence \
   --detach-preview \
   --open-preview
 ```

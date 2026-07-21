@@ -13,6 +13,11 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Gather review input: plan, diff, touched files, test summary, or user-provided target.
+- Before ordinary review or any Gemini, Claude, or GPT Pro handoff, let the current orchestrator
+  decide whether external verification is required. When required, run `/ccg:grok-verify` bound to
+  the exact plan, diff, dependency locks, and test summary; require its canonical artifact, manifest,
+  hashes, and active-task pointer. Exit `2`, `3`, or `4` stops the workflow, and raw Grok output is
+  never embedded in the GPT Pro prompt.
 - Run ordinary `/ccg:review` semantics first. Ordinary review must include Claude review evidence
   unless the user explicitly says Claude must not be used. First try the automatic
   `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` route. If it fails or returns empty
@@ -34,11 +39,11 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only after Codex fixes blocker findings.
-- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence`.
+- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence --require-external-intelligence`.
 - After response is saved, classify Critical/Major/Minor findings, false positives, required tests,
   and Codex/Claude actions.
-- Report in Chinese and synthesize ordinary review evidence, Gemini gate evidence, and GPT Pro
-  findings.
+- Report in Chinese and synthesize validated Grok external intelligence, ordinary review evidence,
+  Gemini gate evidence, and GPT Pro findings.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.

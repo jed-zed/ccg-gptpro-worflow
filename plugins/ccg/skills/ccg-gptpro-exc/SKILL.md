@@ -15,6 +15,12 @@ the execution route is worth local implementation before real code landing.
 
 - Treat input as an implementation request whose ordinary `/ccg:execute` preflight and routing must
   happen before the GPT Pro handoff.
+- Before ordinary execution or any Gemini, Claude, or GPT Pro handoff, let the current orchestrator
+  decide whether external intelligence is required. When required, run `/ccg:grok-intel` for the
+  exact plan and dependency baseline, require its canonical artifact, manifest, hashes, and active-task
+  pointer, and stop on exit `2`, `3`, or `4`. After implementation, run `/ccg:grok-verify` again when
+  the plan, diff, dependencies, or external-evidence digest changed. Pass only validated summary,
+  claims, and provenance to GPT Pro, never raw Grok output.
 - Preserve the current CCG orchestrator and ordinary execution routing for this installation.
   Ordinary execution evidence must include Claude unless the user explicitly says Claude must not
   be used. First try the automatic `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` route.
@@ -45,13 +51,13 @@ the execution route is worth local implementation before real code landing.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 should be converted into `/ccg:gptpro-review` whenever possible; use Gemini `--prompt-template review` and `--gemini-evidence-role frontend-review` for frontend review evidence over the applied diff.
-- Use `scripts/gptpro_bridge.py --mode exc --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence`.
+- Use `scripts/gptpro_bridge.py --mode exc --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence --require-external-intelligence`.
 - When frontend/full-stack Gemini output is available, add `--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`.
 - GPT Pro output must use sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
   `Required Tests`, `Verification`.
-- Report in Chinese and synthesize ordinary execute evidence, Gemini frontend evidence when present,
-  and GPT Pro manual second opinion. If Gemini frontend evidence was not used, say so from routing
-  evidence rather than inventing a Gemini result.
+- Report in Chinese and synthesize validated Grok external intelligence, ordinary execute evidence,
+  Gemini frontend evidence when present, and GPT Pro manual second opinion. If Gemini frontend
+  evidence was not used, say so from routing evidence rather than inventing a Gemini result.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.

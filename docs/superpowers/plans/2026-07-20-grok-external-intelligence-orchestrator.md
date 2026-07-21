@@ -762,19 +762,19 @@ git commit -m "feat(intelligence): add Grok commands and doctor"
 - Modify: corresponding `plugins/ccg/commands/gptpro-*.md`
 - Test: `src/utils/__tests__/gptproBridge.test.ts`
 
-- [ ] **Step 1: Write generic evidence-consumer red tests**
+- [x] **Step 1: Write generic evidence-consumer red tests**
 
 Required Grok item must validate through the same canonical artifact resolver/hash/path boundary used by Gemini/GPT Pro evidence. Tests reject missing item, wrong policy/role, path escape, evidence hash mismatch, manifest hash mismatch, local pointer drift and waived-without-user metadata.
 
-- [ ] **Step 2: Generalize the bridge validator**
+- [x] **Step 2: Generalize the bridge validator**
 
 Add provider/role requirements rather than a second Grok manifest parser. Status stores a concise `external_intelligence` block with evidence ID, mode, requirement/status, manifest/evidence paths and hashes. Prompts receive only validated summary/claims/provenance; never raw JSONL, secrets or full page bodies.
 
-- [ ] **Step 3: Enforce workflow order**
+- [x] **Step 3: Enforce workflow order**
 
 Plan: external intelligence before Gemini/Codex planning evidence and manual GPT Pro session creation. Exc: preflight contract evidence before route review; verify evidence after implementation when external digest changes. Review: diff-bound verify before GPT Pro handoff. Required exit 2 stops bridge creation; explicit waiver is displayed prominently.
 
-- [ ] **Step 4: Green, parity and commit**
+- [x] **Step 4: Green, parity and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/gptproBridge.test.ts src/utils/__tests__/pluginParity.test.ts
