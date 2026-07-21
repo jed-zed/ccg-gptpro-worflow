@@ -391,7 +391,7 @@ git commit -m "feat(config): add opt-in external intelligence settings"
 - Mirror: `plugins/ccg/skills/ccg-grok-intel/scripts/grok-intelligence/lib/exact-env.mjs`
 - Test: `src/utils/__tests__/grokIntelligenceAcp.test.ts`
 
-- [ ] **Step 1: 写 ACP handshake、exact env 和权限失败测试**
+- [x] **Step 1: 写 ACP handshake、exact env 和权限失败测试**
 
 Required test assertions:
 
@@ -408,7 +408,7 @@ tool allow/disallow and deny lists exactly match the probe contract
 no inherited environment outside the explicit allowlist
 ```
 
-- [ ] **Step 2: 写 JSON-RPC framing、raw event cap 和进程生命周期失败测试**
+- [x] **Step 2: 写 JSON-RPC framing、raw event cap 和进程生命周期失败测试**
 
 The client owns a private capture directory and never accepts a caller-selected file path:
 
@@ -421,13 +421,13 @@ timeoutMs <bounded-positive-integer>
 
 Tests require exclusive random filename creation, refusal of existing file selection, symlink/junction/reparse rejection, owner-only directory validation, line-size/byte/event caps, malformed JSON-RPC rejection, unknown-response correlation rejection, timeout cancellation, child termination, cleanup and no secret-bearing stderr.
 
-- [ ] **Step 3: Run red**
+- [x] **Step 3: Run red**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/grokIntelligenceAcp.test.ts
 ```
 
-- [ ] **Step 4: Add exact environment semantics**
+- [x] **Step 4: Add exact environment semantics**
 
 Build the child environment from an empty object. The intelligence allowlist is only:
 
@@ -454,19 +454,19 @@ GROK_MANAGED_MCPS_ENABLED, GROK_MCP_AUTO_RESTART
 
 Omit unset variables. Point HOME/USERPROFILE to runner-created neutral directories. Point GROK_HOME to the ACL-restricted dedicated credential home for browser login, or a temporary CI home containing only an injected API key config. Never copy `auth.json`; never pass GitHub, cloud, database, npm, Anthropic, OpenAI, Gemini or arbitrary `CCG_*` variables.
 
-- [ ] **Step 5: Implement ACP request/response and fail-closed permissions**
+- [x] **Step 5: Implement ACP request/response and fail-closed permissions**
 
 Spawn `grok --no-auto-update --permission-mode dontAsk --no-plan --no-memory --no-subagents --max-turns 6 --tools web_search ... agent stdio`. Correlate JSON-RPC IDs, bound every request, reject malformed/duplicate responses, and send standard ACP cancellation for every permission request. Search evidence is accepted only from `session/update` events matching Task 0B fixtures. The generic backend is not modified.
 
-- [ ] **Step 6: Disable side channels, close sessions and clean the credential home**
+- [x] **Step 6: Disable side channels, close sessions and clean the credential home**
 
 Capture bounded ACP lines to an exclusive owner-only file, then redact and delete raw data in `finally`. Call `session/close` when advertised, otherwise cancel the turn and terminate stdio. After extracting evidence, remove run-specific `sessions/`, prompt history and logs created after the pre-run watermark while preserving `auth.json`, the pinned config, model cache and official bundled metadata. A cleanup mismatch fails required runs closed and is surfaced by doctor.
 
-- [ ] **Step 7: Prove deterministic cancellation and Windows cleanup**
+- [x] **Step 7: Prove deterministic cancellation and Windows cleanup**
 
 Use fake ACP child fixtures to prove missing auth, non-empty MCP lists, permission requests, invalid model, timeout, explicit cancel, malformed/truncated stream, raw cap and process termination. No paid model call is needed. The Go wrapper and its binary version remain unchanged because intelligence no longer uses that protocol.
 
-- [ ] **Step 8: Green, security gate and commit**
+- [x] **Step 8: Green, security gate and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/grokIntelligenceAcp.test.ts
