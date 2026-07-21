@@ -596,7 +596,7 @@ git commit -m "feat(intelligence): add isolated Grok runner"
 - Test: `src/utils/__tests__/grokIntelligenceArtifacts.test.ts`
 - Test: `src/utils/__tests__/evidenceSchema.test.ts`
 
-- [ ] **Step 1: 写 bundle 和自哈希 red tests**
+- [x] **Step 1: 写 bundle 和自哈希 red tests**
 
 Each successful/skipped/waived run writes exactly:
 
@@ -609,7 +609,7 @@ Each successful/skipped/waived run writes exactly:
 
 `manifest.json` hashes only evidence/report/raw. Its own SHA-256 is stored in the task pointer and canonical evidence item. Atomic temp-write + rename is mandatory; evidence IDs reject separators, `..`, drive prefixes and reserved names.
 
-- [ ] **Step 2: Define decision and waiver schema**
+- [x] **Step 2: Define decision and waiver schema**
 
 ```json
 {
@@ -627,7 +627,7 @@ Each successful/skipped/waived run writes exactly:
 
 No model or implicit timeout may create a waiver. Required failures remain exit 2 until an explicit user-authored waiver is supplied.
 
-- [ ] **Step 3: Define deep visibility fields**
+- [x] **Step 3: Define deep visibility fields**
 
 ```json
 {
@@ -639,7 +639,7 @@ No model or implicit timeout may create a waiver. Required failures remain exit 
 }
 ```
 
-- [ ] **Step 4: Build versioned cache fingerprint and lock**
+- [x] **Step 4: Build versioned cache fingerprint and lock**
 
 Fingerprint includes normalized task/mode/search policy/model, git HEAD, dirty/plan/diff digest, lockfiles, target versions/domains and:
 
@@ -651,7 +651,7 @@ source_tier_policy_version, event_normalizer_version, snapshot_policy_version
 
 Tests cover concurrent same-key lock, atomic rename conflict, future timestamps, failed/degraded/contradicted evidence exclusion, CLI upgrade miss, force refresh, stale TTL and path traversal.
 
-- [ ] **Step 5: Append compact canonical evidence**
+- [x] **Step 5: Append compact canonical evidence**
 
 ```json
 {
@@ -670,11 +670,11 @@ Tests cover concurrent same-key lock, atomic rename conflict, future timestamps,
 
 Extend the generic normalizer/validator rather than adding a Grok-only validation stack. `resolveArtifactPath()` must resolve both `.ccg/` and `.codex/` from the project root, reject escapes from the project root, preserve `manifestFile`/`manifestSha256`, and validate both hashes when present. `task.json` stores only requirement/status/evidence ID/manifest pointer/localOnly/exported.
 
-- [ ] **Step 6: Retention and export policy**
+- [x] **Step 6: Retention and export policy**
 
 Ignore `.codex/ccg/intelligence/` in Git. Raw is redacted but local-only; default local retention 7 days. `--export <dir>` emits a separately sanitized bundle without raw by default, marks `exported: true`, enforces 30-day retention and 16 MiB maximum. Cleanup removes expired bundles and orphan private temp dirs, never active task evidence.
 
-- [ ] **Step 7: Green and commit**
+- [x] **Step 7: Green and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/grokIntelligenceArtifacts.test.ts src/utils/__tests__/evidenceSchema.test.ts

@@ -64,3 +64,6 @@ FINAL_VERIFICATION.md
 *.tgz
 .codegraph/
 coverage/
+
+# Local Grok external-intelligence bundles (sanitized exports are explicit)
+/.codex/ccg/intelligence/

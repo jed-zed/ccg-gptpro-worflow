@@ -168,6 +168,41 @@ describe('task evidence helpers', () => {
       .toMatchObject({ ok: false, reason: 'artifact_hash_mismatch' })
   })
 
+  it('resolves project-root .codex artifacts and validates artifact plus manifest hashes', () => {
+    const { root, taskDir } = makeTask('grok-manifest')
+    const bundleDir = join(root, '.codex', 'ccg', 'intelligence', 'contract-1')
+    fs.ensureDirSync(bundleDir)
+    const evidence = '{"status":"valid"}\n'
+    const manifest = '{"files":{}}\n'
+    writeFileSync(join(bundleDir, 'evidence.json'), evidence, 'utf-8')
+    writeFileSync(join(bundleDir, 'manifest.json'), manifest, 'utf-8')
+    taskUtils.appendEvidenceItem(taskDir, {
+      id: 'grok-external-intelligence-contract-1',
+      provider: 'grok',
+      role: 'external-intelligence',
+      policy: 'required',
+      available: true,
+      artifactFile: '.codex/ccg/intelligence/contract-1/evidence.json',
+      artifactSha256: sha256(evidence),
+      manifestFile: '.codex/ccg/intelligence/contract-1/manifest.json',
+      manifestSha256: sha256(manifest),
+      localOnly: true,
+      exported: false,
+    })
+    expect(taskUtils.validateEvidence(taskDir, { provider: 'grok', role: 'external-intelligence' }))
+      .toMatchObject({ ok: true, item: { manifestFile: expect.stringContaining('manifest.json') } })
+
+    writeFileSync(join(bundleDir, 'manifest.json'), 'tampered', 'utf-8')
+    expect(taskUtils.validateEvidence(taskDir, { provider: 'grok', role: 'external-intelligence' }))
+      .toMatchObject({ ok: false, reason: 'manifest_hash_mismatch' })
+  })
+
+  it('rejects artifact paths that escape the project root', () => {
+    const { taskDir } = makeTask('path-escape')
+    expect(taskUtils.resolveArtifactPath(taskDir, '../../../../outside.txt')).toBeNull()
+    expect(taskUtils.resolveArtifactPath(taskDir, 'C:\\outside.txt')).toBeNull()
+  })
+
   it('validates a matching evidence item instead of the lexicographic last item', () => {
     const { taskDir } = makeTask('valid-before-bad')
     fs.ensureDirSync(join(taskDir, 'evidence'))
