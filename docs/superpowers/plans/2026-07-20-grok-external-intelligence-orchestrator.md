@@ -490,11 +490,11 @@ git commit -m "feat(intelligence): add isolated Grok ACP transport"
 - Create: `templates/engine/tools/grok-intelligence/lib/contracts.mjs`
 - Create: `src/utils/__tests__/grokIntelligenceEvents.test.ts`
 
-- [ ] **Step 1: 用 Task 0B fixtures 写 parser red tests**
+- [x] **Step 1: 用 Task 0B fixtures 写 parser red tests**
 
 Tests must recognize only contract-probed event kinds, preserve unknown events for diagnostics, correlate call IDs, distinguish Web/X/result/error/final events, reject prose-only “I searched”, and fail on truncated/malformed required streams.
 
-- [ ] **Step 2: 写 source registry 的不可伪造测试**
+- [x] **Step 2: 写 source registry 的不可伪造测试**
 
 ```js
 const registry = buildSourceRegistry(realToolEvents, { retrievedAt: fixedClock })
@@ -509,15 +509,15 @@ expect(() => bindClaims([{ url: 'https://invented.invalid' }], registry)).toThro
 
 Canonicalization removes fragments and tracking parameters, normalizes scheme/host/default ports, preserves semantically relevant query parameters, and deduplicates equivalent URLs. IDs are runtime-generated from canonical URL plus tool kind.
 
-- [ ] **Step 3: Add deterministic source policy**
+- [x] **Step 3: Add deterministic source policy**
 
 Runtime assigns official-domain status and base tier from configured domain policy; the model may suggest but cannot elevate it. Blocker claims need either one authoritative primary source plus observed applicability, or two independent reputable sources. X is radar only and cannot independently block.
 
-- [ ] **Step 4: Add two-stage collection/synthesis**
+- [x] **Step 4: Add two-stage collection/synthesis**
 
 Stage A performs built-in search and builds the registry. Stage B receives only registry IDs and normalized event excerpts, with search/shell/edit disabled, and emits claims referencing registry IDs. Any URL in Stage B output is rejected. If the probe cannot establish a no-tool synthesis mode, perform deterministic binding from observed URLs and require all claimed URLs to be a registry subset.
 
-- [ ] **Step 5: Green and commit**
+- [x] **Step 5: Green and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/grokIntelligenceEvents.test.ts
