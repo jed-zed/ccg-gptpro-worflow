@@ -797,7 +797,7 @@ git commit -m "feat(gptpro): require canonical Grok provenance"
 - Test: `src/utils/__tests__/grokIntelligenceRouting.test.ts`
 - Test: `src/utils/__tests__/grokIntelligenceWorkflowBehavior.test.ts`
 
-- [ ] **Step 1: Implement only three initial automatic gates**
+- [x] **Step 1: Implement only three initial automatic gates**
 
 With `enabled=true && auto_route=true`:
 
@@ -809,15 +809,15 @@ final diff external verify      -> mode=verify, requirement inherited/re-evaluat
 
 All other task classes initially produce an auditable skip reason. Disabled or missing config makes zero subprocess/model calls.
 
-- [ ] **Step 2: Test actual behavior, not markers**
+- [x] **Step 2: Test actual behavior, not markers**
 
 The test harness invokes `route.mjs` with fake runner and asserts argv, mode, requirement, call order, state file, diff/dependency digest invalidation, exit 2 propagation and skip reason. A template string marker alone is insufficient.
 
-- [ ] **Step 3: Test X policy**
+- [x] **Step 3: Test X policy**
 
 Incident elevates preferred to required; landscape preferred never fails solely because X is unavailable; disabled never invokes X; X-only claims remain warning/hypothesis.
 
-- [ ] **Step 4: Green and commit**
+- [x] **Step 4: Green and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/grokIntelligenceRouting.test.ts src/utils/__tests__/grokIntelligenceWorkflowBehavior.test.ts

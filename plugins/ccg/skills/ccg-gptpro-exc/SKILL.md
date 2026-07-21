@@ -15,8 +15,10 @@ the execution route is worth local implementation before real code landing.
 
 - Treat input as an implementation request whose ordinary `/ccg:execute` preflight and routing must
   happen before the GPT Pro handoff.
-- Before ordinary execution or any Gemini, Claude, or GPT Pro handoff, let the current orchestrator
-  decide whether external intelligence is required. When required, run `/ccg:grok-intel` for the
+- Before ordinary execution or any Gemini, Claude, or GPT Pro handoff, write the bounded subject and run
+  `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`.
+  Let the current orchestrator add a semantic mode/reason whenever current external facts materially
+  affect the route, even if search was not requested. When required, the shared route runs Grok for the
   exact plan and dependency baseline, require its canonical artifact, manifest, hashes, and active-task
   pointer, and stop on exit `2`, `3`, or `4`. After implementation, run `/ccg:grok-verify` again when
   the plan, diff, dependencies, or external-evidence digest changed. Pass only validated summary,
@@ -51,7 +53,7 @@ the execution route is worth local implementation before real code landing.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 should be converted into `/ccg:gptpro-review` whenever possible; use Gemini `--prompt-template review` and `--gemini-evidence-role frontend-review` for frontend review evidence over the applied diff.
-- Use `scripts/gptpro_bridge.py --mode exc --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence --require-external-intelligence`.
+- Use `scripts/gptpro_bridge.py --mode exc --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence [--require-external-intelligence when route requirement=required]`.
 - When frontend/full-stack Gemini output is available, add `--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`.
 - GPT Pro output must use sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
   `Required Tests`, `Verification`.

@@ -14,9 +14,13 @@ diffs, findings, and tests let it focus on missed risks instead of inventing imp
 
 ## Contract
 
-Run `/ccg:grok-verify` over the exact plan, applied diff, dependency locks, and relevant tests before
+Run `/ccg:grok-verify` through the shared automatic route: write the bounded review subject to the active task directory, then run
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`
+over the exact plan, applied diff, dependency locks, and relevant tests before
 ordinary `/ccg:review`. Required exit 2/3/4 stops GPT Pro bridge creation unless the user supplies an
-explicit canonical waiver. Then run ordinary `/ccg:review`. Preserve the current CCG orchestrator semantics and the normal
+explicit canonical waiver; exit code `2`, `3`, or `4` stops before ordinary work. Add
+`--require-external-intelligence` to the bridge only when the inherited/re-evaluated route is required.
+Then run ordinary `/ccg:review`. Preserve the current CCG orchestrator semantics and the normal
 cross-review/model routing for this installation, including Codex, Claude, Gemini, or any configured
 helper that ordinary review would use. GPT Pro is fourth evidence: it is appended as a manual review
 second opinion after ordinary routing evidence exists. In this command GPT Pro is a high-value
@@ -102,7 +106,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
-  --require-external-intelligence \
+  [--require-external-intelligence when route requirement=required] \
   --detach-preview \
   --open-preview
 ```

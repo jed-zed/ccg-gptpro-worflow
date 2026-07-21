@@ -14,8 +14,10 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Treat the argument as a planning task or plan-review input.
-- Before ordinary planning or any Gemini, Claude, or GPT Pro handoff, let the current orchestrator
-  decide whether external intelligence is required. When required, run `/ccg:grok-intel --mode contract`
+- Before ordinary planning or any Gemini, Claude, or GPT Pro handoff, write the bounded subject and run
+  `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`.
+  Let the current orchestrator add a semantic mode/reason whenever external evidence is materially
+  useful even if the user did not request search. When required, the shared route runs Grok contract evidence
   and require its canonical artifact, manifest, hashes, and active-task pointer. Exit `2`, `3`, or `4`
   stops the workflow; pass only the validated summary, claims, and provenance, never raw Grok output.
 - Run ordinary `/ccg:plan` semantics first. Preserve the current CCG orchestrator and model routing
@@ -38,7 +40,7 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only for blocker re-check or revised plan comparison.
-- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence --require-external-intelligence`.
+- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence [--require-external-intelligence when route requirement=required]`.
 - Read the saved response file only after the user manually saves it.
 - Summarize and synthesize validated Grok external intelligence, ordinary planning evidence, Gemini
   gate evidence, and GPT Pro findings in Chinese; the current orchestrator decides final plan edits.

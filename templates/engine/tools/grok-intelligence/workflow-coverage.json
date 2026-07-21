@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "runtime": "tools/grok-intelligence/route.mjs",
+  "workflows": [
+    {
+      "id": "go",
+      "families": ["initial-auto-route", "go-plan"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "templates/commands/go.md",
+        "plugins/ccg/skills/ccg-go/SKILL.md"
+      ]
+    },
+    {
+      "id": "gptpro-plan",
+      "families": ["initial-auto-route", "gptpro"],
+      "phases": ["intake"],
+      "surfaces": [
+        "templates/commands/gptpro-plan.md",
+        "plugins/ccg/skills/ccg-gptpro-plan/SKILL.md"
+      ]
+    },
+    {
+      "id": "gptpro-exc",
+      "families": ["initial-auto-route", "gptpro"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "templates/commands/gptpro-exc.md",
+        "plugins/ccg/skills/ccg-gptpro-exc/SKILL.md"
+      ]
+    },
+    {
+      "id": "gptpro-review",
+      "families": ["initial-auto-route", "gptpro"],
+      "phases": ["final-verify"],
+      "surfaces": [
+        "templates/commands/gptpro-review.md",
+        "plugins/ccg/skills/ccg-gptpro-review/SKILL.md"
+      ]
+    }
+  ]
+}

@@ -13,10 +13,15 @@ ordinary `/ccg:plan` semantics have already run.
 
 ## Contract
 
-Run the Grok intelligence decision before ordinary `/ccg:plan`. When external intelligence is
-required, `/ccg:grok-intel` must produce canonical source-backed evidence before any Gemini/Claude
+Run the Grok intelligence decision by writing the bounded planning subject to the active task directory, then run
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`
+before ordinary `/ccg:plan`. The main orchestrator adds `--semantic-mode contract|incident` and a
+reason when external evidence is materially useful even if the user did not request search. When external intelligence is
+required, the shared route must produce canonical source-backed evidence before any Gemini/Claude
 planning evidence or GPT Pro session is created. Required exit 2/3/4 stops this workflow unless the
-user supplies an explicit canonical waiver. Then run ordinary `/ccg:plan`. Preserve the current CCG orchestrator semantics and the normal
+user supplies an explicit canonical waiver; exit code `2`, `3`, or `4` stops before ordinary work.
+Add `--require-external-intelligence` to the bridge only when the route state says `requirement=required`.
+Then run ordinary `/ccg:plan`. Preserve the current CCG orchestrator semantics and the normal
 model routing for this installation, including Codex, Claude, Gemini, or any configured helper that
 ordinary planning would use. GPT Pro is fourth evidence: it is appended as a manual planning second
 opinion after ordinary routing evidence exists. In this command GPT Pro is a risk-triggered
@@ -112,7 +117,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
-  --require-external-intelligence \
+  [--require-external-intelligence when route requirement=required] \
   --detach-preview \
   --open-preview
 ```

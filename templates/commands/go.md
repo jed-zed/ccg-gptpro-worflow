@@ -16,6 +16,23 @@ $ARGUMENTS
 
 ---
 
+## Phase -1: 外部情报自动判定 [required]
+
+即使用户没有说“搜索”，主编排器也必须先判断当前任务是否依赖最新外部事实。把原始请求写入
+活动任务目录下的 bounded UTF-8 文件，然后执行共享路由器；不要把请求文本插入 shell：
+
+```text
+node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow go --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"
+```
+
+确定性触发器由路由器识别；模糊但确实依赖外部能力、近期版本或服务状态时，主编排器追加
+`--semantic-mode contract|incident --semantic-reason <reason>`。传入存在的 plan、diff 和依赖/锁文件，
+并在 final verify 阶段用 `--trigger final_diff_verify` 重新判定。读取 state file 中的 decision/reason；
+exit code `2`, `3`, or `4` 必须停止后续工作，exit `0` 才能进入 Phase 0。Git-only 或本地任务仍会
+得到可审计 skip reason，但不会调用 Grok 模型。
+
+---
+
 ## Phase 0: 逃生舱检测
 
 在开始分析之前，先检查 `$ARGUMENTS` 是否命中逃生舱：

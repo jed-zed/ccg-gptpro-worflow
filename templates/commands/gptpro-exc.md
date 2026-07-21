@@ -14,9 +14,13 @@ code landing begins.
 
 ## Contract
 
-Run the Grok intelligence decision before ordinary `/ccg:execute` preflight. External API,
+Run the Grok intelligence decision by writing the bounded execution subject to the active task directory, then run
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`
+before ordinary `/ccg:execute` preflight. The main orchestrator adds a semantic mode/reason whenever
+current external evidence is material even if search was not requested. External API,
 dependency, deployment, security, and other current-contract routes require canonical Grok evidence;
-required exit 2/3/4 stops GPT Pro bridge creation unless explicitly waived. Then run ordinary
+required exit 2/3/4 stops GPT Pro bridge creation unless explicitly waived; exit code `2`, `3`, or `4`
+stops before ordinary work. Add `--require-external-intelligence` only for a required route. Then run ordinary
 `/ccg:execute` through the preflight, plan load, model routing, prototype, or
 analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution
 routing for this installation, including Codex, Claude, Gemini, or any configured helper that
@@ -110,7 +114,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
-  --require-external-intelligence \
+  [--require-external-intelligence when route requirement=required] \
   --detach-preview \
   --open-preview
 ```
