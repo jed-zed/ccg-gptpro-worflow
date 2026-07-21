@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { GROK_ACP_DENY_RULES, GROK_ACP_DISALLOWED_TOOLS, buildGrokAcpArgs, createExclusiveCapture, createGrokAcpClient, selectAcpAuthMethod, validatePrivateDirectory, validateWorkingDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
+import { GROK_ACP_DENY_RULES, GROK_ACP_DISALLOWED_TOOLS, GROK_INTELLIGENCE_SYSTEM_PROMPT, buildGrokAcpArgs, createExclusiveCapture, createGrokAcpClient, selectAcpAuthMethod, validatePrivateDirectory, validateWorkingDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { FORCED_GROK_ENV, INTELLIGENCE_ENV_ALLOWLIST, buildExactGrokEnvironment } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
 
@@ -219,6 +219,9 @@ describe('Grok intelligence ACP transport', () => {
     expect(args).toContain('--no-plan')
     expect(args).toContain('--no-memory')
     expect(args).toContain('--no-subagents')
+    expect(args).toContain('--verbatim')
+    expect(args).toContain('--system-prompt-override')
+    expect(args).toContain(GROK_INTELLIGENCE_SYSTEM_PROMPT)
     expect(args).toContain('6')
     expect(args[args.indexOf('--tools') + 1]).toBe('web_search')
     expect(args[args.indexOf('--disallowed-tools') + 1]).toBe(GROK_ACP_DISALLOWED_TOOLS.join(','))

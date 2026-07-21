@@ -539,23 +539,23 @@ git commit -m "feat(intelligence): normalize Grok search evidence"
 - Create: `templates/engine/tools/grok-intelligence/fake-wrapper.mjs`
 - Create: `src/utils/__tests__/grokIntelligenceRunner.test.ts`
 
-- [ ] **Step 1: 写 snapshot red tests**
+- [x] **Step 1: 写 snapshot red tests**
 
 Fixtures cover `.env*`, credentials, keys/certs, `.git`, dependency trees, caches, `.ccgignore`, instruction/plugin surfaces (`AGENTS.md`, `CLAUDE.md`, `.claude`, `.codex`, `.grok`, skills, hooks and plugin manifests), symlink escape, Windows junction/reparse escape, path traversal, hardlink duplicate, file-count cap, per-file cap, total-byte cap and dirty diff scoping.
 
-- [ ] **Step 2: Implement snapshot as data minimization, not sandbox**
+- [x] **Step 2: Implement snapshot as data minimization, not sandbox**
 
 Copy only router-selected source/config/lockfile/diff context. Never copy VCS metadata, auth files, model instruction files, plugin/MCP/hook/skill directories or ignored paths. Set copied files read-only where supported. Grok receives no write/edit/shell tool, so snapshot writes are not a feature. Trusted CCG-side fixed reproductions are out of scope for v1.
 
-- [ ] **Step 3: Create private temp roots**
+- [x] **Step 3: Create private temp roots**
 
 POSIX requires mode `0700`. Windows uses `icacls` from the trusted runner to remove inheritance, grant the current SID full control and verify the resulting DACL. Create separate neutral HOME/USERPROFILE, snapshot and raw directories; use the dedicated ACL-restricted credential GROK_HOME created by `ccg grok login`, or a temporary CI Grok home. Write/verify the fully disabled Claude/Cursor/Codex compatibility, file-write, tool-search, WebFetch, subagent, memory, auto-update and envrc configuration proven in Task 0B; reject reparse points after creation.
 
-- [ ] **Step 4: Add clean inspect preflight**
+- [x] **Step 4: Add clean inspect preflight**
 
 Before every paid run, execute local `grok version`, `grok models`, `grok inspect --json`, `grok plugin list` and `grok mcp list` diagnostics under exact env. Then start ACP, authenticate, create a session with `mcpServers: []`, and require the two empty-MCP notifications from Task 0B before `session/prompt`. A mismatch is `unsafe_cli_context`, is not retried, and fails required runs closed; `inspect` alone is never sufficient.
 
-- [ ] **Step 5: Implement runner lifecycle**
+- [x] **Step 5: Implement runner lifecycle**
 
 The runner validates config/consent, creates temp roots, snapshots, runs local diagnostics, invokes the ACP client, parses its bounded private JSON-RPC capture, redacts the stream, validates events, retries transient errors in a new ACP process up to two times, cancels/closes the session and kills the process on timeout/cap, cleans run-specific credential-home artifacts, and deletes every unredacted temp file in `finally`.
 
@@ -568,11 +568,11 @@ Exit contract:
 4 = user consent/configuration missing
 ```
 
-- [ ] **Step 6: Test with fake wrapper**
+- [x] **Step 6: Test with fake wrapper**
 
 Fake cases: success, retry-then-success, rate limit, timeout, cancellation, malformed JSON, missing search, invented URL, dirty snapshot, inspect pollution, raw cap and cleanup failure. Tests assert argv, exact env keys, call order and no surviving unredacted file.
 
-- [ ] **Step 7: Green and commit**
+- [x] **Step 7: Green and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/grokIntelligenceRunner.test.ts
