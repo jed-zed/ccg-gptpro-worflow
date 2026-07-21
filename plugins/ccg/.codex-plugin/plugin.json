@@ -40,6 +40,8 @@
       "/ccg:gptpro-plan Add the requested feature",
       "/ccg:gptpro-review Review the current change",
       "/ccg:gptpro-exc Pair on this implementation",
+      "/ccg:grok-intel Research the current external contract",
+      "/ccg:grok-verify Verify this change against current external facts",
       "/ccg:plan Add the requested feature",
       "/ccg:execute .codex/ccg/plans/task.md",
       "/ccg:feat Add the requested feature",

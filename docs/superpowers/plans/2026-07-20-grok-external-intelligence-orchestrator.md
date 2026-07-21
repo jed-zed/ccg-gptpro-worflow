@@ -707,15 +707,15 @@ git commit -m "feat(intelligence): persist canonical Grok evidence"
 - Test: `src/utils/__tests__/grokIntelligenceDistribution.test.ts`
 - Test: `src/utils/__tests__/doctor.test.ts`
 
-- [ ] **Step 1: Write distribution parity red tests**
+- [x] **Step 1: Write distribution parity red tests**
 
 Assert command registration, installed runtime executability, byte-identical shared `.mjs`/fixture files, no unresolved template variables, and no use of legacy `mcp__grok-search` in strict commands.
 
-- [ ] **Step 2: Add manual commands**
+- [x] **Step 2: Add manual commands**
 
 `/ccg:grok-intel` supports mode/depth/force-refresh/export and defaults to single-agent normal depth. `/ccg:grok-verify` binds evidence to plan/diff/dependency digests. Both print requirement/status/search counts/evidence path/hash and propagate exits 2/3/4.
 
-- [ ] **Step 3: Split doctor behavior**
+- [x] **Step 3: Split doctor behavior**
 
 ```text
 ccg doctor --grok       = binary, version, help flags, models, browser/API auth presence,
@@ -727,15 +727,15 @@ ccg doctor --grok-live  = explicit bounded paid Web/X smoke and event validation
 
 Init may call only the local doctor checks after explicit opt-in. It never calls `--grok-live`.
 
-- [ ] **Step 4: Diagnose provider arbitration**
+- [x] **Step 4: Diagnose provider arbitration**
 
 Doctor warns if `grok-search` MCP exists but does not remove it. It verifies `provider=grok-cli`, `transport=acp`, `auth_mode=browser_oauth|api_key`, `legacy_search_provider=grok-search-mcp`, fallback false, all compatibility surfaces disabled, `session/new.mcpServers=[]`, runtime `mcpToolCount=0`, and strict gates accepting only built-in ACP WebSearch events.
 
-- [ ] **Step 5: Add cleanup checks**
+- [x] **Step 5: Add cleanup checks**
 
 Doctor reports expired bundles, orphan private temp directories, over-size bundles and invalid canonical pointers; cleanup requires an explicit flag and never deletes active evidence.
 
-- [ ] **Step 6: Green and commit**
+- [x] **Step 6: Green and commit**
 
 ```powershell
 pnpm vitest run src/utils/__tests__/grokIntelligenceDistribution.test.ts src/utils/__tests__/doctor.test.ts src/utils/__tests__/installWorkflows.test.ts

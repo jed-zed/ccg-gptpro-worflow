@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { configMcp } from './commands/config-mcp'
 import { doctor, status } from './commands/doctor'
+import { grokAccount } from './commands/grok'
 import { diagnoseMcp, fixMcp } from './commands/diagnose-mcp'
 import { init } from './commands/init'
 import { showMainMenu } from './commands/menu'
@@ -28,6 +29,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.cyan('ccg diagnose-mcp')} ${i18n.t('cli:help.commandDescriptions.diagnoseMcp')}`,
       `  ${ansis.cyan('ccg fix-mcp')}      ${i18n.t('cli:help.commandDescriptions.fixMcp')}`,
       `  ${ansis.cyan('ccg doctor')}       Check installation health`,
+      `  ${ansis.cyan('ccg grok login')}   Sign in to the isolated Grok intelligence profile`,
       `  ${ansis.cyan('ccg status')}       Show installation overview`,
       `  ${ansis.cyan('ccg codex-mode')}   Install/uninstall Codex-Led mode`,
       `  ${ansis.cyan('ccg uninstall')}    Uninstall CCG (non-interactive)`,
@@ -160,7 +162,15 @@ export async function setupCommands(cli: CAC): Promise<void> {
   // Doctor: environment health check
   cli
     .command('doctor', 'Check CCG installation health')
-    .action(async () => { await doctor() })
+    .option('--grok', 'Run local-only Grok intelligence diagnostics (no model prompt)')
+    .option('--grok-live', 'Run explicit paid Grok Web/X smoke diagnostics')
+    .option('--grok-cleanup', 'Remove expired Grok evidence and orphan private roots')
+    .action(async (options: { grok?: boolean, grokLive?: boolean, grokCleanup?: boolean }) => { await doctor(options) })
+
+  cli
+    .command('grok <action>', 'Manage the isolated Grok intelligence login')
+    .option('--json', 'Print machine-readable status')
+    .action(async (action: string, options: { json?: boolean }) => { await grokAccount(action, options) })
 
   // Status: show current installation overview
   cli

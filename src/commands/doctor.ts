@@ -1,9 +1,10 @@
 import ansis from 'ansis'
 import fs from 'fs-extra'
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { readCcgConfig } from '../utils/config'
+import { PACKAGE_ROOT } from '../utils/installer-template'
 import { version as packageVersion } from '../../package.json'
 
 const OK = ansis.green('✓')
@@ -26,7 +27,48 @@ export function execSafe(cmd: string): string | null {
   catch { return null }
 }
 
-export async function doctor(): Promise<void> {
+export interface DoctorOptions {
+  grok?: boolean
+  grokLive?: boolean
+  grokCleanup?: boolean
+}
+
+export function buildGrokDoctorArguments(options: DoctorOptions): string[] {
+  const args = ['doctor', '--json']
+  if (options.grokLive) args.push('--live')
+  if (options.grokCleanup) args.push('--cleanup')
+  return args
+}
+
+export function validateIntelligenceDoctorConfig(config: any): string[] {
+  const expected: Record<string, unknown> = {
+    provider: 'grok-cli',
+    transport: 'acp',
+    legacy_search_provider: 'grok-search-mcp',
+    allow_provider_fallback: false,
+  }
+  const errors = Object.entries(expected)
+    .filter(([name, value]) => config?.[name] !== value)
+    .map(([name, value]) => `${name} must be ${String(value)}`)
+  if (!['browser_oauth', 'api_key'].includes(config?.auth_mode))
+    errors.push('auth_mode must be browser_oauth or api_key')
+  return errors
+}
+
+function execFileSafe(command: string, args: string[], timeout = 60_000): string | null {
+  try {
+    return execFileSync(command, args, { stdio: 'pipe', timeout, encoding: 'utf8', cwd: process.cwd() }).trim()
+  }
+  catch { return null }
+}
+
+async function grokManagerPath(): Promise<string> {
+  const installed = join(homedir(), '.claude', '.ccg', 'engine', 'tools', 'grok-intelligence', 'manage.mjs')
+  if (await fs.pathExists(installed)) return installed
+  return join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'grok-intelligence', 'manage.mjs')
+}
+
+export async function doctor(options: DoctorOptions = {}): Promise<void> {
   const installDir = join(homedir(), '.claude')
   const checks: { label: string, status: string, detail: string }[] = []
 
@@ -137,6 +179,41 @@ export async function doctor(): Promise<void> {
     status: mcpServers.length > 0 ? OK : WARN,
     detail: mcpServers.length > 0 ? mcpServers.join(', ') : 'None configured',
   })
+
+  if (options.grok || options.grokLive) {
+    const configErrors = validateIntelligenceDoctorConfig(config?.intelligence)
+    checks.push({
+      label: 'Grok policy config',
+      status: configErrors.length === 0 ? OK : FAIL,
+      detail: configErrors.length === 0 ? 'grok-cli / ACP / strict no-fallback' : configErrors.join('; '),
+    })
+    if (mcpServers.some(name => name.toLowerCase() === 'grok-search')) {
+      checks.push({
+        label: 'Grok provider conflict',
+        status: WARN,
+        detail: 'Legacy grok-search MCP is configured; intelligence remains pinned to official Grok ACP. It was not removed.',
+      })
+    }
+    const manager = await grokManagerPath()
+    const raw = execFileSafe(process.execPath, [manager, ...buildGrokDoctorArguments(options)], options.grokLive ? 180_000 : 60_000)
+    let result: any = null
+    try { result = raw ? JSON.parse(raw) : null }
+    catch {}
+    checks.push({
+      label: options.grokLive ? 'Grok live Web/X' : 'Grok local ACP',
+      status: result?.ok === true ? OK : FAIL,
+      detail: result?.ok === true
+        ? `${result.version}; auth=${result.authMethod}; mcp=${String(result.mcpToolCount)}; paidPrompt=${String(result.paidModelPromptSent)}`
+        : 'Failed. Run ccg grok login, then retry the requested doctor mode.',
+    })
+    if (result?.retention) {
+      checks.push({
+        label: 'Grok retention',
+        status: result.retention.oversizedBundles > 0 || result.retention.invalidCanonicalPointers > 0 ? WARN : OK,
+        detail: `${result.retention.bundles} bundles, ${result.retention.expiredBundles} expired, ${result.retention.oversizedBundles} oversized, ${result.retention.invalidCanonicalPointers} invalid pointers, ${result.retention.orphanPrivateRoots} orphan roots${options.grokCleanup ? ' (cleanup requested)' : ''}`,
+      })
+    }
+  }
 
   // 10. Codex mode
   const codexAgentsMd = join(homedir(), '.codex', 'AGENTS.md')

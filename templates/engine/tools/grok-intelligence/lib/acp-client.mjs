@@ -377,9 +377,9 @@ function redactValue(value, secrets, seen = new WeakSet()) {
 function validateRunOptions(options) {
   if (!options || typeof options !== 'object')
     throw new Error('ACP run options are required')
-  if (typeof options.prompt !== 'string' || options.prompt.trim().length === 0)
+  if (options.handshakeOnly !== true && (typeof options.prompt !== 'string' || options.prompt.trim().length === 0))
     throw new Error('prompt must be a non-empty string')
-  if (Buffer.byteLength(options.prompt, 'utf8') > MAX_PROMPT_BYTES)
+  if (options.handshakeOnly !== true && Buffer.byteLength(options.prompt, 'utf8') > MAX_PROMPT_BYTES)
     throw new Error('prompt exceeds the bounded ACP prompt size')
   if (!Number.isInteger(options.rawEventsMaxBytes) || options.rawEventsMaxBytes < 1 || options.rawEventsMaxBytes > MAX_RAW_BYTES)
     throw new Error(`rawEventsMaxBytes must be between 1 and ${MAX_RAW_BYTES}`)
@@ -712,13 +712,15 @@ export function createGrokAcpClient({
           throw new Error('ACP session/new did not return a sessionId')
         sessionId = sessionResult.sessionId
         const mcpPreflight = await Promise.race([waitForMcpPreflight(), fatal.promise])
-        const promptResult = await Promise.race([
-          request('session/prompt', {
-            sessionId,
-            prompt: [{ type: 'text', text: options.prompt }],
-          }, options.timeoutMs),
-          fatal.promise,
-        ])
+        const promptResult = options.handshakeOnly === true
+          ? null
+          : await Promise.race([
+              request('session/prompt', {
+                sessionId,
+                prompt: [{ type: 'text', text: options.prompt }],
+              }, options.timeoutMs),
+              fatal.promise,
+            ])
         await stdoutQueue
         if (fatalError)
           throw fatalError

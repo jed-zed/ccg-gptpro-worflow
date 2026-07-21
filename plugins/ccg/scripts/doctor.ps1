@@ -5,6 +5,9 @@ param(
   [switch]$Fix,
   [switch]$CheckGeminiModel,
   [string]$GeminiModel = "",
+  [switch]$Grok,
+  [switch]$GrokLive,
+  [switch]$GrokCleanup,
   [switch]$Json
 )
 
@@ -348,6 +351,8 @@ foreach ($commandName in @(
   "gptpro-plan.md",
   "gptpro-review.md",
   "gptpro-exc.md",
+  "grok-intel.md",
+  "grok-verify.md",
   "verify-change.md"
 )) {
   $commandPath = Join-Path $commandsDir $commandName
@@ -392,6 +397,8 @@ foreach ($skillName in @(
   "ccg-gptpro-review",
   "ccg-gptpro-exc",
   "ccg-gptpro-bridge",
+  "ccg-grok-intel",
+  "ccg-grok-verify",
   "verify-change"
 )) {
   $skillPath = Join-PathMany $skillsDir $skillName "SKILL.md"
@@ -472,6 +479,8 @@ if (Test-Path -LiteralPath $cacheRoot) {
     "commands\gptpro-plan.md",
     "commands\gptpro-review.md",
     "commands\gptpro-exc.md",
+    "commands\grok-intel.md",
+    "commands\grok-verify.md",
     "skills\ccg-plan\SKILL.md",
     "skills\ccg-execute\SKILL.md",
     "skills\ccg-excute\SKILL.md",
@@ -508,6 +517,10 @@ if (Test-Path -LiteralPath $cacheRoot) {
     "skills\ccg-gptpro-bridge\templates\gptpro\review.md",
     "skills\ccg-gptpro-bridge\templates\gptpro\exc.md",
     "skills\ccg-gptpro-bridge\templates\gptpro\followup.md",
+    "skills\ccg-grok-intel\SKILL.md",
+    "skills\ccg-grok-intel\scripts\grok-intelligence\manage.mjs",
+    "skills\ccg-grok-intel\scripts\grok-intelligence\command.mjs",
+    "skills\ccg-grok-verify\SKILL.md",
     "skills\ccg-executor\scripts\invoke_gemini_preview.py",
     "scripts\doctor.ps1"
   )) {
@@ -552,6 +565,8 @@ if (Test-Path -LiteralPath $cacheRoot) {
     "ccg-gptpro-review",
     "ccg-gptpro-exc",
     "ccg-gptpro-bridge",
+    "ccg-grok-intel",
+    "ccg-grok-verify",
     "verify-change"
   )) {
     $cachedSkill = Join-PathMany $cacheRoot "skills" $skillName "SKILL.md"
@@ -622,6 +637,8 @@ foreach ($skill in @(
   "ccg:gptpro-plan",
   "ccg:gptpro-review",
   "ccg:gptpro-exc",
+  "ccg:grok-intel",
+  "ccg:grok-verify",
   "ccg:verify-change"
 )) {
   Test-PromptSkill $skill $promptInputOutput
@@ -644,6 +661,42 @@ Test-McpName "context7" $mcpOutput
 Test-McpName "fast-context" $mcpOutput
 Test-McpName "ace-tool" $mcpOutput -Optional
 Test-McpName "grok-search" $mcpOutput -Optional
+
+if ($Grok -or $GrokLive) {
+  if ($mcpOutput -match "(?m)^\s*grok-search\s") {
+    Add-Check "Grok provider arbitration" "WARN" "Legacy grok-search MCP is configured; official Grok ACP remains the only intelligence provider and nothing was removed." "Keep allow_provider_fallback=false and do not treat MCP output as canonical Grok evidence."
+  } else {
+    Add-Check "Grok provider arbitration" "PASS" "No active legacy grok-search MCP conflict detected."
+  }
+
+  $grokManager = Join-PathMany $skillsDir "ccg-grok-intel" "scripts" "grok-intelligence" "manage.mjs"
+  $nodeCommand = Get-Command "node" -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $nodeCommand) {
+    Add-Check "Grok intelligence doctor" "FAIL" "node was not found in PATH." "Install Node.js 20 or newer."
+  } elseif (-not (Test-Path -LiteralPath $grokManager)) {
+    Add-Check "Grok intelligence doctor" "FAIL" "Missing: $grokManager" "Restore the Grok intelligence runtime."
+  } else {
+    $grokArguments = @($grokManager, "doctor", "--json")
+    if ($GrokLive) { $grokArguments += "--live" }
+    if ($GrokCleanup) { $grokArguments += "--cleanup" }
+    $grokCheck = Invoke-CapturedCommand $nodeCommand.Source $grokArguments
+    if ($grokCheck.ok) {
+      try {
+        $grokResult = $grokCheck.output | ConvertFrom-Json
+        if ($grokResult.ok -and $grokResult.mcpServersEmpty -and $grokResult.mcpToolCount -eq 0) {
+          $kind = if ($GrokLive) { "paid Web/X" } else { "local-only ACP" }
+          Add-Check "Grok intelligence doctor" "PASS" "$kind passed; version=$($grokResult.version); auth=$($grokResult.authMethod); paidPrompt=$($grokResult.paidModelPromptSent)"
+        } else {
+          Add-Check "Grok intelligence doctor" "FAIL" (Limit-Text $grokCheck.output) "Run ccg grok login, then retry."
+        }
+      } catch {
+        Add-Check "Grok intelligence doctor" "FAIL" "Invalid JSON from Grok manager: $($_.Exception.Message)" "Repair or reinstall the Grok intelligence runtime."
+      }
+    } else {
+      Add-Check "Grok intelligence doctor" "FAIL" (Limit-Text $grokCheck.output) "Run ccg grok login, then retry."
+    }
+  }
+}
 
 $commandsRoot = Join-Path $CodexHome "commands"
 Test-BridgeFile "ccg.md" (Join-Path $commandsRoot "ccg.md")
@@ -683,6 +736,8 @@ Test-BridgeFile "ccg\gemini-preview.md" (Join-Path $bridgeCommandDir "gemini-pre
 Test-BridgeFile "ccg\gptpro-plan.md" (Join-Path $bridgeCommandDir "gptpro-plan.md")
 Test-BridgeFile "ccg\gptpro-review.md" (Join-Path $bridgeCommandDir "gptpro-review.md")
 Test-BridgeFile "ccg\gptpro-exc.md" (Join-Path $bridgeCommandDir "gptpro-exc.md")
+Test-BridgeFile "ccg\grok-intel.md" (Join-Path $bridgeCommandDir "grok-intel.md")
+Test-BridgeFile "ccg\grok-verify.md" (Join-Path $bridgeCommandDir "grok-verify.md")
 
 if ([string]::IsNullOrWhiteSpace($GeminiModel)) {
   if ([string]::IsNullOrWhiteSpace($env:GEMINI_MODEL)) {

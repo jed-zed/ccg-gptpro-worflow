@@ -998,6 +998,12 @@ async function installEngineFiles(ctx: InstallContext): Promise<void> {
     const toolsDest = join(engineDestDir, 'tools')
     if (await fs.pathExists(toolsSrc)) {
       await copyTemplateTree(ctx, toolsSrc, toolsDest, { injectMd: true })
+      if (process.platform !== 'win32') {
+        for (const entry of ['command.mjs', 'manage.mjs']) {
+          const executable = join(toolsDest, 'grok-intelligence', entry)
+          if (await fs.pathExists(executable)) await fs.chmod(executable, 0o700)
+        }
+      }
     }
   }
   catch (error) {

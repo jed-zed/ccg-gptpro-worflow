@@ -292,6 +292,14 @@ describe('Grok intelligence ACP transport', () => {
     await expect(stat(result.capture.path)).rejects.toThrow()
   })
 
+  it('supports a local-only doctor handshake without sending session/prompt', async () => {
+    const result = await makeClient('success').run(runOptions({ handshakeOnly: true, prompt: undefined }))
+    expect(result.authMethod).toBe('cached_token')
+    expect(result.mcpPreflight).toEqual({ serversEmpty: true, toolCount: 0 })
+    expect(result.promptResult).toBeNull()
+    expect(result.notifications.some((message: any) => message.method === 'session/request_permission')).toBe(false)
+  })
+
   it('supports explicit API-key auth without returning or logging the secret', async () => {
     const secret = 'xai-test-secret-value'
     const proxySecret = 'https://proxy-user:proxy-password@proxy.invalid'
