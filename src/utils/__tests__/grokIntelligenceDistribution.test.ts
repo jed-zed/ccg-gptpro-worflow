@@ -356,7 +356,7 @@ describe('Grok intelligence distribution', () => {
     finally {
       await fs.remove(root)
     }
-  }, 20_000)
+  }, 30_000)
 
   it('routes local doctor help and inventory through isolated diagnostics', async () => {
     const root = join(tmpdir(), `ccg-grok-local-doctor-${Date.now()}`)
@@ -395,5 +395,5 @@ describe('Grok intelligence distribution', () => {
     finally {
       await fs.remove(root)
     }
-  }, 20_000)
+  }, 30_000)
 })

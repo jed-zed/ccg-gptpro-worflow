@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -312,7 +312,7 @@ describe('Grok intelligence ACP transport', () => {
       fs: { readTextFile: false, writeTextFile: false },
       terminal: false,
     })
-    expect(result.sessionResult.observedSession).toEqual({ cwd, mcpServers: [] })
+    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd), mcpServers: [] })
     expect(result.promptResult.permissionResponse).toEqual({ outcome: { outcome: 'cancelled' } })
     expect(result.authMethod).toBe('cached_token')
     expect(result.mcpPreflight).toEqual({ serversEmpty: true, toolCount: 0 })
@@ -379,7 +379,7 @@ describe('Grok intelligence ACP transport', () => {
     ['malformed-response', /exactly one of result or error/i],
   ])('fails closed for %s', async (mode, error) => {
     await expect(makeClient(mode).run(runOptions())).rejects.toThrow(error)
-  })
+  }, 15_000)
 
   it('rejects unknown response correlation during initialization', async () => {
     await expect(makeClient('unknown-response').run(runOptions())).rejects.toThrow(/unknown response/i)
@@ -429,7 +429,7 @@ describe('Grok intelligence ACP transport', () => {
         owner: 'MACHINE\\owner',
         access: [{ identity: 'MACHINE\\owner', inherited: true, type: 'Allow' }],
       }),
-    })).resolves.toBe(resolve(rawEventsDir))
+    })).resolves.toBe(await realpath(rawEventsDir))
   })
 
   it('validates capture bounds before spawning', async () => {

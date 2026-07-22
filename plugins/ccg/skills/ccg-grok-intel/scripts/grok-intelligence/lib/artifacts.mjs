@@ -32,10 +32,19 @@ async function assertPlainDirectory(path, name) {
 }
 
 async function prepareContainedRoot(projectRoot, requestedRoot) {
+  const projectInput = resolve(projectRoot)
   const project = await assertPlainDirectory(projectRoot, 'projectRoot')
-  const target = resolve(requestedRoot || resolve(project, '.codex', 'ccg', 'intelligence'))
-  if (!isWithin(project, target))
+  const requested = resolve(requestedRoot || resolve(projectInput, '.codex', 'ccg', 'intelligence'))
+  const inputRelative = relative(projectInput, requested)
+  const canonicalRelative = relative(project, requested)
+  const relativeTarget = isWithin(projectInput, requested)
+    ? inputRelative
+    : isWithin(project, requested)
+      ? canonicalRelative
+      : null
+  if (relativeTarget == null)
     throw new Error('Artifact root must remain inside the project root')
+  const target = resolve(project, relativeTarget)
   await mkdir(target, { recursive: true, mode: 0o700 })
   await chmod(target, 0o700)
   const canonical = await assertPlainDirectory(target, 'artifactRoot')
