@@ -71,8 +71,16 @@ async function pathExists(path) {
 export async function ensureDedicatedGrokHome(options = {}) {
   const paths = options.paths || getDefaultGrokIntelligencePaths(options)
   for (const path of [paths.root, paths.grokHome, paths.neutralHome, paths.tempParent])
-    await securePrivateDirectory(path, { platform: options.platform || process.platform })
-  await writePinnedGrokConfig(paths.grokHome)
+    await securePrivateDirectory(path, {
+      platform: options.platform || process.platform,
+      restrictWindowsAcl: options.restrictWindowsAcl,
+      validateDirectory: options.validateDirectory,
+    })
+  await writePinnedGrokConfig(paths.grokHome, {
+    platform: options.platform || process.platform,
+    restrictWindowsAcl: options.restrictWindowsAcl,
+    validateDirectory: options.validateDirectory,
+  })
   return paths
 }
 
@@ -245,10 +253,12 @@ async function localDoctor(options = {}) {
       sourceEnv,
     })
     const diagnostics = diagnosticProbe.diagnostics
-    const roots = await createPrivateRunRoots({ parent: paths.tempParent, grokHome: paths.grokHome })
+    const createPrivateRoots = options.createPrivateRoots || createPrivateRunRoots
+    const createAcpClient = options.createAcpClient || createGrokAcpClient
+    const roots = await createPrivateRoots({ parent: paths.tempParent, grokHome: paths.grokHome })
     let handshake
     try {
-      handshake = await createGrokAcpClient({ command, prefixArgs }).run({
+      handshake = await createAcpClient({ command, prefixArgs }).run({
         handshakeOnly: true,
         cwd: roots.snapshotRoot,
         allowedCwdRoots: [roots.snapshotRoot],

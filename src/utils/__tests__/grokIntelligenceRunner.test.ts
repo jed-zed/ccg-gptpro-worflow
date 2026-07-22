@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
+import { validatePrivateDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
+// @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { buildExactGrokEnvironment, FORCED_GROK_ENV } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { createPrivateRunRoots, removePrivateRunRoot } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
+import { createPrivateRunRoots, removePrivateRunRoot, securePrivateDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { assertCleanGrokDiagnostics, parseGrokModelInventory, runGrokDiagnostics } from '../../../templates/engine/tools/grok-intelligence/lib/process.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -172,6 +174,12 @@ describe('private roots and clean diagnostics', () => {
   afterEach(async () => {
     await rm(root, { recursive: true, force: true })
   })
+
+  it.runIf(process.platform === 'win32')('enforces the production owner-only Windows ACL contract once', async () => {
+    const privateRoot = join(root, 'windows-private')
+    const canonical = await securePrivateDirectory(privateRoot)
+    await expect(validatePrivateDirectory(privateRoot)).resolves.toBe(canonical)
+  }, 60_000)
 
   it('creates separate owner-only neutral, snapshot, and raw directories', async () => {
     const grokHome = join(root, 'grok-home')

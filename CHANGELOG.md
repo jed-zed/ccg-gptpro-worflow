@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Current Grok XSearch ACP events** — Correlate native `XSearch` lifecycles as advisory-only discovery without inventing source URLs; require a source-bearing `WebSearch site:x.com/site:twitter.com` event for X evidence gates.
 - **ACP completion race** — Treat the correlated `session/prompt` response as the standard completion proof, briefly drain the optional xAI `turn_completed` extension, and keep all search/final-message validation fail closed.
 - **Actionable live doctor errors** — Surface bounded, redacted manager failures instead of reporting every live protocol or evidence error as a login problem.
+- **Windows doctor CI determinism** — Isolate doctor behavior tests from repeated PowerShell ACL cold starts while retaining a focused production owner-only ACL contract on Windows.
 
 ### 🔄 Changes
 

@@ -45,10 +45,10 @@ auto_update = false
 load_envrc = false
 `
 
-export async function writePinnedGrokConfig(grokHome) {
+export async function writePinnedGrokConfig(grokHome, options = {}) {
   if (!isAbsolute(grokHome))
     throw new Error('GROK_HOME must be absolute')
-  await securePrivateDirectory(grokHome)
+  await securePrivateDirectory(grokHome, options)
   const destination = resolve(grokHome, 'config.toml')
   const staging = resolve(grokHome, `.config.toml.tmp-${process.pid}`)
   await writeFile(staging, PINNED_GROK_CONFIG, { flag: 'wx', mode: 0o600 })

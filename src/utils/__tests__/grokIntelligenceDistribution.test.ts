@@ -9,6 +9,10 @@ import { getCoreCommandIds, installWorkflows } from '../installer'
 import { defaultGitState, parseIntelligenceToml, runManualCommand } from '../../../templates/engine/tools/grok-intelligence/command.mjs'
 // @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
 import * as grokManage from '../../../templates/engine/tools/grok-intelligence/manage.mjs'
+// @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
+import { createGrokAcpClient } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
+// @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
+import { createPrivateRunRoots } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
 
 const { ensureDedicatedGrokHome, getDefaultGrokIntelligencePaths, resolveDoctorAuthentication } = grokManage
 
@@ -27,7 +31,7 @@ function collectFiles(root: string): string[] {
 describe('Grok intelligence distribution', () => {
   const installDir = join(tmpdir(), `ccg-grok-distribution-${Date.now()}`)
 
-  afterAll(async () => fs.remove(installDir), 120_000)
+  afterAll(async () => fs.remove(installDir), 60_000)
 
   it('registers both manual commands as core workflows', () => {
     expect(getCoreCommandIds()).toEqual(expect.arrayContaining(['grok-intel', 'grok-verify']))
@@ -327,7 +331,11 @@ describe('Grok intelligence distribution', () => {
       neutralHome: join(root, 'neutral-home'),
       tempParent: join(root, 'runs'),
     }
-    await ensureDedicatedGrokHome({ paths, platform: process.platform })
+    await ensureDedicatedGrokHome({
+      paths,
+      platform: 'linux',
+      validateDirectory: async (path: string) => path,
+    })
     await fs.ensureDir(join(paths.grokHome, 'logs'))
     const realLog = join(paths.grokHome, 'logs', 'unified.jsonl')
     await fs.writeFile(realLog, 'baseline\n')
@@ -350,6 +358,11 @@ describe('Grok intelligence distribution', () => {
         command: 'grok',
         sourceEnv: { PATH: process.env.PATH },
         runProcess,
+        createRoots: (options: any) => createPrivateRunRoots({
+          ...options,
+          platform: 'linux',
+          validateDirectory: async (path: string) => path,
+        }),
       })
       expect(result.diagnostics).toMatchObject({ safe: true, version: 'grok 0.2.106' })
       expect(runProcess).toHaveBeenCalledTimes(6)
@@ -359,7 +372,7 @@ describe('Grok intelligence distribution', () => {
     finally {
       await fs.remove(root)
     }
-  }, 180_000)
+  }, 60_000)
 
   it('routes local doctor help and inventory through isolated diagnostics', async () => {
     const root = join(tmpdir(), `ccg-grok-local-doctor-${Date.now()}`)
@@ -370,7 +383,11 @@ describe('Grok intelligence distribution', () => {
       tempParent: join(root, 'runs'),
     }
     try {
-      await ensureDedicatedGrokHome({ paths, platform: process.platform })
+      await ensureDedicatedGrokHome({
+        paths,
+        platform: 'linux',
+        validateDirectory: async (path: string) => path,
+      })
       await fs.writeFile(join(paths.grokHome, 'auth.json'), '{"cached":"token"}\n')
       await fs.ensureDir(join(paths.grokHome, 'logs'))
       const historicalLog = join(paths.grokHome, 'logs', 'unified.jsonl')
@@ -380,6 +397,21 @@ describe('Grok intelligence distribution', () => {
         diagnostics: { safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] },
       }))
       const localDoctor = (grokManage as any).localDoctor
+      const createPrivateRoots = vi.fn((options: any) => createPrivateRunRoots({
+        ...options,
+        platform: 'linux',
+        validateDirectory: async (path: string) => path,
+      }))
+      const createAcpClient = vi.fn((options: any) => createGrokAcpClient({
+        ...options,
+        validatePrivateDirectory: async (path: string) => path,
+      }))
+      const clearCredentialState = vi.fn(async (grokHome: string) => {
+        for (const name of ['sessions', 'logs', 'memtrace'])
+          await fs.remove(join(grokHome, name))
+        for (const name of ['active_sessions.json', 'active_sessions.lock', 'session_search.sqlite'])
+          await fs.remove(join(grokHome, name))
+      })
       expect(localDoctor).toBeTypeOf('function')
       expect((grokManage as any).LOCAL_DOCTOR_ACP_TIMEOUT_MS).toBe(120_000)
       expect((grokManage as any).LIVE_DOCTOR_ACP_TIMEOUT_MS).toBe(300_000)
@@ -390,13 +422,19 @@ describe('Grok intelligence distribution', () => {
         prefixArgs: [join(ROOT, 'templates', 'engine', 'tools', 'grok-intelligence', 'fake-wrapper.mjs')],
         sourceEnv: { PATH: process.env.PATH },
         runIsolatedDiagnostics: isolatedDiagnostics,
+        createPrivateRoots,
+        createAcpClient,
+        clearCredentialState,
       })
       expect(isolatedDiagnostics).toHaveBeenCalledTimes(1)
+      expect(createPrivateRoots).toHaveBeenCalledTimes(1)
+      expect(createAcpClient).toHaveBeenCalledTimes(1)
+      expect(clearCredentialState).toHaveBeenCalledTimes(2)
       expect(result).toMatchObject({ ok: true, paidModelPromptSent: false, version: 'grok 0.2.106' })
       expect(await fs.pathExists(historicalLog)).toBe(false)
     }
     finally {
       await fs.remove(root)
     }
-  }, 180_000)
+  }, 60_000)
 })
