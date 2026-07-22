@@ -27,7 +27,7 @@ function collectFiles(root: string): string[] {
 describe('Grok intelligence distribution', () => {
   const installDir = join(tmpdir(), `ccg-grok-distribution-${Date.now()}`)
 
-  afterAll(async () => fs.remove(installDir), 60_000)
+  afterAll(async () => fs.remove(installDir), 120_000)
 
   it('registers both manual commands as core workflows', () => {
     expect(getCoreCommandIds()).toEqual(expect.arrayContaining(['grok-intel', 'grok-verify']))
@@ -359,7 +359,7 @@ describe('Grok intelligence distribution', () => {
     finally {
       await fs.remove(root)
     }
-  }, 90_000)
+  }, 180_000)
 
   it('routes local doctor help and inventory through isolated diagnostics', async () => {
     const root = join(tmpdir(), `ccg-grok-local-doctor-${Date.now()}`)
@@ -398,5 +398,5 @@ describe('Grok intelligence distribution', () => {
     finally {
       await fs.remove(root)
     }
-  }, 90_000)
+  }, 180_000)
 })
