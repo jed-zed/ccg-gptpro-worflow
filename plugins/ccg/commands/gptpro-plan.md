@@ -19,8 +19,8 @@ before ordinary `/ccg:plan`. The main orchestrator adds `--semantic-mode contrac
 reason when external evidence is materially useful even if the user did not request search. When external intelligence is
 required, the shared route must produce canonical source-backed evidence before any Gemini/Claude
 planning evidence or GPT Pro session is created. Required exit 2/3/4 stops this workflow unless the
-user supplies an explicit canonical waiver; exit code `2`, `3`, or `4` stops before ordinary work.
-Add `--require-external-intelligence` to the bridge only when the route state says `requirement=required`.
+user supplies an explicit route-state waiver with `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs waive --state-file <state-file> --reason "<user reason>"`; the waiver does not create evidence or claim verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work.
+Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the route state says `status=valid` and `requirement=required`.
 Then run ordinary `/ccg:plan`. Preserve the current CCG orchestrator semantics and the normal
 model routing for this installation, including Codex, Claude, Gemini, or any configured helper that
 ordinary planning would use. GPT Pro is fourth evidence: it is appended as a manual planning second
@@ -117,7 +117,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
-  [--require-external-intelligence when route requirement=required] \
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required] \
   --detach-preview \
   --open-preview
 ```

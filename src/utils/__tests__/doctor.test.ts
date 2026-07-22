@@ -10,6 +10,20 @@ describe('doctor command helpers', () => {
     expect(buildGrokDoctorArguments({ grok: true })).toEqual(['doctor', '--json'])
     expect(buildGrokDoctorArguments({ grokLive: true })).toEqual(['doctor', '--json', '--live'])
     expect(buildGrokDoctorArguments({ grok: true, grokCleanup: true })).toEqual(['doctor', '--json', '--cleanup'])
+    expect(buildGrokDoctorArguments({ grok: true }, {
+      artifact_root: '.private/intelligence',
+      retention_days: 3,
+      max_bundle_bytes: 4096,
+    } as any)).toEqual([
+      'doctor',
+      '--json',
+      '--artifact-root',
+      '.private/intelligence',
+      '--retention-days',
+      '3',
+      '--max-bundle-bytes',
+      '4096',
+    ])
   })
 
   it('allows enough time for model discovery plus the bounded ACP handshake', () => {

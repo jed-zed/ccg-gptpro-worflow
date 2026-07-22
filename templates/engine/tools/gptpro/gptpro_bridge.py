@@ -303,10 +303,49 @@ def validate_required_gemini_gate(
     return dict(validated["item"])
 
 
+def _parse_exact_utc(value: Any, label: str) -> datetime:
+    text = str(value or "")
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"Canonical Grok {label} is not an ISO timestamp") from error
+    if parsed.tzinfo is None:
+        raise ValueError(f"Canonical Grok {label} must include a UTC offset")
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_grok_bindings(project_root: Path, bindings: Any) -> list[dict[str, Any]]:
+    if not isinstance(bindings, list):
+        raise ValueError("Canonical Grok manifest bindings must be an array")
+    validated: list[dict[str, Any]] = []
+    for binding in bindings:
+        if not isinstance(binding, dict):
+            raise ValueError("Canonical Grok binding is malformed")
+        relative_path = str(binding.get("path") or "")
+        expected_hash = str(binding.get("sha256") or "")
+        if not relative_path or not re.fullmatch(r"[a-f0-9]{64}", expected_hash):
+            raise ValueError("Canonical Grok binding path or sha256 is malformed")
+        bound_path = (project_root / relative_path).resolve()
+        ensure_within_dir(bound_path, project_root, "Grok bound input")
+        try:
+            bound_bytes = bound_path.read_bytes()
+        except OSError as error:
+            raise ValueError(f"Canonical Grok binding is unavailable: {relative_path}") from error
+        if hashlib.sha256(bound_bytes).hexdigest() != expected_hash:
+            raise ValueError(f"Canonical Grok binding digest drift: {relative_path}")
+        if binding.get("bytes") != len(bound_bytes):
+            raise ValueError(f"Canonical Grok binding byte count drift: {relative_path}")
+        validated.append(dict(binding))
+    return validated
+
+
 def validate_required_external_intelligence(
     *,
     task_dir: Path,
     evidence_file: Path | None,
+    expected_action: str = "intel",
+    expected_mode: str,
+    expected_depth: str,
 ) -> dict[str, Any]:
     evidence_path = (evidence_file or (task_dir / "evidence.json")).resolve()
     validated = validate_canonical_evidence_item(
@@ -325,9 +364,19 @@ def validate_required_external_intelligence(
     decision = artifact.get("decision") or {}
     if decision.get("requirement") != "required" or decision.get("status") not in {"valid", "waived"}:
         raise ValueError("Canonical Grok evidence decision is not a valid required gate")
-    mode = str(decision.get("mode") or "")
-    if mode not in {"discover", "contract", "incident", "landscape", "deep"}:
-        raise ValueError("Canonical Grok evidence decision has an invalid mode")
+    action = str(decision.get("action") or "")
+    if action != expected_action:
+        raise ValueError(f"Canonical Grok evidence action does not match the {expected_action} handoff")
+    mode = str(decision.get("investigation_mode") or decision.get("mode") or "")
+    if mode not in {"discover", "contract", "incident", "landscape"} or decision.get("mode") != mode:
+        raise ValueError("Canonical Grok evidence decision has an invalid investigation mode")
+    if mode != expected_mode:
+        raise ValueError(f"Canonical Grok evidence investigation mode does not match the {expected_mode} handoff")
+    depth = str(decision.get("depth") or "")
+    if depth not in {"normal", "deep"}:
+        raise ValueError("Canonical Grok evidence decision has an invalid depth")
+    if depth != expected_depth:
+        raise ValueError(f"Canonical Grok evidence depth does not match the {expected_depth} handoff")
     waiver = decision.get("waiver")
     if decision.get("status") == "waived":
         if (
@@ -345,10 +394,59 @@ def validate_required_external_intelligence(
     if not evidence_id:
         raise ValueError("Canonical Grok manifest is missing evidenceId")
     item = validated["item"]
+    for key, expected in {
+        "action": action,
+        "investigationMode": mode,
+        "depth": depth,
+        "packageStatus": decision.get("package_status"),
+        "verificationOutcome": decision.get("verification_outcome"),
+    }.items():
+        if item.get(key) != expected:
+            label = "verification outcome" if key == "verificationOutcome" else key
+            raise ValueError(f"Canonical Grok evidence item {label} drift")
     if item.get("localOnly") is not True or item.get("exported") is not False:
         raise ValueError("Canonical Grok evidence must remain local-only and unexported")
     if manifest.get("localOnly") is not True or manifest.get("exported") is not False:
         raise ValueError("Canonical Grok manifest must remain local-only and unexported")
+    expected_policy = "disabled" if manifest.get("effective_x_policy") == "disabled" else manifest.get("effective_x_policy")
+    for key, expected in {
+        "action": action,
+        "investigation_mode": mode,
+        "depth": depth,
+        "requirement": "required",
+        "package_status": decision.get("package_status"),
+        "verification_outcome": decision.get("verification_outcome"),
+        "validation_outcome": decision.get("verification_outcome"),
+    }.items():
+        if manifest.get(key) != expected:
+            raise ValueError(f"Canonical Grok manifest {key} does not match the evidence decision")
+    if expected_policy not in {"required", "preferred", "disabled"}:
+        raise ValueError("Canonical Grok manifest has an invalid effective X policy")
+    for key in ("cli_version", "model"):
+        if not str(manifest.get(key) or "").strip():
+            raise ValueError(f"Canonical Grok manifest is missing {key}")
+    for key in ("prompt_sha256", "dirty_digest", "cache_fingerprint"):
+        if not re.fullmatch(r"[a-f0-9]{64}", str(manifest.get(key) or "")):
+            raise ValueError(f"Canonical Grok manifest has an invalid {key}")
+    if not str(manifest.get("git_head") or "").strip():
+        raise ValueError("Canonical Grok manifest is missing git_head")
+    if not isinstance(manifest.get("official_domains"), list):
+        raise ValueError("Canonical Grok manifest official_domains must be an array")
+    search_counts = manifest.get("search_counts")
+    if not isinstance(search_counts, dict) or any(not isinstance(search_counts.get(key), int) or search_counts[key] < 0 for key in ("web", "x")):
+        raise ValueError("Canonical Grok manifest search_counts are malformed")
+    if not isinstance(manifest.get("attempts"), int) or manifest["attempts"] < 1:
+        raise ValueError("Canonical Grok manifest attempts are malformed")
+    if not isinstance(manifest.get("cache_contract_versions"), dict) or not manifest["cache_contract_versions"]:
+        raise ValueError("Canonical Grok manifest cache contract versions are missing")
+    created_at = _parse_exact_utc(manifest.get("createdAt"), "manifest freshness timestamp")
+    decision_created_at = _parse_exact_utc(decision.get("created_at"), "decision timestamp")
+    if created_at != decision_created_at:
+        raise ValueError("Canonical Grok manifest and decision freshness timestamps drift")
+    ttl_seconds = 2 * 60 * 60 if action == "verify" else 30 * 60 if mode == "incident" else 72 * 60 * 60 if mode == "contract" else 7 * 24 * 60 * 60
+    age_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
+    if age_seconds < -5 * 60 or age_seconds > ttl_seconds:
+        raise ValueError("Canonical Grok evidence is stale or outside its freshness window")
     artifact_path = validated["artifact_path"]
     manifest_path = validated["manifest_path"]
     bundle_mismatch = (
@@ -367,6 +465,11 @@ def validate_required_external_intelligence(
     expected_pointer = {
         "requirement": "required",
         "status": decision.get("status"),
+        "action": action,
+        "investigation_mode": mode,
+        "depth": depth,
+        "package_status": decision.get("package_status"),
+        "verification_outcome": decision.get("verification_outcome"),
         "evidence_id": evidence_id,
         "manifest_file": str(item.get("manifestFile") or ""),
         "manifest_sha256": validated["manifest_sha256"],
@@ -381,6 +484,50 @@ def validate_required_external_intelligence(
         raise ValueError("Canonical Grok evidence item ID does not bind the active manifest evidenceId")
 
     evidence_payload = artifact.get("evidence") or {}
+    if evidence_payload.get("action") != action or evidence_payload.get("investigation_mode") != mode or evidence_payload.get("depth") != depth:
+        raise ValueError("Canonical Grok evidence action, mode, or depth provenance drift")
+    if evidence_payload.get("effective_x_policy") != manifest.get("effective_x_policy"):
+        raise ValueError("Canonical Grok evidence X policy provenance drift")
+    if (evidence_payload.get("model") or {}).get("actual") != manifest.get("model"):
+        raise ValueError("Canonical Grok evidence model provenance drift")
+    manifest_bindings = _validate_grok_bindings(task_project_root(task_dir), manifest.get("bindings"))
+    if expected_action == "verify" and not any(
+        binding.get("kind") == "diff" and isinstance(binding.get("bytes"), int) and binding["bytes"] > 0
+        for binding in manifest_bindings
+    ):
+        raise ValueError("Canonical Grok verification evidence must bind a non-empty current diff")
+    if evidence_payload.get("bindings") != manifest_bindings:
+        raise ValueError("Canonical Grok evidence binding metadata drift")
+    registry_sources = {
+        str(source.get("id") or ""): source
+        for source in list((evidence_payload.get("registry") or {}).get("sources") or [])
+        if isinstance(source, dict)
+    }
+    qualifying_claim_ids: list[str] = []
+    all_claims_fully_verified = True
+    for claim in list(evidence_payload.get("claims") or []):
+        if not isinstance(claim, dict):
+            all_claims_fully_verified = False
+            continue
+        status = str(claim.get("status") or "")
+        reputable = any(
+            str(registry_sources.get(str(source_id), {}).get("source_tier") or "") in {"A", "B"}
+            for source_id in list(claim.get("source_ids") or [])
+        )
+        applicable = claim.get("observed_applicability") is True or bool(concise_string_list(claim.get("applies_to")))
+        qualifies = status in {"verified", "partially_verified"} and reputable and applicable
+        if qualifies:
+            qualifying_claim_ids.append(str(claim.get("id") or ""))
+        if status != "verified" or not qualifies:
+            all_claims_fully_verified = False
+    recomputed_outcome = "verified" if qualifying_claim_ids and all_claims_fully_verified else "partially_verified" if qualifying_claim_ids else "contradicted" if any(isinstance(claim, dict) and claim.get("status") == "contradicted" for claim in list(evidence_payload.get("claims") or [])) else "unresolved"
+    if decision.get("status") == "valid":
+        if decision.get("package_status") != "valid":
+            raise ValueError("Canonical Grok evidence package status is not valid")
+        if recomputed_outcome not in {"verified", "partially_verified"} or not qualifying_claim_ids:
+            raise ValueError("Canonical Grok evidence has no qualifying verification outcome")
+        if decision.get("verification_outcome") != recomputed_outcome:
+            raise ValueError("Canonical Grok verification outcome does not match independently evaluated claims")
     claims = []
     for claim in list(evidence_payload.get("claims") or [])[:12]:
         if not isinstance(claim, dict):
@@ -423,6 +570,10 @@ def validate_required_external_intelligence(
         "role": EXTERNAL_INTELLIGENCE_ROLE,
         "evidence_id": evidence_id,
         "mode": mode,
+        "action": action,
+        "depth": depth,
+        "package_status": decision.get("package_status"),
+        "verification_outcome": decision.get("verification_outcome"),
         "requirement": "required",
         "status": decision.get("status"),
         "summary": concise_text(item.get("summary") or "Validated current external intelligence evidence.", 2000),
@@ -1692,6 +1843,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--require-routing-evidence", action="store_true")
     parser.add_argument("--require-claude-evidence", action="store_true")
     parser.add_argument("--require-external-intelligence", action="store_true")
+    parser.add_argument("--expected-intelligence-mode", choices=["discover", "contract", "incident", "landscape"], default="")
+    parser.add_argument("--expected-intelligence-depth", choices=["normal", "deep"], default="")
     parser.add_argument("--repo-url", default="")
     parser.add_argument("--wait-response", action="store_true")
     parser.add_argument("--hold-seconds", type=int, default=0)
@@ -1850,9 +2003,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.require_external_intelligence:
             if task_dir is None:
                 raise ValueError("Required Grok external intelligence needs an active CCG task directory.")
+            if not args.expected_intelligence_mode or not args.expected_intelligence_depth:
+                raise ValueError("Required Grok external intelligence needs explicit expected mode and depth.")
             external_intelligence = validate_required_external_intelligence(
                 task_dir=task_dir,
                 evidence_file=evidence_file,
+                expected_action="verify" if args.mode == "review" else "intel",
+                expected_mode=args.expected_intelligence_mode,
+                expected_depth=args.expected_intelligence_depth,
             )
         project_context = detect_project_context(args.workdir, args.repo_url)
         session = create_session(

@@ -10,8 +10,9 @@ import { createCacheFingerprint, readCacheEntry, removeCacheEntry, withCacheLock
 import { createIntelligenceDecision } from './lib/router.mjs'
 import { getDefaultGrokIntelligencePaths, runIsolatedGrokDiagnostics } from './manage.mjs'
 import { runBoundedProcess } from './lib/process.mjs'
-import { runGrokIntelligence } from './runner.mjs'
+import { GROK_PROMPT_TEMPLATE_VERSION, runGrokIntelligence } from './runner.mjs'
 import { assertExistingPathWithoutLinks } from './lib/path-safety.mjs'
+import { resolveEffectiveXPolicy, validateEvidencePackage } from './lib/validator.mjs'
 
 const HELP = `CCG Grok external intelligence runner
 
@@ -20,7 +21,8 @@ Usage:
                     [--depth normal|deep] [--file <relative-path>]...
                     [--official-domain <domain>]...
                     [--force-refresh] [--export <directory>]
-  command.mjs verify --task <text> [--plan <file>] --diff <file>
+  command.mjs verify --task <text> [--mode discover|contract|incident|landscape]
+                     [--depth normal|deep] [--plan <file>] --diff <file>
                      [--allow-empty-diff] [--dependency <file>]... [--force-refresh]
 
 Exit codes: 0 valid/skip, 2 required evidence unavailable, 3 unsafe context,
@@ -29,7 +31,7 @@ Exit codes: 0 valid/skip, 2 required evidence unavailable, 3 unsafe context,
 const CACHE_VERSION = Object.freeze({
   runnerVersion: '2',
   wrapperProtocolVersion: 'acp-jsonrpc-1',
-  promptTemplateSha256: createHash('sha256').update('ccg-grok-intelligence-prompt-v2-claims').digest('hex'),
+  promptTemplateSha256: createHash('sha256').update(GROK_PROMPT_TEMPLATE_VERSION).digest('hex'),
   evidenceSchemaVersion: '2',
   routerPolicyVersion: '1',
   sourceTierPolicyVersion: '1',
@@ -95,6 +97,8 @@ export function parseIntelligenceToml(content) {
     if (Object.prototype.hasOwnProperty.call(config, key) && typeof config[key] !== 'boolean')
       throw new Error(`intelligence.${key} must be boolean`)
   }
+  if (config.cleanup_credential_artifacts === false)
+    throw new Error('intelligence.cleanup_credential_artifacts is a mandatory security invariant and must remain true')
   if (config.auth_mode != null && !['browser_oauth', 'api_key'].includes(config.auth_mode))
     throw new Error('intelligence.auth_mode must be browser_oauth or api_key')
   if (config.x_search_policy != null && !['required', 'preferred', 'disabled'].includes(config.x_search_policy))
@@ -323,6 +327,36 @@ async function cachedArtifactsMatch(repoRoot, artifactRoot, result) {
         || manifest.files[name]?.bytes !== bytes.length)
         return false
     }
+    const payload = evidence?.evidence
+    const decision = evidence?.decision
+    const expectedMode = result.investigation_mode || result.mode
+    if (decision?.action !== result.action
+      || decision?.investigation_mode !== expectedMode
+      || decision?.mode !== expectedMode
+      || decision?.depth !== result.depth
+      || decision?.package_status !== result.package_status
+      || decision?.verification_outcome !== result.verification_outcome
+      || manifest.action !== result.action
+      || manifest.investigation_mode !== expectedMode
+      || manifest.depth !== result.depth
+      || manifest.package_status !== result.package_status
+      || manifest.verification_outcome !== result.verification_outcome
+      || manifest.validation_outcome !== result.verification_outcome)
+      return false
+    const validation = validateEvidencePackage({
+      normalized: payload?.normalized,
+      registry: payload?.registry,
+      claims: payload?.claims,
+      requireWebSearch: manifest.search_counts?.web > 0,
+      xSearchPolicy: manifest.effective_x_policy || 'preferred',
+      mode: expectedMode,
+      requireClaims: true,
+    })
+    if (!validation.valid
+      || validation.package_status !== result.package_status
+      || validation.verification_outcome !== result.verification_outcome
+      || (result.action === 'verify' && validation.qualifying_claims.length === 0))
+      return false
   }
   catch {
     return false
@@ -330,7 +364,7 @@ async function cachedArtifactsMatch(repoRoot, artifactRoot, result) {
   return true
 }
 
-async function exportCachedResult({ repoRoot, options, result }) {
+async function exportCachedResult({ repoRoot, options, result, config }) {
   if (!options.export)
     return result
   const manifestPath = resolve(repoRoot, result.manifestPath)
@@ -340,6 +374,8 @@ async function exportCachedResult({ repoRoot, options, result }) {
     exportRoot: resolve(options.export),
     evidenceId,
     secrets: [process.env.XAI_API_KEY],
+    maxBytes: config.max_bundle_bytes || 16 * 1024 * 1024,
+    retentionDays: config.exported_retention_days || 30,
   })
   return { ...result, exported }
 }
@@ -350,7 +386,7 @@ export async function runManualCommand(action, options, runtime = {}) {
   const repoRoot = await realpath(resolve(runtime.repoRoot || process.cwd()))
   const configPath = resolve(options.config || runtime.configPath || resolve(homedir(), '.claude', '.ccg', 'config.toml'))
   const config = parseIntelligenceToml(await readFile(configPath, 'utf8'))
-  const mode = action === 'verify' ? 'contract' : (options.mode || 'discover')
+  const mode = options.mode || (action === 'verify' ? 'contract' : 'discover')
   if (!['discover', 'contract', 'incident', 'landscape'].includes(mode)) throw new Error(`Unsupported mode: ${mode}`)
   const depth = options.depth || 'normal'
   if (!['normal', 'deep'].includes(depth)) throw new Error(`Unsupported depth: ${depth}`)
@@ -401,14 +437,16 @@ export async function runManualCommand(action, options, runtime = {}) {
   const gitState = await (runtime.gitState || defaultGitState)(repoRoot, files)
   if (typeof gitState?.head !== 'string' || !gitState.head || typeof gitState?.dirtyDigest !== 'string' || !gitState.dirtyDigest)
     throw new Error('Manual cache requires a valid repository state digest')
-  const effectiveMode = depth === 'deep' ? 'deep' : mode
+  const effectiveXPolicy = resolveEffectiveXPolicy(config.x_search_policy || 'preferred', mode)
   const fingerprint = createCacheFingerprint({
     task,
-    mode: effectiveMode,
+    mode,
     searchPolicy: {
       action,
+      depth,
       require_web_search: config.require_web_search !== false,
       x_search_policy: config.x_search_policy || 'preferred',
+      effective_x_policy: effectiveXPolicy,
     },
     model: selectedModel,
     gitHead: gitState.head,
@@ -430,22 +468,24 @@ export async function runManualCommand(action, options, runtime = {}) {
       cacheRoot,
       fingerprint: fingerprint.key,
       now,
-      ttlMs: ttlFor(action, effectiveMode),
+      ttlMs: ttlFor(action, mode),
       forceRefresh: options.forceRefresh === true,
     })
     if (cached.hit && await cachedArtifactsMatch(repoRoot, artifactRoot, cached.entry.result)) {
       const hit = { ...cached.entry.result, cache: { hit: true, reason: cached.reason, fingerprint: fingerprint.key } }
-      return exportCachedResult({ repoRoot, options, result: hit })
+      return exportCachedResult({ repoRoot, options, result: hit, config })
     }
     if (cached.hit)
       cached = { hit: false, reason: 'artifact_mismatch' }
     const cacheState = { hit: false, reason: cached.reason, fingerprint: fingerprint.key }
     const result = await (runtime.runner || runGrokIntelligence)({
+      action,
       requirement,
       consent: true,
       config,
       task,
-      mode: effectiveMode,
+      mode,
+      depth,
       repoRoot,
       selectedPaths: files,
       dirtyDiffs: [],
@@ -459,23 +499,57 @@ export async function runManualCommand(action, options, runtime = {}) {
       prefixArgs: runtime.prefixArgs,
       runDiagnostics: async () => diagnostics,
     })
+    const runnerPackageStatus = result.evidence?.validation?.package_status
+    const runnerVerificationOutcome = result.evidence?.validation?.verification_outcome
+    const runnerQualifyingClaims = result.evidence?.validation?.qualifying_claims
+    if (result.exitCode === 0 && result.status === 'valid' && action === 'verify'
+      && (runnerPackageStatus !== 'valid'
+        || !['verified', 'partially_verified'].includes(runnerVerificationOutcome)
+        || !Array.isArray(runnerQualifyingClaims) || runnerQualifyingClaims.length === 0)) {
+      return {
+        ...result,
+        exitCode: 2,
+        status: 'verification_unresolved',
+        reason: `Required verification outcome is ${runnerVerificationOutcome || 'unresolved'}`,
+        requirement,
+        action,
+        investigation_mode: mode,
+        mode,
+        depth,
+        package_status: runnerPackageStatus || 'invalid',
+        verification_outcome: runnerVerificationOutcome || 'unresolved',
+        effective_x_policy: effectiveXPolicy,
+        bindings,
+        cache: cacheState,
+      }
+    }
     if (result.exitCode !== 0 || result.status !== 'valid')
       return { ...result, requirement, mode, depth, bindings, cache: cacheState }
     if (result.evidence?.model?.actual != null && result.evidence.model.actual !== selectedModel)
       throw new Error('Grok runner model provenance does not match the selected model')
-    const modelProvenance = {
+    const modelProvenance = result.evidence?.model || {
       requested: selectedModel,
       actual: selectedModel,
-      provenance: 'grok agent --model',
+      provenance: 'runtime-provided model binding',
+      usage_models: [],
     }
 
     const createdAt = (runtime.clock ? runtime.clock() : new Date()).toISOString()
     const evidenceId = `${createdAt.replace(/[-:.TZ]/g, '').slice(0, 14)}-${createHash('sha256').update(`${task}\n${createdAt}`).digest('hex').slice(0, 12)}`
+    const packageStatus = result.evidence?.validation?.package_status || 'valid'
+    const verificationOutcome = result.evidence?.validation?.verification_outcome || 'unresolved'
     const decision = createIntelligenceDecision({
       requirement,
       status: 'valid',
-      mode: effectiveMode,
-      reason: action === 'verify' ? 'External facts verified against bound input digests' : 'External intelligence collected',
+      action,
+      investigation_mode: mode,
+      mode,
+      depth,
+      package_status: packageStatus,
+      verification_outcome: verificationOutcome,
+      reason: action === 'verify'
+        ? `External verification completed with outcome ${verificationOutcome}`
+        : `External intelligence collected with outcome ${verificationOutcome}`,
       created_at: createdAt,
       ...(depth === 'deep' ? { deepVisibility: {
         evidence_visibility: 'leader_only', observed_web_search_events: countSearches(result, 'web_search'),
@@ -487,12 +561,44 @@ export async function runManualCommand(action, options, runtime = {}) {
       artifactRoot,
       evidenceId,
       decision,
-      evidence: { ...result.evidence, model: modelProvenance, bindings, action, force_refresh: options.forceRefresh === true, cache: cacheState },
+      evidence: {
+        ...result.evidence,
+        model: modelProvenance,
+        bindings,
+        action,
+        investigation_mode: mode,
+        depth,
+        effective_x_policy: effectiveXPolicy,
+        force_refresh: options.forceRefresh === true,
+        cache: cacheState,
+      },
       report: reportFor(result, options.task.trim(), bindings),
       rawEvents: result.raw?.notifications || [],
       secrets: [apiKey],
       clock: () => new Date(createdAt),
       model: selectedModel,
+      retentionDays: config.retention_days || 7,
+      maxBytes: config.max_bundle_bytes || 16 * 1024 * 1024,
+      provenance: {
+        action,
+        investigation_mode: mode,
+        depth,
+        requirement,
+        effective_x_policy: effectiveXPolicy,
+        cli_version: diagnostics.version.trim(),
+        prompt_sha256: CACHE_VERSION.promptTemplateSha256,
+        git_head: gitState.head,
+        dirty_digest: gitState.dirtyDigest,
+        bindings,
+        official_domains: officialDomains,
+        search_counts: { web: countSearches(result, 'web_search'), x: countSearches(result, 'x_search') },
+        attempts: result.attempts || 1,
+        package_status: packageStatus,
+        validation_outcome: verificationOutcome,
+        verification_outcome: verificationOutcome,
+        cache_fingerprint: fingerprint.key,
+        cache_contract_versions: CACHE_VERSION,
+      },
     })
     let exported = null
     if (options.export) {
@@ -501,10 +607,14 @@ export async function runManualCommand(action, options, runtime = {}) {
         exportRoot: resolve(options.export),
         evidenceId,
         secrets: [apiKey],
+        maxBytes: config.max_bundle_bytes || 16 * 1024 * 1024,
+        retentionDays: config.exported_retention_days || 30,
       })
     }
     const commandResult = {
-      exitCode: 0, status: 'valid', requirement, mode, depth, model: selectedModel, bindings,
+      exitCode: 0, status: 'valid', requirement, action, investigation_mode: mode, mode, depth,
+      package_status: packageStatus, verification_outcome: verificationOutcome,
+      effective_x_policy: effectiveXPolicy, model: selectedModel, bindings,
       webSearches: countSearches(result, 'web_search'), xSearches: countSearches(result, 'x_search'),
       evidencePath: bundle.artifactRelativePath, evidenceSha256: bundle.artifactSha256,
       manifestPath: bundle.manifestRelativePath, manifestSha256: bundle.manifestSha256,
@@ -519,8 +629,12 @@ export async function runManualCommand(action, options, runtime = {}) {
         fingerprint: fingerprint.key,
         created_at: createdAt,
         status: 'valid',
+        requirement,
+        action,
         degraded: false,
         failed: false,
+        package_status: packageStatus,
+        verification_outcome: verificationOutcome,
         evidence: { claims: result.evidence?.claims || [] },
         result: { ...commandResult, exported: null },
       },

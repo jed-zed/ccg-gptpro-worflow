@@ -33,10 +33,16 @@ export interface DoctorOptions {
   grokCleanup?: boolean
 }
 
-export function buildGrokDoctorArguments(options: DoctorOptions): string[] {
+export function buildGrokDoctorArguments(options: DoctorOptions, intelligence?: Partial<NonNullable<Awaited<ReturnType<typeof readCcgConfig>>>['intelligence']>): string[] {
   const args = ['doctor', '--json']
   if (options.grokLive) args.push('--live')
   if (options.grokCleanup) args.push('--cleanup')
+  if (intelligence?.artifact_root)
+    args.push('--artifact-root', intelligence.artifact_root)
+  if (intelligence?.retention_days != null)
+    args.push('--retention-days', String(intelligence.retention_days))
+  if (intelligence?.max_bundle_bytes != null)
+    args.push('--max-bundle-bytes', String(intelligence.max_bundle_bytes))
   return args
 }
 
@@ -224,7 +230,7 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
       })
     }
     const manager = await grokManagerPath()
-    const execution = execFileCaptured(process.execPath, [manager, ...buildGrokDoctorArguments(options)], getGrokDoctorTimeout(options))
+    const execution = execFileCaptured(process.execPath, [manager, ...buildGrokDoctorArguments(options, config?.intelligence)], getGrokDoctorTimeout(options))
     let result: any = null
     try {
       result = execution.stdout ? JSON.parse(execution.stdout) : null

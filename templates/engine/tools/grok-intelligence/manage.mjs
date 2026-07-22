@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { access, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, resolve, win32 } from 'node:path'
+import { isAbsolute, relative, resolve, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { clearCredentialHomeVolatileState, createGrokAcpClient, withCredentialHomeLease, withCredentialHomeVolatileSnapshot } from './lib/acp-client.mjs'
 import { cleanupIntelligenceArtifacts } from './lib/artifacts.mjs'
@@ -22,6 +22,8 @@ Usage:
   manage.mjs status [--json]    Show dedicated-home login status
   manage.mjs logout             Sign out of the dedicated Grok home
   manage.mjs doctor [--json] [--live] [--cleanup]
+                    [--artifact-root <relative-path>] [--retention-days <days>]
+                    [--max-bundle-bytes <bytes>]
 
 The default doctor is local-only and never sends a model prompt. --live is an
 explicit paid Web/X smoke check. Credentials are never printed or copied.`
@@ -129,8 +131,11 @@ async function logout(command = 'grok') {
   process.stdout.write('Grok dedicated-home logout complete.\n')
 }
 
-async function inventoryRetention(projectRoot, paths) {
-  const artifactRoot = resolve(projectRoot, '.codex', 'ccg', 'intelligence')
+async function inventoryRetention(projectRoot, paths, { artifactRoot: requestedArtifactRoot = '.codex/ccg/intelligence', retentionDays = 7, maxBundleBytes = 16 * 1024 * 1024 } = {}) {
+  const artifactRoot = resolve(projectRoot, requestedArtifactRoot)
+  const artifactRelative = relative(resolve(projectRoot), artifactRoot)
+  if (!artifactRelative || artifactRelative.startsWith('..') || isAbsolute(artifactRelative))
+    throw new Error('Doctor artifact root must remain inside the project root')
   const result = { artifactRoot, bundles: 0, expiredBundles: 0, oversizedBundles: 0, invalidCanonicalPointers: 0, orphanPrivateRoots: 0, activeEvidenceIds: [] }
   const tasksRoot = resolve(projectRoot, '.ccg', 'tasks')
   if (await pathExists(tasksRoot)) {
@@ -163,7 +168,7 @@ async function inventoryRetention(projectRoot, paths) {
       try {
         const manifest = JSON.parse(await readFile(resolve(artifactRoot, entry.name, 'manifest.json'), 'utf8'))
         const created = new Date(manifest.createdAt)
-        if (Number.isFinite(created.getTime()) && Date.now() - created.getTime() > 7 * 24 * 60 * 60 * 1000)
+        if (Number.isFinite(created.getTime()) && Date.now() - created.getTime() > retentionDays * 24 * 60 * 60 * 1000)
           result.expiredBundles++
       }
       catch {}
@@ -171,7 +176,7 @@ async function inventoryRetention(projectRoot, paths) {
       for (const file of await readdir(resolve(artifactRoot, entry.name), { withFileTypes: true })) {
         if (file.isFile()) total += (await stat(resolve(artifactRoot, entry.name, file.name))).size
       }
-      if (total > 16 * 1024 * 1024) result.oversizedBundles++
+      if (total > maxBundleBytes) result.oversizedBundles++
     }
   }
   if (await pathExists(paths.tempParent)) {
@@ -190,6 +195,7 @@ export async function runIsolatedGrokDiagnostics({
   createRoots = createPrivateRunRoots,
   runProcess = runBoundedProcess,
   runDiagnostics = runGrokDiagnostics,
+  credentialLeaseHeld = false,
 } = {}) {
   if (!paths?.tempParent || !paths?.grokHome)
     throw new Error('Isolated Grok diagnostics require dedicated paths')
@@ -201,7 +207,7 @@ export async function runIsolatedGrokDiagnostics({
       grokHome: roots.grokHome,
       apiKey: authentication?.authMode === 'api_key' ? authentication.apiKey : undefined,
     })
-    return await withCredentialHomeLease(roots.grokHome, () => withCredentialHomeVolatileSnapshot(roots.grokHome, async () => {
+    const action = () => withCredentialHomeVolatileSnapshot(roots.grokHome, async () => {
       const help = await runProcess(command, [...prefixArgs, '--no-auto-update', '--help'], {
         cwd: roots.neutralHome,
         env,
@@ -216,7 +222,10 @@ export async function runIsolatedGrokDiagnostics({
         runProcess,
       })
       return { help, diagnostics }
-    }, { validateDirectory: async path => path }), { validateDirectory: async path => path })
+    }, { validateDirectory: async path => path })
+    return await (credentialLeaseHeld
+      ? action()
+      : withCredentialHomeLease(roots.grokHome, action, { validateDirectory: async path => path }))
   }
   finally {
     await roots.cleanup()
@@ -243,85 +252,101 @@ async function localDoctor(options = {}) {
       throw new Error(`Dedicated Grok path is missing: ${path}`)
   }
   const clearCredentialState = options.clearCredentialState || clearCredentialHomeVolatileState
-  await clearCredentialState(paths.grokHome)
-  try {
-    const diagnosticProbe = await (options.runIsolatedDiagnostics || runIsolatedGrokDiagnostics)({
-      paths,
-      authentication,
-      command,
-      prefixArgs,
-      sourceEnv,
-    })
-    const diagnostics = diagnosticProbe.diagnostics
-    const createPrivateRoots = options.createPrivateRoots || createPrivateRunRoots
-    const createAcpClient = options.createAcpClient || createGrokAcpClient
-    const roots = await createPrivateRoots({ parent: paths.tempParent, grokHome: paths.grokHome })
-    let handshake
+  const withCredentialLease = options.withCredentialLease || withCredentialHomeLease
+  return withCredentialLease(paths.grokHome, async () => {
+    await clearCredentialState(paths.grokHome)
     try {
-      handshake = await createAcpClient({ command, prefixArgs }).run({
-        handshakeOnly: true,
-        cwd: roots.snapshotRoot,
-        allowedCwdRoots: [roots.snapshotRoot],
-        neutralHome: roots.neutralHome,
-        grokHome: roots.grokHome,
-        rawEventsDir: roots.rawEventsDir,
-        rawEventsMaxBytes: 1024 * 1024,
-        rawEventsMaxEvents: 2000,
-        timeoutMs: LOCAL_DOCTOR_ACP_TIMEOUT_MS,
-        maxTurns: 6,
-        authMode: authentication.authMode,
-        apiKey: authentication.apiKey,
+      const diagnosticProbe = await (options.runIsolatedDiagnostics || runIsolatedGrokDiagnostics)({
+        paths,
+        authentication,
+        command,
+        prefixArgs,
         sourceEnv,
+        credentialLeaseHeld: true,
       })
+      const diagnostics = diagnosticProbe.diagnostics
+      const createPrivateRoots = options.createPrivateRoots || createPrivateRunRoots
+      const createAcpClient = options.createAcpClient || createGrokAcpClient
+      const roots = await createPrivateRoots({ parent: paths.tempParent, grokHome: paths.grokHome })
+      let handshake
+      try {
+        handshake = await createAcpClient({ command, prefixArgs }).run({
+          handshakeOnly: true,
+          cwd: roots.snapshotRoot,
+          allowedCwdRoots: [roots.snapshotRoot],
+          neutralHome: roots.neutralHome,
+          grokHome: roots.grokHome,
+          rawEventsDir: roots.rawEventsDir,
+          rawEventsMaxBytes: 1024 * 1024,
+          rawEventsMaxEvents: 2000,
+          timeoutMs: LOCAL_DOCTOR_ACP_TIMEOUT_MS,
+          maxTurns: 6,
+          authMode: authentication.authMode,
+          apiKey: authentication.apiKey,
+          sourceEnv,
+          credentialLeaseHeld: true,
+        })
+      }
+      finally {
+        await roots.cleanup()
+      }
+      const retentionDays = options.retentionDays || 7
+      const retention = await inventoryRetention(projectRoot, paths, {
+        artifactRoot: options.artifactRoot,
+        retentionDays,
+        maxBundleBytes: options.maxBundleBytes || 16 * 1024 * 1024,
+      })
+      let cleanupResult = null
+      if (cleanup && await pathExists(retention.artifactRoot)) {
+        cleanupResult = await cleanupIntelligenceArtifacts({
+          artifactRoot: retention.artifactRoot,
+          tempParent: paths.tempParent,
+          activeEvidenceIds: retention.activeEvidenceIds,
+          activePrivateRoots: [],
+          retentionDays,
+        })
+      }
+      return {
+        ok: true,
+        paidModelPromptSent: false,
+        status,
+        version: diagnostics.version,
+        models: diagnostics.models,
+        compatibilitySafe: diagnostics.safe,
+        authMethod: handshake.authMethod,
+        mcpServersEmpty: handshake.mcpPreflight.serversEmpty,
+        mcpToolCount: handshake.mcpPreflight.toolCount,
+        retention,
+        cleanup: cleanupResult,
+      }
     }
     finally {
-      await roots.cleanup()
+      await clearCredentialState(paths.grokHome)
     }
-    const retention = await inventoryRetention(projectRoot, paths)
-    let cleanupResult = null
-    if (cleanup && await pathExists(retention.artifactRoot)) {
-      cleanupResult = await cleanupIntelligenceArtifacts({
-        artifactRoot: retention.artifactRoot,
-        tempParent: paths.tempParent,
-        activeEvidenceIds: retention.activeEvidenceIds,
-        activePrivateRoots: [],
-      })
-    }
-    return {
-      ok: true,
-      paidModelPromptSent: false,
-      status,
-      version: diagnostics.version,
-      models: diagnostics.models,
-      compatibilitySafe: diagnostics.safe,
-      authMethod: handshake.authMethod,
-      mcpServersEmpty: handshake.mcpPreflight.serversEmpty,
-      mcpToolCount: handshake.mcpPreflight.toolCount,
-      retention,
-      cleanup: cleanupResult,
-    }
-  }
-  finally {
-    await clearCredentialState(paths.grokHome)
-  }
+  }, { validateDirectory: async path => path })
 }
 
 async function liveDoctor(options = {}) {
-  const local = await localDoctor(options)
+  const runLocalDoctor = options.runLocalDoctor || localDoctor
+  const runner = options.runner || runGrokIntelligence
+  const secureDirectory = options.secureDirectory || securePrivateDirectory
+  const local = await runLocalDoctor(options)
   const sourceEnv = options.sourceEnv || process.env
-  const paths = getDefaultGrokIntelligencePaths({ env: sourceEnv })
+  const paths = options.paths || getDefaultGrokIntelligencePaths({ env: sourceEnv })
   const authentication = resolveDoctorAuthentication({ env: sourceEnv, loggedIn: local.status.loggedIn })
   const probeRoot = resolve(paths.root, `live-probe-${process.pid}`)
-  await securePrivateDirectory(probeRoot)
+  await secureDirectory(probeRoot)
   await writeFile(resolve(probeRoot, 'probe.txt'), 'CCG bounded Grok Web and X live evidence smoke test.\n', { flag: 'wx', mode: 0o400 })
   let live
   try {
-    live = await runGrokIntelligence({
+    live = await runner({
+      action: 'verify',
       requirement: 'required',
       consent: true,
       config: {
         enabled: true,
         auth_mode: authentication.authMode,
+        default_model: 'grok-4.5',
         require_web_search: true,
         x_search_policy: 'required',
         max_retries: 0,
@@ -329,9 +354,12 @@ async function liveDoctor(options = {}) {
       },
       task: 'Perform two bounded current-source checks: one official Web query for the Grok Build CLI documentation and one domain-restricted X query for the official xAI account. Return only source-backed evidence.',
       mode: 'incident',
+      depth: 'normal',
       repoRoot: probeRoot,
       selectedPaths: ['probe.txt'],
       dirtyDiffs: [],
+      officialDomains: ['x.ai'],
+      officialXAccounts: ['xai'],
       tempParent: paths.tempParent,
       grokHome: paths.grokHome,
       sourceEnv,
@@ -345,11 +373,22 @@ async function liveDoctor(options = {}) {
   if (live.exitCode !== 0 || live.status !== 'valid')
     throw new Error(`Paid Grok Web/X smoke failed: ${live.status || 'unknown'} (${live.reason || 'no reason'})`)
   const searches = live.evidence?.normalized?.searches || []
+  const validation = live.evidence?.validation || {}
+  const model = live.evidence?.model || {}
   return {
     ...local,
     paidModelPromptSent: true,
     live: {
       status: live.status,
+      action: 'verify',
+      investigationMode: 'incident',
+      depth: 'normal',
+      packageStatus: validation.package_status,
+      verificationOutcome: validation.verification_outcome,
+      requestedModel: model.requested,
+      actualModel: model.actual,
+      claimCount: Array.isArray(live.evidence?.claims) ? live.evidence.claims.length : 0,
+      qualifyingClaimCount: Array.isArray(validation.qualifying_claims) ? validation.qualifying_claims.length : 0,
       webSearches: searches.filter(search => search.tool === 'web_search' && search.status === 'completed').length,
       xSearches: searches.filter(search => search.tool === 'x_search' && search.status === 'completed').length,
     },
@@ -371,10 +410,28 @@ async function main(argv = process.argv.slice(2)) {
     return
   }
   if (action === 'doctor') {
+    const valueAfter = flag => argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined
+    const integerFlag = (flag, fallback) => {
+      const value = valueAfter(flag)
+      if (value == null) return fallback
+      const parsed = Number(value)
+      if (!Number.isInteger(parsed) || parsed < 1)
+        throw new Error(`${flag} must be a positive integer`)
+      return parsed
+    }
+    const doctorOptions = {
+      cleanup: argv.includes('--cleanup'),
+      artifactRoot: valueAfter('--artifact-root'),
+      retentionDays: integerFlag('--retention-days', 7),
+      maxBundleBytes: integerFlag('--max-bundle-bytes', 16 * 1024 * 1024),
+    }
     const result = argv.includes('--live')
-      ? await liveDoctor({ cleanup: argv.includes('--cleanup') })
-      : await localDoctor({ cleanup: argv.includes('--cleanup') })
-    process.stdout.write(json ? `${JSON.stringify(result)}\n` : `Grok local doctor passed (${result.version}); no model prompt was sent.\n`)
+      ? await liveDoctor(doctorOptions)
+      : await localDoctor(doctorOptions)
+    const message = argv.includes('--live')
+      ? `Grok paid Web/X doctor passed (${result.live.actualModel}); verification=${result.live.verificationOutcome}.`
+      : `Grok local doctor passed (${result.version}); no model prompt was sent.`
+    process.stdout.write(json ? `${JSON.stringify(result)}\n` : `${message}\n`)
     return
   }
   throw new Error(`Unknown Grok management action: ${action}`)

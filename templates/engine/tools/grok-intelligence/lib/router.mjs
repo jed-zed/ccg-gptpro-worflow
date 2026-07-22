@@ -1,6 +1,10 @@
 const REQUIREMENTS = new Set(['required', 'preferred', 'disabled'])
 const STATUSES = new Set(['valid', 'skipped', 'waived'])
-const MODES = new Set(['discover', 'contract', 'incident', 'landscape', 'deep'])
+const ACTIONS = new Set(['intel', 'verify'])
+const MODES = new Set(['discover', 'contract', 'incident', 'landscape'])
+const DEPTHS = new Set(['normal', 'deep'])
+const PACKAGE_STATUSES = new Set(['valid', 'invalid', 'not_collected'])
+const VERIFICATION_OUTCOMES = new Set(['verified', 'partially_verified', 'unresolved', 'contradicted', 'not_run'])
 const NORMALIZED_DECISION = Symbol('normalized-intelligence-decision')
 
 function requireString(value, name) {
@@ -42,13 +46,26 @@ export function createIntelligenceDecision(input) {
     throw new Error('Intelligence decision is required')
   const requirement = requireString(input.requirement, 'requirement')
   const status = requireString(input.status, 'status')
-  const mode = requireString(input.mode, 'mode')
+  const action = requireString(input.action || 'intel', 'action')
+  const legacyMode = requireString(input.mode || input.investigation_mode || input.investigationMode, 'mode')
+  const investigationMode = requireString(input.investigation_mode || input.investigationMode || (legacyMode === 'deep' ? 'discover' : legacyMode), 'investigation_mode')
+  const depth = requireString(input.depth || (legacyMode === 'deep' ? 'deep' : 'normal'), 'depth')
+  const packageStatus = requireString(input.package_status || (status === 'valid' ? 'valid' : 'not_collected'), 'package_status')
+  const verificationOutcome = requireString(input.verification_outcome || (status === 'valid' ? 'unresolved' : 'not_run'), 'verification_outcome')
   if (!REQUIREMENTS.has(requirement))
     throw new Error(`Unsupported intelligence requirement: ${requirement}`)
   if (!STATUSES.has(status))
     throw new Error(`Unsupported intelligence status: ${status}`)
-  if (!MODES.has(mode))
-    throw new Error(`Unsupported intelligence mode: ${mode}`)
+  if (!ACTIONS.has(action))
+    throw new Error(`Unsupported intelligence action: ${action}`)
+  if (!MODES.has(investigationMode))
+    throw new Error(`Unsupported intelligence investigation mode: ${investigationMode}`)
+  if (!DEPTHS.has(depth))
+    throw new Error(`Unsupported intelligence depth: ${depth}`)
+  if (!PACKAGE_STATUSES.has(packageStatus))
+    throw new Error(`Unsupported intelligence package status: ${packageStatus}`)
+  if (!VERIFICATION_OUTCOMES.has(verificationOutcome))
+    throw new Error(`Unsupported intelligence verification outcome: ${verificationOutcome}`)
   if (status === 'skipped' && requirement !== 'disabled')
     throw new Error('Only a disabled intelligence route may be skipped')
   if (status === 'valid' && requirement === 'disabled')
@@ -57,7 +74,12 @@ export function createIntelligenceDecision(input) {
   const decision = {
     requirement,
     status,
-    mode,
+    action,
+    investigation_mode: investigationMode,
+    mode: investigationMode,
+    depth,
+    package_status: packageStatus,
+    verification_outcome: verificationOutcome,
     reason: requireString(input.reason, 'reason'),
     created_at: requireTimestamp(input.created_at || new Date().toISOString(), 'created_at'),
   }
@@ -76,6 +98,8 @@ export function createIntelligenceDecision(input) {
     throw new Error('Only waived evidence may carry waiver authorization')
   }
   const visibility = normalizeDeepVisibility(input.deepVisibility)
+  if (visibility && depth !== 'deep')
+    throw new Error('Deep evidence visibility requires depth=deep')
   if (visibility)
     Object.assign(decision, visibility)
   Object.defineProperty(decision, NORMALIZED_DECISION, { value: true })
@@ -102,6 +126,11 @@ export function createCanonicalEvidenceItem({ evidenceId, decision, bundle, summ
     provider: 'grok',
     role: 'external-intelligence',
     policy: normalizedDecision.requirement,
+    action: normalizedDecision.action,
+    investigationMode: normalizedDecision.investigation_mode,
+    depth: normalizedDecision.depth,
+    packageStatus: normalizedDecision.package_status,
+    verificationOutcome: normalizedDecision.verification_outcome,
     available: normalizedDecision.status === 'valid' || normalizedDecision.status === 'waived',
     artifactFile: pointer.artifactRelativePath,
     artifactSha256: pointer.artifactSha256,
@@ -121,6 +150,11 @@ export function createTaskIntelligencePointer({ evidenceId, decision, bundle, ex
   return {
     requirement: normalizedDecision.requirement,
     status: normalizedDecision.status,
+    action: normalizedDecision.action,
+    investigation_mode: normalizedDecision.investigation_mode,
+    depth: normalizedDecision.depth,
+    package_status: normalizedDecision.package_status,
+    verification_outcome: normalizedDecision.verification_outcome,
     evidence_id: id,
     manifest_file: pointer.manifestRelativePath,
     manifest_sha256: pointer.manifestSha256,

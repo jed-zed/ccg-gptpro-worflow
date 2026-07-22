@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -24,18 +24,43 @@ function statePath(repoRoot: string, id: string) {
   return join(repoRoot, '.codex', 'ccg', id, 'status.json')
 }
 
-function validRunnerResult(repoRoot: string, mode = 'contract') {
+function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel', depth = 'normal', effectiveXPolicy = mode === 'incident' ? 'required' : 'preferred', bindings: any[] = [], officialDomains: string[] = []) {
   const evidenceId = `workflow-evidence-${++evidenceCounter}`
   const bundleDir = join(repoRoot, '.codex', 'ccg', 'intelligence', evidenceId)
   fs.ensureDirSync(bundleDir)
   const createdAt = new Date().toISOString()
   const model = 'grok-4.5'
+  const sourceUrl = 'https://docs.x.ai/build/cli/reference'
+  const sourceId = `src-${hash(`web_search\n${sourceUrl}`).slice(0, 16)}`
+  const xSourceUrl = 'https://x.com/xai/status/1'
+  const xSourceId = `src-${hash(`x_search\n${xSourceUrl}`).slice(0, 16)}`
   const artifact = `${JSON.stringify({
     schemaVersion: 2,
-    decision: { requirement: 'required', status: 'valid', mode: mode === 'verify' ? 'contract' : mode, reason: 'Fixture verified.', created_at: createdAt },
+    decision: {
+      requirement: 'required',
+      status: 'valid',
+      action,
+      investigation_mode: mode,
+      mode,
+      depth,
+      package_status: 'valid',
+      verification_outcome: 'verified',
+      reason: 'Fixture verified.',
+      created_at: createdAt,
+    },
     evidence: {
       model: { requested: model, actual: model, provenance: 'grok agent --model' },
-      claims: [{ id: 'unresolved', claim: 'No applicable fixture fact.', status: 'unresolved', source_ids: [] }],
+      action,
+      investigation_mode: mode,
+      depth,
+      effective_x_policy: effectiveXPolicy,
+      bindings,
+      normalized: { searches: [{ tool: 'web_search', status: 'completed' }, { tool: 'x_search', status: 'completed' }] },
+      registry: { sources: [
+        { id: sourceId, tool: 'web_search', observed_tool: 'web_search', canonical_url: sourceUrl, official: true, source_tier: 'A', independence_key: 'x.ai' },
+        { id: xSourceId, tool: 'x_search', observed_tool: 'web_search', canonical_url: xSourceUrl, official: true, source_tier: 'D', independence_key: 'x.com' },
+      ] },
+      claims: [{ id: 'verified', claim: 'Applicable current contract.', status: 'verified', severity: 'info', source_ids: [sourceId], applies_to: ['package.json'] }],
     },
   }, null, 2)}\n`
   const raw = ''
@@ -48,7 +73,34 @@ function validRunnerResult(repoRoot: string, mode = 'contract') {
     'raw-stream.jsonl': { sha256: hash(raw), bytes: Buffer.byteLength(raw) },
     'report.md': { sha256: hash(report), bytes: Buffer.byteLength(report) },
   }
-  const manifest = `${JSON.stringify({ schemaVersion: 1, evidenceId, createdAt, localOnly: true, exported: false, retentionDays: 7, model, files }, null, 2)}\n`
+  const manifest = `${JSON.stringify({
+    schemaVersion: 1,
+    evidenceId,
+    createdAt,
+    localOnly: true,
+    exported: false,
+    retentionDays: 7,
+    model,
+    action,
+    investigation_mode: mode,
+    depth,
+    requirement: 'required',
+    effective_x_policy: effectiveXPolicy,
+    cli_version: 'grok 0.2.106',
+    prompt_sha256: 'a'.repeat(64),
+    git_head: 'unversioned',
+    dirty_digest: 'b'.repeat(64),
+    bindings,
+    official_domains: officialDomains,
+    search_counts: { web: 1, x: 1 },
+    attempts: 1,
+    package_status: 'valid',
+    validation_outcome: 'verified',
+    verification_outcome: 'verified',
+    cache_fingerprint: 'c'.repeat(64),
+    cache_contract_versions: { runnerVersion: '2', evidenceSchemaVersion: '2' },
+    files,
+  }, null, 2)}\n`
   fs.writeFileSync(join(bundleDir, 'manifest.json'), manifest)
   return {
     exitCode: 0,
@@ -59,6 +111,29 @@ function validRunnerResult(repoRoot: string, mode = 'contract') {
     manifestPath: `.codex/ccg/intelligence/${evidenceId}/manifest.json`,
     manifestSha256: hash(manifest),
   }
+}
+
+function validRunnerResultForRequest(repoRoot: string, request: any) {
+  const bindingInputs = [
+    request.options.plan ? ['plan', request.options.plan] : null,
+    request.options.diff ? ['diff', request.options.diff] : null,
+    ...(request.options.dependencies || []).map((path: string) => ['dependency', path]),
+  ].filter(Boolean) as string[][]
+  const bindings = bindingInputs.map(([kind, path]) => {
+    const absolute = resolve(repoRoot, path)
+    const bytes = readFileSync(absolute)
+    return {
+      kind,
+      path: isAbsolute(path) ? relative(repoRoot, absolute).replace(/\\/g, '/') : path.replace(/\\/g, '/'),
+      sha256: hash(bytes),
+      bytes: bytes.length,
+      empty: bytes.length === 0,
+    }
+  })
+  const mode = request.options.mode || 'contract'
+  const configuredX = request.options.config.x_search_policy || 'preferred'
+  const effectiveX = configuredX === 'disabled' ? 'disabled' : configuredX === 'required' || mode === 'incident' ? 'required' : 'preferred'
+  return validRunnerResult(repoRoot, mode, request.action, request.options.depth || 'normal', effectiveX, bindings, request.options.officialDomains || [])
 }
 
 describe('Grok workflow routing behavior', () => {
@@ -109,7 +184,7 @@ describe('Grok workflow routing behavior', () => {
     }
   })
 
-  it('runs one shared Team decision and reuses it for identical teammate context', async () => {
+  it('runs one shared Team decision through the manual cache boundary for each caller', async () => {
     const repoRoot = join(tempRoot, 'team-family')
     await fs.ensureDir(repoRoot)
     await fs.writeJson(join(repoRoot, 'package.json'), { name: 'fixture' })
@@ -127,7 +202,7 @@ describe('Grok workflow routing behavior', () => {
     const runtime = {
       invoke: async (request: any) => {
         invocations.push(request)
-        return validRunnerResult(repoRoot, request.options.mode || 'contract')
+        return validRunnerResultForRequest(repoRoot, request)
       },
       onEvent: (event: string) => events.push(event),
     }
@@ -136,9 +211,9 @@ describe('Grok workflow routing behavior', () => {
     const teammate = await (routeRuntime as any).runWorkflowRoute(input, runtime)
 
     expect(leader).toMatchObject({ invoked: true, reused: false, workflow: 'team', phase: 'team-intake' })
-    expect(teammate).toMatchObject({ invoked: false, reused: true })
-    expect(invocations).toHaveLength(1)
-    expect(events).toEqual(['decision', 'state:pending', 'state:complete', 'decision'])
+    expect(teammate).toMatchObject({ invoked: true, reused: false })
+    expect(invocations).toHaveLength(2)
+    expect(events).toEqual(['decision', 'state:pending', 'state:complete', 'decision', 'state:pending', 'state:complete'])
     expect(await fs.readJson(stateFile)).toMatchObject({ decision: { status: 'valid' }, execution: { invoked: true } })
   })
 
@@ -167,7 +242,7 @@ describe('Grok workflow routing behavior', () => {
       onEvent: (event: string) => order.push(event),
       invoke: async (request: any) => {
         order.push('runner')
-        return validRunnerResult(repoRoot, request.options.mode || 'contract')
+        return validRunnerResultForRequest(repoRoot, request)
       },
     })
 
@@ -193,7 +268,7 @@ describe('Grok workflow routing behavior', () => {
     const invocations: any[] = []
     const runtime = { invoke: async (request: any) => {
       invocations.push(request)
-      return validRunnerResult(repoRoot, request.options.mode || 'contract')
+      return validRunnerResultForRequest(repoRoot, request)
     } }
     const base = {
       repoRoot,
@@ -208,7 +283,7 @@ describe('Grok workflow routing behavior', () => {
     }
 
     expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ invoked: true })
-    expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ reused: true })
+    expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ invoked: true, reused: false })
     await fs.writeFile(proposal, 'proposal-v2')
     expect(await (routeRuntime as any).runWorkflowRoute(base, runtime)).toMatchObject({ invoked: true })
     await fs.writeFile(plan, 'plan-v2')
@@ -228,7 +303,7 @@ describe('Grok workflow routing behavior', () => {
       trigger: 'final_diff_verify',
       diff,
     }, runtime)).toMatchObject({ invoked: true })
-    expect(invocations).toHaveLength(6)
+    expect(invocations).toHaveLength(7)
   })
 
   it('keeps local quality gates offline and invokes external-contract quality checks in order', async () => {
@@ -241,7 +316,7 @@ describe('Grok workflow routing behavior', () => {
     const runtime = {
       invoke: async (request: any) => {
         invocations.push(request)
-        return validRunnerResult(repoRoot, request.options.mode || 'contract')
+        return validRunnerResultForRequest(repoRoot, request)
       },
       onEvent: (event: string) => events.push(event),
     }
@@ -369,7 +444,7 @@ describe('Grok workflow routing behavior', () => {
     }, {
       invoke: async (request: any) => {
         invocations.push(request)
-        return validRunnerResult(tempRoot, request.options.mode || 'contract')
+        return validRunnerResultForRequest(tempRoot, request)
       },
     })
 

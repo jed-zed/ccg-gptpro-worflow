@@ -19,6 +19,10 @@ function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', fina
   return [
     {
       method: 'session/update',
+      params: { update: { sessionUpdate: 'user_message_chunk', content: { text: 'Verify.' }, _meta: { modelId: 'grok-4.5' } } },
+    },
+    {
+      method: 'session/update',
       params: { update: { sessionUpdate: 'tool_call', toolCallId: 'search-1', kind: 'search', rawInput: { variant: 'WebSearch', backend: true } } },
     },
     {
@@ -27,11 +31,11 @@ function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', fina
     },
     {
       method: 'session/update',
-      params: { update: { sessionUpdate: 'agent_message_chunk', content: { text: finalText || `Evidence collected.\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"The current contract is documented by an observed source.","status":"verified","severity":"info","urls":["${url}"]}]}` } } },
+      params: { update: { sessionUpdate: 'agent_message_chunk', content: { text: finalText || `Evidence collected.\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"The current contract is documented by an observed source.","status":"verified","severity":"info","applies_to":["src/feature.ts"],"urls":["${url}"]}]}` } } },
     },
     {
       method: 'session/update',
-      params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn', usage: {} } },
+      params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn', usage: { modelUsage: { 'grok-4.5-build': { modelCalls: 1 } } } } },
     },
   ]
 }
@@ -376,11 +380,39 @@ describe('isolated Grok runner lifecycle', () => {
     expect(seenAcpOptions.prompt).toContain('Native XSearch')
     expect(seenAcpOptions.prompt).toContain('does not count as source-backed evidence')
     expect(result).toMatchObject({ exitCode: 0, status: 'valid' })
+    expect(result.evidence.model).toEqual({
+      requested: 'grok-4.5',
+      actual: 'grok-4.5',
+      provenance: 'ACP session/update user_message_chunk _meta.modelId',
+      usage_models: ['grok-4.5-build'],
+    })
     expect(result.evidence.validation.valid).toBe(true)
     expect(result.evidence.claims).toEqual([expect.objectContaining({ id: 'claim-1', status: 'verified', source_ids: [expect.stringMatching(/^src-/)] })])
     expect(result.evidence.registry.sources[0].canonical_url).toBe('https://docs.x.ai/build/cli/reference')
     expect(JSON.stringify(result.raw)).not.toContain('USER_SECRET')
     await expect(stat(result.runRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('fails a required verify action when the package is valid but all claims remain unresolved', async () => {
+    const unresolvedText = 'No applicable evidence.\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-none","claim":"No applicable fact could be verified.","status":"unresolved","severity":"info","urls":[]}]}'
+    const result = await runGrokIntelligence(baseOptions({
+      action: 'verify',
+      runAcp: async () => ({
+        notifications: searchNotifications(undefined, unresolvedText),
+        mcpPreflight: { serversEmpty: true, toolCount: 0 },
+      }),
+    }))
+    expect(result).toMatchObject({
+      exitCode: 2,
+      status: 'verification_unresolved',
+      evidence: {
+        validation: {
+          package_status: 'valid',
+          verification_outcome: 'unresolved',
+          qualifying_claims: [],
+        },
+      },
+    })
   })
 
   it('retries only transient failures with a fresh ACP call', async () => {
@@ -422,7 +454,11 @@ describe('isolated Grok runner lifecycle', () => {
     expect((await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: noSearch, mcpPreflight: { serversEmpty: true, toolCount: 0 } }) }))).exitCode).toBe(2)
 
     const invented = searchNotifications('https://docs.x.ai/build/cli/reference')
-    const inventedMessage: any = invented[2]
+    const inventedMessage: any = invented.find((message: any) =>
+      message.params?.update?.sessionUpdate === 'agent_message_chunk'
+      && typeof message.params?.update?.content?.text === 'string',
+    )
+    expect(inventedMessage).toBeDefined()
     inventedMessage.params.update.content.text = `Invented https://invented.invalid is not a source.\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"Observed contract","status":"verified","urls":["https://docs.x.ai/build/cli/reference"]}]}`
     const inventedResult = await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: invented, mcpPreflight: { serversEmpty: true, toolCount: 0 } }) }))
     expect(inventedResult.exitCode).toBe(0)

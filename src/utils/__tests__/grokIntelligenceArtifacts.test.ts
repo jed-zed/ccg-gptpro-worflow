@@ -81,6 +81,9 @@ describe('Grok intelligence artifacts', () => {
       } }],
       secrets: ['secret-token'],
       clock: () => new Date(NOW),
+      retentionDays: 3,
+      maxBytes: 1024 * 1024,
+      provenance: { schemaVersion: 999, evidenceId: 'forged-id', action: 'intel' },
     })
     expect((await readdir(bundle.directory)).sort()).toEqual([
       'evidence.json',
@@ -90,6 +93,10 @@ describe('Grok intelligence artifacts', () => {
     ])
     const manifestText = await readFile(bundle.manifestPath)
     const manifest = JSON.parse(manifestText.toString('utf8'))
+    expect(manifest.retentionDays).toBe(3)
+    expect(manifest.schemaVersion).toBe(1)
+    expect(manifest.evidenceId).toBe('contract-abc123')
+    expect(manifest.action).toBe('intel')
     expect(Object.keys(manifest.files).sort()).toEqual(['evidence.json', 'raw-stream.jsonl', 'report.md'])
     for (const [name, metadata] of Object.entries<any>(manifest.files)) {
       const bytes = await readFile(join(bundle.directory, name))
@@ -97,6 +104,23 @@ describe('Grok intelligence artifacts', () => {
       expect(metadata.bytes).toBe(bytes.length)
     }
     expect(bundle.manifestSha256).toBe(sha256(manifestText))
+    const payloadBytes = Object.values<any>(manifest.files).reduce((total, metadata) => total + metadata.bytes, 0)
+    await expect(writeIntelligenceBundle({
+      projectRoot: root,
+      artifactRoot,
+      evidenceId: 'manifest-cap-check',
+      decision: validDecision(),
+      evidence: { claims: [], registry: { sources: [] } },
+      report: '# External intelligence\n\nValidated.\n',
+      rawEvents: [{ method: 'session/update', params: {
+        token: 'secret-token',
+        source: 'https://user:password@example.com/object?X-Amz-Signature=signed-secret&X-Amz-Credential=credential-secret',
+      } }],
+      secrets: ['secret-token'],
+      clock: () => new Date(NOW),
+      retentionDays: 3,
+      maxBytes: payloadBytes,
+    })).rejects.toThrow(/maximum byte cap/i)
     const rawStream = await readFile(join(bundle.directory, 'raw-stream.jsonl'), 'utf8')
     expect(rawStream).not.toContain('secret-token')
     expect(rawStream).not.toMatch(/password|signed-secret|credential-secret/i)
@@ -158,6 +182,7 @@ describe('Grok intelligence artifacts', () => {
       reason: 'Grok unavailable after bounded retries',
       waiver: { reason: 'User accepts stale external-contract risk', actor: 'user', created_at: NOW },
       explicitUserWaiver: true,
+      depth: 'deep',
       deepVisibility: {
         evidence_visibility: 'leader_only',
         observed_web_search_events: 2,
@@ -231,9 +256,11 @@ describe('Grok intelligence artifacts', () => {
       exportRoot,
       evidenceId: 'export-source',
       clock: () => new Date(NOW),
+      retentionDays: 9,
+      maxBytes: 32 * 1024 * 1024,
     })
     expect((await readdir(exported.directory)).sort()).toEqual(['evidence.json', 'manifest.json', 'report.md'])
-    expect(JSON.parse(await readFile(exported.manifestPath, 'utf8')).exported).toBe(true)
+    expect(JSON.parse(await readFile(exported.manifestPath, 'utf8'))).toMatchObject({ exported: true, retentionDays: 9 })
     expect(await readFile(join(exported.directory, 'evidence.json'), 'utf8')).not.toContain('drop from export')
     await expect(exportIntelligenceBundle({
       bundleDir: bundle.directory,
@@ -241,6 +268,32 @@ describe('Grok intelligence artifacts', () => {
       evidenceId: 'too-large',
       maxBytes: 1,
     })).rejects.toThrow(/maximum|byte cap/i)
+    await expect(writeIntelligenceBundle({
+      projectRoot: root,
+      artifactRoot,
+      evidenceId: 'too-large-local',
+      decision: validDecision(),
+      evidence: { note: 'larger than cap' },
+      report: 'report',
+      rawEvents: [],
+      maxBytes: 1,
+    })).rejects.toThrow(/maximum|byte cap/i)
+    await expect(exportIntelligenceBundle({
+      bundleDir: bundle.directory,
+      exportRoot: join(root, 'bad-retention-export'),
+      evidenceId: 'bad-retention-export',
+      retentionDays: 0,
+    })).rejects.toThrow(/retentionDays/)
+    await expect(writeIntelligenceBundle({
+      projectRoot: root,
+      artifactRoot,
+      evidenceId: 'bad-retention-local',
+      decision: validDecision(),
+      evidence: {},
+      report: 'report',
+      rawEvents: [],
+      retentionDays: 0,
+    })).rejects.toThrow(/retentionDays/)
   })
 
   it('removes expired bundles and orphan private roots but preserves active evidence', async () => {
@@ -341,6 +394,8 @@ describe('versioned Grok evidence cache', () => {
       ['failed', { status: 'failed' }, 'unusable_status'],
       ['degraded', { status: 'degraded' }, 'unusable_status'],
       ['contradicted', { evidence: { claims: [{ status: 'contradicted' }] } }, 'contradicted_evidence'],
+      ['early-warning', { evidence: { claims: [{ status: 'early_warning' }] } }, 'early_warning_evidence'],
+      ['required-unresolved', { requirement: 'required', evidence: { claims: [{ status: 'unresolved' }] } }, 'unresolved_required_evidence'],
     ] as const) {
       const alternate = createCacheFingerprint(fingerprintInput({ diffDigest: name }))
       await writeCacheEntry({ cacheRoot, fingerprint: alternate.key, entry: { ...entry, fingerprint: alternate.key, ...patch } })
@@ -377,6 +432,11 @@ describe('canonical task intelligence pointers', () => {
       .toEqual({
         requirement: 'required',
         status: 'valid',
+        action: 'intel',
+        investigation_mode: 'contract',
+        depth: 'normal',
+        package_status: 'valid',
+        verification_outcome: 'unresolved',
         evidence_id: 'contract-1',
         manifest_file: bundle.manifestRelativePath,
         manifest_sha256: 'manifest-sha',

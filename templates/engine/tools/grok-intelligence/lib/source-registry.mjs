@@ -336,6 +336,50 @@ export function bindClaims(claims, registry, { observedApplicabilityByClaim = {}
   return bound
 }
 
+const FALLBACK_TEXT_URL_PATTERN = /(?:https?:\/\/|\bwww\.)[^\s"'`<>\\]+/gi
+function stripUrlsFromFallbackText(value) {
+  if (typeof value === 'string') {
+    return value.replace(FALLBACK_TEXT_URL_PATTERN, '[SOURCE_URL_REMOVED]')
+  }
+  if (Array.isArray(value))
+    return value.map(item => stripUrlsFromFallbackText(item))
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, stripUrlsFromFallbackText(child)]),
+    )
+  }
+  return value
+}
+
+function normalizeFallbackBlockers(claims, registry, bindingDiagnostics) {
+  const sourcesById = new Map((registry?.sources || []).map(source => [source.id, source]))
+  return claims.map((claim) => {
+    if (claim.severity !== 'blocker')
+      return claim
+    const sources = claim.source_ids.map(id => sourcesById.get(id)).filter(Boolean)
+    const nonXSources = sources.filter(source => source.tool !== 'x_search')
+    const authoritativePrimary = nonXSources.some(source => source.official === true && source.source_tier === 'A')
+      && claim.observed_applicability === true
+    const reputableIndependenceKeys = new Set(nonXSources
+      .filter(source => ['A', 'B'].includes(source.source_tier))
+      .map(source => source.independence_key)
+      .filter(Boolean))
+    const eligible = ['verified', 'partially_verified'].includes(claim.status)
+      && (authoritativePrimary || reputableIndependenceKeys.size >= 2)
+    if (eligible)
+      return claim
+    if (Array.isArray(bindingDiagnostics)) {
+      bindingDiagnostics.push({
+        claim_id: claim.id,
+        downgraded_severity_from: 'blocker',
+        downgraded_severity_to: 'warning',
+        reason: 'ineligible_runtime_blocker',
+      })
+    }
+    return { ...claim, severity: 'warning' }
+  })
+}
+
 export function bindClaimsFromObservedUrls(claims, registry, options = {}) {
   if (!Array.isArray(claims))
     throw new Error('Fallback claims must be an array')
@@ -345,7 +389,8 @@ export function bindClaimsFromObservedUrls(claims, registry, options = {}) {
     existing.push(source.id)
     observed.set(source.canonical_url, existing)
   }
-  const converted = claims.map((claim) => {
+  const converted = []
+  for (const claim of claims) {
     if (!isPlainObject(claim) || !Array.isArray(claim.urls))
       throw new Error('Fallback claim must contain an observed urls array')
     if (claim.status !== 'unresolved' && claim.urls.length === 0)
@@ -354,14 +399,34 @@ export function bindClaimsFromObservedUrls(claims, registry, options = {}) {
     for (const rawUrl of claim.urls) {
       const canonicalUrl = canonicalizeSourceUrl(rawUrl)
       const matched = observed.get(canonicalUrl)
-      if (!matched)
-        throw new Error(`Fallback claim references an unobserved source: ${canonicalUrl}`)
+      if (!matched) {
+        if (Array.isArray(options.bindingDiagnostics)) {
+          options.bindingDiagnostics.push({
+            claim_id: typeof claim.id === 'string' ? claim.id : '',
+            url_sha256: createHash('sha256').update(canonicalUrl).digest('hex'),
+          })
+        }
+        continue
+      }
       sourceIds.push(...matched)
     }
     const { urls: _discardedUrls, ...withoutUrls } = claim
-    return { ...withoutUrls, source_ids: [...new Set(sourceIds)] }
-  })
-  return bindClaims(converted, registry, options)
+    // Only the explicit urls array can confer evidence. Textual URLs are removed
+    // before strict claim binding and can never become source IDs.
+    const urlFreeClaim = stripUrlsFromFallbackText(withoutUrls)
+    const boundSourceIds = [...new Set(sourceIds)]
+    if (claim.status === 'verified' && boundSourceIds.length === 0) {
+      if (Array.isArray(options.bindingDiagnostics)) {
+        options.bindingDiagnostics.push({
+          claim_id: typeof claim.id === 'string' ? claim.id : '',
+          dropped_claim_reason: 'verified_without_observed_source',
+        })
+      }
+      continue
+    }
+    converted.push({ ...urlFreeClaim, source_ids: boundSourceIds })
+  }
+  return normalizeFallbackBlockers(bindClaims(converted, registry, options), registry, options.bindingDiagnostics)
 }
 
 function removeUrlsFromExcerpt(value) {

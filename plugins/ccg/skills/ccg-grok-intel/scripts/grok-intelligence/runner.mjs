@@ -8,6 +8,7 @@ import { createFocusedSnapshot } from './lib/snapshot.mjs'
 import { assertValidEvidencePackage } from './lib/validator.mjs'
 
 const EXIT = Object.freeze({ OK: 0, REQUIRED_UNAVAILABLE: 2, UNSAFE: 3, CONFIG: 4 })
+export const GROK_PROMPT_TEMPLATE_VERSION = 'ccg-grok-intelligence-prompt-v9-demote-ineligible-blockers'
 
 function failureText(error, secrets = []) {
   let text = error instanceof Error ? error.message : String(error)
@@ -33,11 +34,41 @@ function isTransient(error) {
   return /(?:429|rate.?limit|temporar|timed?\s*out|timeout|ECONNRESET|ECONNREFUSED|EAI_AGAIN|503|502|network)/i.test(failureText(error))
 }
 
+function observedModelProvenance(notifications, requested) {
+  const sessionModels = new Set()
+  const usageModels = new Set()
+  for (const notification of notifications || []) {
+    const update = notification?.params?.update
+    const modelId = update?._meta?.modelId
+    if (typeof modelId === 'string' && modelId.trim())
+      sessionModels.add(modelId.trim())
+    const modelUsage = update?.usage?.modelUsage
+    if (modelUsage && typeof modelUsage === 'object' && !Array.isArray(modelUsage)) {
+      for (const model of Object.keys(modelUsage)) {
+        if (model.trim()) usageModels.add(model.trim())
+      }
+    }
+  }
+  if (sessionModels.size !== 1)
+    throw new Error(`ACP model provenance must expose exactly one session model, observed ${sessionModels.size}`)
+  const actual = [...sessionModels][0]
+  if (actual !== requested)
+    throw new Error(`ACP session model ${actual} does not match requested model ${requested}`)
+  return {
+    requested,
+    actual,
+    provenance: 'ACP session/update user_message_chunk _meta.modelId',
+    usage_models: [...usageModels].sort(),
+  }
+}
+
 function validateTopLevel(options) {
   if (!options || typeof options !== 'object')
     throw new Error('Runner options are required')
   if (!['required', 'preferred', 'disabled'].includes(options.requirement))
     throw new Error('requirement must be required, preferred, or disabled')
+  if (!['intel', 'verify'].includes(options.action || 'intel'))
+    throw new Error('action must be intel or verify')
   if (options.requirement === 'disabled')
     return
   if (options.consent !== true || options.config?.enabled !== true)
@@ -50,7 +81,7 @@ function validateTopLevel(options) {
     throw new Error('External intelligence task must be non-empty')
 }
 
-function buildPrompt({ task, mode, requireWebSearch, xSearchPolicy }) {
+function buildPrompt({ task, action, mode, requireWebSearch, xSearchPolicy }) {
   const xInstruction = xSearchPolicy === 'disabled'
     ? 'Do not perform an X-domain search.'
     : 'To satisfy X-domain evidence, you MUST run WebSearch with a site:x.com or site:twitter.com query. Native XSearch may be used only for discovery and does not count as source-backed evidence because its ACP update contains no source URLs.'
@@ -59,9 +90,10 @@ function buildPrompt({ task, mode, requireWebSearch, xSearchPolicy }) {
     'Use the built-in WebSearch tool. Do not use files, terminal, MCP, plugins, memory, subagents, or any write tool.',
     'Only state facts supported by URLs returned in WebSearch rawOutput.action.sources. Never invent or copy a URL from prose.',
     xInstruction,
-    `Mode: ${mode}. Web search required: ${requireWebSearch ? 'yes' : 'no'}. X-domain policy: ${xSearchPolicy}.`,
+    `Action: ${action}. Investigation mode: ${mode}. Web search required: ${requireWebSearch ? 'yes' : 'no'}. X-domain policy: ${xSearchPolicy}.`,
     'End the final response with exactly one compact JSON envelope on a new line using this marker:',
-    'CCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"fact without URLs","status":"verified|partially_verified|contradicted|unresolved|early_warning","severity":"blocker|warning|info","urls":["only URLs observed in WebSearch sources"]}]}',
+    'CCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"fact without URLs","status":"verified|partially_verified|contradicted|unresolved|early_warning","severity":"blocker|warning|info","applies_to":["specific bound file, dependency, platform, or version"],"repo_impact":["concrete impact"],"urls":["only URLs observed in WebSearch sources"]}]}',
+    'Every verified or partially_verified claim must include a non-empty applies_to array. Omit applies_to only for unresolved, contradicted, or early_warning claims.',
     'The claims array must never be empty. If no applicable fact can be verified, return one status=unresolved claim with urls=[]. Do not put URLs in claim text or any field other than urls.',
     'Task:',
     task.trim(),
@@ -121,6 +153,7 @@ export async function runGrokIntelligence(options) {
     })
     const prompt = buildPrompt({
       task: options.task,
+      action: options.action || 'intel',
       mode: options.mode || 'discover',
       requireWebSearch: options.config.require_web_search !== false,
       xSearchPolicy: options.config.x_search_policy || 'preferred',
@@ -178,7 +211,8 @@ export async function runGrokIntelligence(options) {
           officialXAccounts: options.officialXAccounts || [],
           domainTiers: options.domainTiers || {},
         })
-        const claims = bindClaimsFromObservedUrls(extractClaimsEnvelope(normalized.finalText), registry)
+        const bindingDiagnostics = []
+        const claims = bindClaimsFromObservedUrls(extractClaimsEnvelope(normalized.finalText), registry, { bindingDiagnostics })
         const validation = assertValidEvidencePackage({
           normalized,
           registry,
@@ -188,20 +222,29 @@ export async function runGrokIntelligence(options) {
           mode: options.mode || 'discover',
           requireClaims: true,
         })
+        const model = observedModelProvenance(acpResult.notifications, selectedModel)
+        const evidence = {
+          retrieved_at: retrievedAt,
+          model,
+          normalized,
+          registry,
+          claims,
+          claim_binding: { dropped_unobserved_urls: bindingDiagnostics },
+          validation,
+        }
+        const verificationSatisfied = ['verified', 'partially_verified'].includes(validation.verification_outcome)
+          && validation.qualifying_claims.length > 0
+        const blockedVerification = options.action === 'verify'
+          && options.requirement === 'required'
+          && !verificationSatisfied
         result = {
-          exitCode: EXIT.OK,
-          status: 'valid',
+          exitCode: blockedVerification ? EXIT.REQUIRED_UNAVAILABLE : EXIT.OK,
+          status: blockedVerification ? 'verification_unresolved' : 'valid',
+          ...(blockedVerification ? { reason: `Required verification outcome is ${validation.verification_outcome}` } : {}),
           attempts,
           runRoot: roots.runRoot,
           snapshot,
-          evidence: {
-            retrieved_at: retrievedAt,
-            model: { requested: selectedModel, actual: selectedModel, provenance: 'grok agent --model' },
-            normalized,
-            registry,
-            claims,
-            validation,
-          },
+          evidence,
           raw: { notifications: acpResult.notifications, stderr: acpResult.stderr || [] },
         }
         break

@@ -8,6 +8,7 @@ import { assertExistingPathWithoutLinks } from './path-safety.mjs'
 const LOCAL_RETENTION_DAYS = 7
 const EXPORT_RETENTION_DAYS = 30
 const MAX_EXPORT_BYTES = 16 * 1024 * 1024
+const MAX_CONFIGURED_BUNDLE_BYTES = 64 * 1024 * 1024
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
 
 function sha256(value) {
@@ -143,11 +144,12 @@ async function safeRemoveDirectory(parent, target) {
   await rm(canonicalTarget, { recursive: true, force: true })
 }
 
-function buildManifest({ evidenceId, createdAt, files, exported = false, retentionDays, model }) {
+function buildManifest({ evidenceId, createdAt, files, exported = false, retentionDays, model, provenance = {} }) {
   const manifestFiles = {}
   for (const [name, bytes] of Object.entries(files))
     manifestFiles[name] = { sha256: sha256(bytes), bytes: bytes.length }
   return {
+    ...provenance,
     schemaVersion: 1,
     evidenceId,
     createdAt,
@@ -202,8 +204,15 @@ export async function writeIntelligenceBundle({
   clock = () => new Date(),
   randomName,
   model,
+  retentionDays = LOCAL_RETENTION_DAYS,
+  maxBytes = MAX_EXPORT_BYTES,
+  provenance = {},
 }) {
   const id = validateEvidenceId(evidenceId)
+  if (!Number.isInteger(retentionDays) || retentionDays < 1)
+    throw new Error('retentionDays must be a positive integer')
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_CONFIGURED_BUNDLE_BYTES)
+    throw new Error(`Evidence maximum byte cap must be between 1 and ${MAX_CONFIGURED_BUNDLE_BYTES}`)
   const normalizedDecision = createIntelligenceDecision(decision)
   if (typeof report !== 'string')
     throw new Error('Evidence report must be text')
@@ -218,9 +227,14 @@ export async function writeIntelligenceBundle({
     evidenceId: id,
     createdAt,
     files,
-    retentionDays: LOCAL_RETENTION_DAYS,
+    retentionDays,
     model,
+    provenance,
   })
+  const totalBytes = Object.values(files).reduce((total, bytes) => total + bytes.length, 0)
+    + encodeJson(manifest).length
+  if (totalBytes > maxBytes)
+    throw new Error('Evidence bundle exceeds the configured maximum byte cap')
   const { destination, manifestBytes } = await atomicBundleWrite({ root, evidenceId: id, files, manifest, randomName })
   const relativeDirectory = relative(project, destination).replace(/\\/g, '/')
   return {
@@ -262,13 +276,16 @@ export async function exportIntelligenceBundle({
   evidenceId,
   includeRaw = false,
   maxBytes = MAX_EXPORT_BYTES,
+  retentionDays = EXPORT_RETENTION_DAYS,
   secrets = [],
   clock = () => new Date(),
   randomName,
 }) {
   const id = validateEvidenceId(evidenceId)
-  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_EXPORT_BYTES)
-    throw new Error(`Export maximum byte cap must be between 1 and ${MAX_EXPORT_BYTES}`)
+  if (!Number.isInteger(retentionDays) || retentionDays < 1)
+    throw new Error('retentionDays must be a positive integer')
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_CONFIGURED_BUNDLE_BYTES)
+    throw new Error(`Export maximum byte cap must be between 1 and ${MAX_CONFIGURED_BUNDLE_BYTES}`)
   const source = await readVerifiedBundle(bundleDir)
   await mkdir(exportRoot, { recursive: true, mode: 0o700 })
   await chmod(exportRoot, 0o700)
@@ -280,16 +297,17 @@ export async function exportIntelligenceBundle({
   }
   if (includeRaw)
     files['raw-stream.jsonl'] = Buffer.from(redactText(await readFile(resolve(source.root, 'raw-stream.jsonl'), 'utf8'), secrets), 'utf8')
-  const totalBytes = Object.values(files).reduce((total, bytes) => total + bytes.length, 0)
-  if (totalBytes > maxBytes)
-    throw new Error('Sanitized export exceeds the maximum byte cap')
   const manifest = buildManifest({
     evidenceId: id,
     createdAt: clock().toISOString(),
     files,
     exported: true,
-    retentionDays: EXPORT_RETENTION_DAYS,
+    retentionDays,
   })
+  const totalBytes = Object.values(files).reduce((total, bytes) => total + bytes.length, 0)
+    + encodeJson(manifest).length
+  if (totalBytes > maxBytes)
+    throw new Error('Sanitized export exceeds the maximum byte cap')
   const { destination, manifestBytes } = await atomicBundleWrite({ root, evidenceId: id, files, manifest, randomName })
   return {
     directory: destination,

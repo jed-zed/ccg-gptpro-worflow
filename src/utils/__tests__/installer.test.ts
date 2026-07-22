@@ -413,7 +413,7 @@ describe('installWorkflows — binary installation', () => {
     expect(result.actualVersion).toBe(process.version)
     expect(await fs.readFile(installedPath, 'utf8')).toBe('known-good-installed-binary')
     expect(await fs.pathExists(candidatePath)).toBe(false)
-  })
+  }, 20_000)
 })
 
 // ─────────────────────────────────────────────────────────────

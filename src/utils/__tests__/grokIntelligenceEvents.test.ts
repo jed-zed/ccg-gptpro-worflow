@@ -329,18 +329,79 @@ describe('runtime source registry', () => {
       status: 'verified',
       urls: ['https://docs.x.ai/build/cli/reference#fragment'],
     }], registry)[0].source_ids).toEqual([registry.sources[0].id])
-    expect(() => bindClaimsFromObservedUrls([{
+    const unboundDiagnostics: any[] = []
+    expect(bindClaimsFromObservedUrls([{
       id: 'claim-bad',
       claim: 'Invented fallback',
       status: 'verified',
       urls: ['https://invented.invalid'],
-    }], registry)).toThrow(/unobserved source/i)
+    }], registry, { bindingDiagnostics: unboundDiagnostics })).toEqual([])
+    expect(unboundDiagnostics).toEqual(expect.arrayContaining([{
+      claim_id: 'claim-bad',
+      dropped_claim_reason: 'verified_without_observed_source',
+    }]))
+    const bindingDiagnostics: any[] = []
+    const mixedSources = bindClaimsFromObservedUrls([{
+      id: 'claim-mixed-sources',
+      claim: 'Only observed sources may confer evidence.',
+      status: 'verified',
+      urls: ['https://invented.invalid', 'https://docs.x.ai/build/cli/reference'],
+    }], registry, { bindingDiagnostics })[0]
+    expect(mixedSources.source_ids).toEqual([registry.sources[0].id])
+    expect(bindingDiagnostics).toEqual([{
+      claim_id: 'claim-mixed-sources',
+      url_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }])
     expect(bindClaimsFromObservedUrls([{
       id: 'claim-unresolved',
       claim: 'No applicable fact could be verified.',
       status: 'unresolved',
       urls: [],
     }], registry)[0]).toMatchObject({ status: 'unresolved', source_ids: [] })
+
+    const repeatedObservedUrl = bindClaimsFromObservedUrls([{
+      id: 'claim-repeated-observed-url',
+      claim: 'The contract is documented at https://docs.x.ai/build/cli/reference.',
+      status: 'verified',
+      repo_impact: ['See https://docs.x.ai/build/cli/reference for the current contract.'],
+      urls: ['https://docs.x.ai/build/cli/reference'],
+    }], registry)[0]
+    expect(JSON.stringify(repeatedObservedUrl)).not.toMatch(/https?:\/\//i)
+    expect(repeatedObservedUrl.source_ids).toEqual([registry.sources[0].id])
+    const unobservedTextUrl = bindClaimsFromObservedUrls([{
+      id: 'claim-unobserved-text-url',
+      claim: 'Invented prose source https://invented.invalid/path.',
+      status: 'verified',
+      urls: ['https://docs.x.ai/build/cli/reference'],
+    }], registry)[0]
+    expect(JSON.stringify(unobservedTextUrl)).not.toMatch(/https?:\/\//i)
+    expect(unobservedTextUrl.source_ids).toEqual([registry.sources[0].id])
+
+    const xOnlyRegistry = buildSourceRegistry({
+      searches: [{
+        tool: 'x_search',
+        observed_tool: 'web_search',
+        toolCallId: 'call-x',
+        query: 'site:x.com/xai incident',
+        status: 'completed',
+        sources: [{ url: 'https://x.com/xai/status/1' }],
+      }],
+    }, registryOptions())
+    const blockerDiagnostics: any[] = []
+    const normalizedBlocker = bindClaimsFromObservedUrls([{
+      id: 'x-only-blocker',
+      claim: 'X radar found a potentially severe issue.',
+      status: 'verified',
+      severity: 'blocker',
+      urls: ['https://x.com/xai/status/1'],
+    }], xOnlyRegistry, { bindingDiagnostics: blockerDiagnostics })[0]
+    expect(normalizedBlocker.severity).toBe('warning')
+    expect(blockerDiagnostics).toContainEqual({
+      claim_id: 'x-only-blocker',
+      downgraded_severity_from: 'blocker',
+      downgraded_severity_to: 'warning',
+      reason: 'ineligible_runtime_blocker',
+    })
   })
 })
 
@@ -357,6 +418,97 @@ describe('deterministic evidence policy', () => {
       })),
     }, registryOptions())
   }
+
+  it('separates package validity from the verification outcome and requires applicable reputable evidence', () => {
+    const reputableRegistry = makePolicyRegistry([{ url: 'https://docs.x.ai/build/cli/reference' }])
+    const reputableClaim = bindClaims([{
+      id: 'applicable-primary',
+      claim: 'The current CLI contract applies to this integration.',
+      status: 'verified',
+      severity: 'info',
+      source_ids: [reputableRegistry.sources[0].id],
+      applies_to: ['templates/engine/tools/grok-intelligence'],
+    }], reputableRegistry)
+    expect(validateEvidencePackage({
+      normalized: { searches: [{ tool: 'web_search', sources: [{}], status: 'completed' }] },
+      registry: reputableRegistry,
+      claims: reputableClaim,
+      requireWebSearch: true,
+      xSearchPolicy: 'disabled',
+      mode: 'contract',
+    })).toMatchObject({
+      valid: true,
+      package_status: 'valid',
+      verification_outcome: 'verified',
+      qualifying_claims: ['applicable-primary'],
+    })
+
+    const unresolved = validateEvidencePackage({
+      normalized: { searches: [{ tool: 'web_search', sources: [{}], status: 'completed' }] },
+      registry: reputableRegistry,
+      claims: [{ id: 'unresolved', claim: 'No applicable fact.', status: 'unresolved', severity: 'info', source_ids: [] }],
+      requireWebSearch: true,
+      xSearchPolicy: 'disabled',
+      mode: 'contract',
+    })
+    expect(unresolved).toMatchObject({
+      valid: true,
+      package_status: 'valid',
+      verification_outcome: 'unresolved',
+      qualifying_claims: [],
+    })
+
+    const lowTierRegistry = makePolicyRegistry([{ url: 'https://unknown.example.invalid/report' }])
+    const lowTierClaim = bindClaims([{
+      id: 'low-tier-only',
+      claim: 'An untrusted source makes the claim.',
+      status: 'verified',
+      severity: 'info',
+      source_ids: [lowTierRegistry.sources[0].id],
+      applies_to: ['src/example.ts'],
+    }], lowTierRegistry)
+    expect(validateEvidencePackage({
+      normalized: { searches: [{ tool: 'web_search', sources: [{}], status: 'completed' }] },
+      registry: lowTierRegistry,
+      claims: lowTierClaim,
+      requireWebSearch: true,
+      xSearchPolicy: 'disabled',
+      mode: 'contract',
+    })).toMatchObject({ package_status: 'valid', verification_outcome: 'unresolved', qualifying_claims: [] })
+
+    const missingApplicability = bindClaims([{
+      id: 'missing-applicability',
+      claim: 'The source is reputable but applicability is unknown.',
+      status: 'verified',
+      severity: 'info',
+      source_ids: [reputableRegistry.sources[0].id],
+    }], reputableRegistry)
+    expect(validateEvidencePackage({
+      normalized: { searches: [{ tool: 'web_search', sources: [{}], status: 'completed' }] },
+      registry: reputableRegistry,
+      claims: missingApplicability,
+      requireWebSearch: true,
+      xSearchPolicy: 'disabled',
+      mode: 'contract',
+    })).toMatchObject({ package_status: 'valid', verification_outcome: 'unresolved', qualifying_claims: [] })
+
+    const blankApplicability = [{
+      id: 'blank-applicability',
+      claim: 'Whitespace is not a concrete applicability scope.',
+      status: 'verified',
+      severity: 'info',
+      source_ids: [reputableRegistry.sources[0].id],
+      applies_to: ['  '],
+    }]
+    expect(validateEvidencePackage({
+      normalized: { searches: [{ tool: 'web_search', sources: [{}], status: 'completed' }] },
+      registry: reputableRegistry,
+      claims: blankApplicability,
+      requireWebSearch: true,
+      xSearchPolicy: 'disabled',
+      mode: 'contract',
+    })).toMatchObject({ package_status: 'valid', verification_outcome: 'unresolved', qualifying_claims: [] })
+  })
 
   it('allows blocker claims only with primary applicability or two independent reputable sources', () => {
     const primaryRegistry = makePolicyRegistry([{ url: 'https://docs.x.ai/build/cli/reference' }])
@@ -395,6 +547,32 @@ describe('deterministic evidence policy', () => {
       xSearchPolicy: 'disabled',
       mode: 'contract',
     }).valid).toBe(true)
+  })
+
+  it('never activates a blocker label on a non-verifying claim', () => {
+    const registry = makePolicyRegistry([{ url: 'https://docs.x.ai/build/cli/reference' }])
+    const claims = bindClaims([{
+      id: 'unresolved-blocker-label',
+      claim: 'A potentially severe issue could not be verified.',
+      status: 'unresolved',
+      severity: 'blocker',
+      source_ids: [],
+    }], registry)
+    const validation = validateEvidencePackage({
+      normalized: { searches: [] },
+      registry,
+      claims,
+      requireWebSearch: false,
+      xSearchPolicy: 'disabled',
+      mode: 'incident',
+      requireClaims: true,
+    })
+    expect(validation.package_status).toBe('valid')
+    expect(validation.verification_outcome).toBe('unresolved')
+    expect(validation.evaluated_claims[0].blocker).toMatchObject({
+      eligible: false,
+      reason: 'non-verifying claim cannot create a blocker',
+    })
   })
 
   it('rejects a one-source Tier B blocker and every X-only blocker', () => {

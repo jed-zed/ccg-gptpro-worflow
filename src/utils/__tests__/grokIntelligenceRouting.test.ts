@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -31,16 +31,47 @@ function validRunnerResult(
   createdAt = new Date().toISOString(),
   model = 'grok-4.5',
   artifactRoot = '.codex/ccg/intelligence',
+  action = 'intel',
+  depth = 'normal',
+  effectiveXPolicy = mode === 'incident' ? 'required' : 'preferred',
+  bindings: any[] = [],
+  officialDomains: string[] = [],
+  bundleRoot = root,
 ) {
   const evidenceId = `route-evidence-${++evidenceCounter}`
-  const bundleDir = join(root, ...artifactRoot.split('/'), evidenceId)
+  const bundleDir = join(bundleRoot, ...artifactRoot.split('/'), evidenceId)
   fs.ensureDirSync(bundleDir)
+  const sourceUrl = 'https://docs.x.ai/build/cli/reference'
+  const sourceId = `src-${hash(`web_search\n${sourceUrl}`).slice(0, 16)}`
+  const xSourceUrl = 'https://x.com/xai/status/1'
+  const xSourceId = `src-${hash(`x_search\n${xSourceUrl}`).slice(0, 16)}`
   const artifact = `${JSON.stringify({
     schemaVersion: 2,
-    decision: { requirement: 'required', status: 'valid', mode: mode === 'verify' ? 'contract' : mode, reason: 'Verified fixture.', created_at: createdAt },
+    decision: {
+      requirement: 'required',
+      status: 'valid',
+      action,
+      investigation_mode: mode,
+      mode,
+      depth,
+      package_status: 'valid',
+      verification_outcome: 'verified',
+      reason: 'Verified fixture.',
+      created_at: createdAt,
+    },
     evidence: {
       model: { requested: model, actual: model, provenance: 'grok agent --model' },
-      claims: [{ id: 'claim-unresolved', claim: 'No applicable fact in fixture.', status: 'unresolved', source_ids: [] }],
+      action,
+      investigation_mode: mode,
+      depth,
+      effective_x_policy: effectiveXPolicy,
+      bindings,
+      normalized: { searches: [{ tool: 'web_search', status: 'completed' }, { tool: 'x_search', status: 'completed' }] },
+      registry: { sources: [
+        { id: sourceId, tool: 'web_search', observed_tool: 'web_search', canonical_url: sourceUrl, official: true, source_tier: 'A', independence_key: 'x.ai' },
+        { id: xSourceId, tool: 'x_search', observed_tool: 'web_search', canonical_url: xSourceUrl, official: true, source_tier: 'D', independence_key: 'x.com' },
+      ] },
+      claims: [{ id: 'claim-verified', claim: 'Applicable current contract.', status: 'verified', severity: 'info', source_ids: [sourceId], applies_to: ['package.json'] }],
     },
   }, null, 2)}\n`
   const raw = ''
@@ -53,7 +84,34 @@ function validRunnerResult(
     'raw-stream.jsonl': { sha256: hash(raw), bytes: Buffer.byteLength(raw) },
     'report.md': { sha256: hash(report), bytes: Buffer.byteLength(report) },
   }
-  const manifest = `${JSON.stringify({ schemaVersion: 1, evidenceId, createdAt, localOnly: true, exported: false, retentionDays: 7, model, files }, null, 2)}\n`
+  const manifest = `${JSON.stringify({
+    schemaVersion: 1,
+    evidenceId,
+    createdAt,
+    localOnly: true,
+    exported: false,
+    retentionDays: 7,
+    model,
+    action,
+    investigation_mode: mode,
+    depth,
+    requirement: 'required',
+    effective_x_policy: effectiveXPolicy,
+    cli_version: 'grok 0.2.106',
+    prompt_sha256: 'a'.repeat(64),
+    git_head: 'unversioned',
+    dirty_digest: 'b'.repeat(64),
+    bindings,
+    official_domains: officialDomains,
+    search_counts: { web: 1, x: 1 },
+    attempts: 1,
+    package_status: 'valid',
+    validation_outcome: 'verified',
+    verification_outcome: 'verified',
+    cache_fingerprint: 'c'.repeat(64),
+    cache_contract_versions: { runnerVersion: '2', evidenceSchemaVersion: '2' },
+    files,
+  }, null, 2)}\n`
   fs.writeFileSync(join(bundleDir, 'manifest.json'), manifest)
   return {
     exitCode: 0,
@@ -64,6 +122,46 @@ function validRunnerResult(
     manifestPath: `${artifactRoot}/${evidenceId}/manifest.json`,
     manifestSha256: hash(manifest),
   }
+}
+
+function validRunnerResultForRequest(request: any, overrides: { createdAt?: string, model?: string, artifactRoot?: string, pathRoot?: string } = {}) {
+  const canonicalRepoRoot = fs.realpathSync(request.repoRoot)
+  const bindingInputs = [
+    request.options.plan ? ['plan', request.options.plan] : null,
+    request.options.diff ? ['diff', request.options.diff] : null,
+    ...(request.options.dependencies || []).map((path: string) => ['dependency', path]),
+  ].filter(Boolean) as string[][]
+  const bindings = bindingInputs.map(([kind, path]) => {
+    const absolute = resolve(request.repoRoot, path)
+    const canonical = fs.realpathSync(absolute)
+    const bytes = readFileSync(canonical)
+    return {
+      kind,
+      path: isAbsolute(path)
+        ? relative(overrides.pathRoot || canonicalRepoRoot, overrides.pathRoot ? path : canonical).replace(/\\/g, '/')
+        : path.replace(/\\/g, '/'),
+      sha256: hash(bytes),
+      bytes: bytes.length,
+      empty: bytes.length === 0,
+    }
+  })
+  const mode = request.options.mode || 'contract'
+  const configuredX = request.options.config.x_search_policy || 'preferred'
+  const effectiveX = configuredX === 'disabled' ? 'disabled' : configuredX === 'required' || mode === 'incident' ? 'required' : 'preferred'
+  return validRunnerResult(
+    mode,
+    overrides.createdAt || new Date().toISOString(),
+    overrides.model || String(request.options.depth === 'deep'
+      ? request.options.config.deep_research_model
+      : (request.options.config.default_model || 'grok-4.5')),
+    overrides.artifactRoot || String(request.options.config.artifact_root || '.codex/ccg/intelligence'),
+    request.action,
+    request.options.depth || 'normal',
+    effectiveX,
+    bindings,
+    request.options.officialDomains || [],
+    request.repoRoot,
+  )
 }
 
 function hash(value: string | Buffer) {
@@ -102,7 +200,7 @@ describe('Grok automatic intelligence routing', () => {
         events.push('invoke')
         invocation = request
         expect(fs.readJsonSync(stateFile)).toMatchObject({ execution: { status: 'pending' } })
-        return validRunnerResult()
+        return validRunnerResultForRequest(request)
       },
     })
 
@@ -124,6 +222,8 @@ describe('Grok automatic intelligence routing', () => {
       'Upgrade the Acme SDK and verify its current API contract.',
       '--mode',
       'contract',
+      '--depth',
+      'normal',
       '--dependency',
       'pnpm-lock.yaml',
     ])
@@ -146,7 +246,7 @@ describe('Grok automatic intelligence routing', () => {
     }, {
       invoke: async (request: any) => {
         invocation = request
-        return validRunnerResult()
+        return validRunnerResultForRequest(request)
       },
     })
 
@@ -164,7 +264,72 @@ describe('Grok automatic intelligence routing', () => {
       'Diagnose the current Acme Cloud outage and recent regional errors.',
       '--mode',
       'incident',
+      '--depth',
+      'normal',
     ])
+  })
+
+  it('inherits the incident investigation mode, required X policy, and depth into final verification', () => {
+    const previous = {
+      decision: {
+        requirement: 'required',
+        status: 'valid',
+        action: 'intel',
+        investigation_mode: 'incident',
+        mode: 'incident',
+        depth: 'deep',
+        effective_x_policy: 'required',
+      },
+    }
+    const input = {
+      task: 'Verify the applied mitigation against the bound diff.',
+      trigger: 'final_diff_verify',
+      diff: 'change.diff',
+    }
+    const decision = (routeRuntime as any).classifyWorkflowRoute(input, enabledConfig(), previous)
+    expect(decision).toMatchObject({
+      action: 'verify',
+      investigation_mode: 'incident',
+      mode: 'incident',
+      depth: 'deep',
+      effective_x_policy: 'required',
+    })
+    expect((routeRuntime as any).buildRouteCommandArgv(decision, input)).toEqual([
+      'verify',
+      '--task',
+      input.task,
+      '--mode',
+      'incident',
+      '--depth',
+      'deep',
+      '--diff',
+      'change.diff',
+    ])
+  })
+
+  it('validates a deep route against the configured deep-research model', async () => {
+    const config = enabledConfig({
+      default_model: 'grok-4.5',
+      deep_research_enabled: true,
+      deep_research_model: 'grok-4.5-deep',
+    })
+    let invocation: any
+    const result = await (routeRuntime as any).runWorkflowRoute({
+      repoRoot: root,
+      config,
+      workflow: 'go',
+      phase: 'intake',
+      task: 'Upgrade the current external SDK API.',
+      depth: 'deep',
+      stateFile: statePath('deep-model'),
+    }, {
+      invoke: async (request: any) => {
+        invocation = request
+        return validRunnerResultForRequest(request)
+      },
+    })
+    expect(invocation).toMatchObject({ action: 'intel', options: { mode: 'contract', depth: 'deep' } })
+    expect(result).toMatchObject({ exitCode: 0, execution: { model: 'grok-4.5-deep' } })
   })
 
   it.each([
@@ -182,9 +347,9 @@ describe('Grok automatic intelligence routing', () => {
       task: 'Upgrade the current SDK API.',
       stateFile,
     }, {
-      invoke: async () => {
+      invoke: async (request: any) => {
         calls++
-        return validRunnerResult()
+        return validRunnerResultForRequest(request)
       },
     })
 
@@ -204,9 +369,9 @@ describe('Grok automatic intelligence routing', () => {
       task: 'Rename a local helper and reformat its comments.',
       stateFile: statePath('local-skip'),
     }, {
-      invoke: async () => {
+      invoke: async (request: any) => {
         calls++
-        return validRunnerResult()
+        return validRunnerResultForRequest(request)
       },
     })
 
@@ -229,7 +394,7 @@ describe('Grok automatic intelligence routing', () => {
     }, {
       invoke: async (request: any) => {
         invocation = request
-        return validRunnerResult()
+        return validRunnerResultForRequest(request)
       },
     })
 
@@ -238,14 +403,14 @@ describe('Grok automatic intelligence routing', () => {
     expect(invocation.action).toBe('intel')
   })
 
-  it('reuses unchanged final verification and invalidates it on diff or dependency digest changes', async () => {
+  it('always delegates final verification to the manual cache boundary', async () => {
     const stateFile = statePath('verify-state')
     let calls = 0
     const invoke = async (request: any) => {
       calls++
       expect(request.action).toBe('verify')
       expect(request.argv).toContain('--diff')
-      return validRunnerResult()
+      return validRunnerResultForRequest(request)
     }
     const input = {
       repoRoot: root,
@@ -262,25 +427,25 @@ describe('Grok automatic intelligence routing', () => {
 
     const first = await (routeRuntime as any).runWorkflowRoute(input, { invoke })
     const unchanged = await (routeRuntime as any).runWorkflowRoute(input, { invoke })
-    expect(first.decision).toMatchObject({ mode: 'verify', requirement: 'required', trigger: 'final_diff_verify' })
-    expect(unchanged).toMatchObject({ exitCode: 0, invoked: false, reused: true })
-    expect(calls).toBe(1)
+    expect(first.decision).toMatchObject({ action: 'verify', investigation_mode: 'contract', mode: 'contract', requirement: 'required', trigger: 'final_diff_verify' })
+    expect(unchanged).toMatchObject({ exitCode: 0, invoked: true, reused: false })
+    expect(calls).toBe(2)
 
     await fs.writeFile(join(root, 'change.diff'), '+ changed external behavior\n')
     const diffChanged = await (routeRuntime as any).runWorkflowRoute(input, { invoke })
     expect(diffChanged.invoked).toBe(true)
-    expect(calls).toBe(2)
+    expect(calls).toBe(3)
 
     await fs.writeFile(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\nnew-sdk: 2\n')
     const dependencyChanged = await (routeRuntime as any).runWorkflowRoute(input, { invoke })
     expect(dependencyChanged.invoked).toBe(true)
-    expect(calls).toBe(3)
+    expect(calls).toBe(4)
     const state = JSON.parse(readFileSync(stateFile, 'utf8'))
     expect(state.bindings.diff.sha256).toMatch(/^[a-f0-9]{64}$/)
     expect(state.bindings.dependencies[0].sha256).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('invalidates automatic reuse on official policy, model, artifact root, or force-refresh changes', async () => {
+  it('does not short-circuit the manual cache for repeated or changed route requests', async () => {
     const stateFile = statePath('execution-profile-reuse')
     let calls = 0
     const input = {
@@ -295,12 +460,12 @@ describe('Grok automatic intelligence routing', () => {
       calls++
       const model = String(request.options.config.default_model || 'grok-4.5')
       const artifactRoot = String(request.options.config.artifact_root || '.codex/ccg/intelligence')
-      return validRunnerResult('contract', new Date().toISOString(), model, artifactRoot)
+      return validRunnerResultForRequest(request, { model, artifactRoot })
     }
 
     await (routeRuntime as any).runWorkflowRoute(input, { invoke })
-    expect(await (routeRuntime as any).runWorkflowRoute(input, { invoke })).toMatchObject({ reused: true })
-    expect(calls).toBe(1)
+    expect(await (routeRuntime as any).runWorkflowRoute(input, { invoke })).toMatchObject({ invoked: true, reused: false })
+    expect(calls).toBe(2)
 
     await (routeRuntime as any).runWorkflowRoute({ ...input, officialDomains: ['vendor.example'] }, { invoke })
     await (routeRuntime as any).runWorkflowRoute({
@@ -314,7 +479,7 @@ describe('Grok automatic intelligence routing', () => {
       config: enabledConfig({ default_model: 'grok-4.5-fast', artifact_root: '.codex/ccg/alternate-intelligence' }),
     }, { invoke })
     await (routeRuntime as any).runWorkflowRoute({ ...input, forceRefresh: true }, { invoke })
-    expect(calls).toBe(5)
+    expect(calls).toBe(6)
   })
 
   it('propagates required evidence exit 2 and records the blocking result', async () => {
@@ -335,6 +500,46 @@ describe('Grok automatic intelligence routing', () => {
       execution: { exit_code: 2, status: 'required_evidence_unavailable' },
       decision: { status: 'blocked' },
     })
+  })
+
+  it('applies an explicit user waiver only to an existing blocked route without inventing evidence', async () => {
+    const routeState = statePath('waiver-state')
+    const taskDir = join(root, '.codex', 'ccg', 'waiver-state')
+    const evidenceFile = join(taskDir, 'evidence.json')
+    await fs.ensureDir(taskDir)
+    await fs.writeJson(evidenceFile, { schemaVersion: 1, items: [{ id: 'existing-non-grok-evidence' }] })
+    await (routeRuntime as any).runWorkflowRoute({
+      repoRoot: root,
+      config: enabledConfig(),
+      workflow: 'go',
+      phase: 'intake',
+      task: 'Upgrade the current dependency API.',
+      stateFile: routeState,
+    }, {
+      invoke: async () => ({ exitCode: 2, status: 'verification_unresolved', reason: 'No qualifying current claim.' }),
+    })
+
+    const waived = await (routeRuntime as any).waiveWorkflowRoute({
+      repoRoot: root,
+      stateFile: routeState,
+      reason: 'User accepts the unresolved external-contract risk for this task.',
+    }, { clock: () => new Date('2026-07-22T12:00:00.000Z') })
+    expect(waived).toMatchObject({
+      exitCode: 0,
+      decision: {
+        status: 'waived',
+        waiver: {
+          actor: 'user',
+          reason: 'User accepts the unresolved external-contract risk for this task.',
+          created_at: '2026-07-22T12:00:00.000Z',
+        },
+      },
+      execution: { status: 'verification_unresolved', exit_code: 2 },
+    })
+    expect(await fs.readJson(evidenceFile)).toEqual({ schemaVersion: 1, items: [{ id: 'existing-non-grok-evidence' }] })
+    await expect((routeRuntime as any).waiveWorkflowRoute({ repoRoot: root, stateFile: routeState, reason: '' }))
+      .rejects
+      .toThrow(/reason/i)
   })
 
   it('fails closed when a successful runner result has no complete bundle', async () => {
@@ -363,9 +568,9 @@ describe('Grok automatic intelligence routing', () => {
     }
     const runtime = {
       clock: () => now,
-      invoke: async () => {
+      invoke: async (request: any) => {
         calls++
-        return validRunnerResult('contract', now.toISOString())
+        return validRunnerResultForRequest(request, { createdAt: now.toISOString() })
       },
     }
     const first = await (routeRuntime as any).runWorkflowRoute(input, runtime)
@@ -390,18 +595,32 @@ describe('Grok automatic intelligence routing', () => {
     await fs.ensureDir(bundleDir)
     const createdAt = new Date().toISOString()
     const model = 'grok-4.5'
+    const sourceUrl = 'https://docs.x.ai/build/cli/reference'
+    const sourceId = `src-${hash(`web_search\n${sourceUrl}`).slice(0, 16)}`
     const artifact = `${JSON.stringify({
       schemaVersion: 2,
       decision: {
         requirement: 'required',
         status: 'valid',
+        action: 'intel',
+        investigation_mode: 'contract',
         mode: 'contract',
+        depth: 'normal',
+        package_status: 'valid',
+        verification_outcome: 'verified',
         reason: 'Current contract verified.',
         created_at: createdAt,
       },
       evidence: {
         model: { requested: model, actual: model, provenance: 'grok agent --model' },
-        claims: [{ id: 'unresolved', claim: 'No applicable fixture claim.', status: 'unresolved', source_ids: [] }],
+        action: 'intel',
+        investigation_mode: 'contract',
+        depth: 'normal',
+        effective_x_policy: 'preferred',
+        bindings: [],
+        normalized: { searches: [{ tool: 'web_search', status: 'completed' }] },
+        registry: { sources: [{ id: sourceId, tool: 'web_search', observed_tool: 'web_search', canonical_url: sourceUrl, official: true, source_tier: 'A', independence_key: 'x.ai' }] },
+        claims: [{ id: 'verified', claim: 'Applicable fixture claim.', status: 'verified', severity: 'info', source_ids: [sourceId], applies_to: ['package.json'] }],
       },
     }, null, 2)}\n`
     const artifactSha256 = hash(artifact)
@@ -416,6 +635,24 @@ describe('Grok automatic intelligence routing', () => {
       localOnly: true,
       exported: false,
       model,
+      action: 'intel',
+      investigation_mode: 'contract',
+      depth: 'normal',
+      requirement: 'required',
+      effective_x_policy: 'preferred',
+      cli_version: 'grok 0.2.106',
+      prompt_sha256: 'a'.repeat(64),
+      git_head: 'unversioned',
+      dirty_digest: 'b'.repeat(64),
+      bindings: [],
+      official_domains: [],
+      search_counts: { web: 1, x: 0 },
+      attempts: 1,
+      package_status: 'valid',
+      validation_outcome: 'verified',
+      verification_outcome: 'verified',
+      cache_fingerprint: 'c'.repeat(64),
+      cache_contract_versions: { runnerVersion: '2', evidenceSchemaVersion: '2' },
       files: {
         'evidence.json': { sha256: artifactSha256, bytes: Buffer.byteLength(artifact) },
         'raw-stream.jsonl': { sha256: hash(raw), bytes: Buffer.byteLength(raw) },
@@ -529,10 +766,13 @@ describe('Grok automatic intelligence routing', () => {
         stateFile: join(alias, '.ccg', 'tasks', 'alias-route', 'intelligence-route.json'),
         taskDir: join(alias, '.ccg', 'tasks', 'alias-route'),
       }, {
-        invoke: async () => validRunnerResult(),
+        // Preserve the caller-visible alias when synthesizing the runner manifest.
+        // On Windows, realpath may independently expand the root and child into
+        // different long/8.3 spellings even though they identify the same files.
+        invoke: async (request: any) => validRunnerResultForRequest(request, { pathRoot: alias }),
       })
 
-      expect(result).toMatchObject({ exitCode: 0, decision: { status: 'valid' } })
+      expect(result, JSON.stringify(result, null, 2)).toMatchObject({ exitCode: 0, decision: { status: 'valid' } })
       expect(await fs.pathExists(join(taskDir, 'intelligence-route.json'))).toBe(true)
       expect(await fs.pathExists(join(taskDir, 'evidence.json'))).toBe(true)
     }

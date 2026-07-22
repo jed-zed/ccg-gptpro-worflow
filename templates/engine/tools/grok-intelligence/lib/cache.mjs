@@ -213,6 +213,21 @@ function hasContradictedClaim(entry) {
   return Array.isArray(claims) && claims.some(claim => claim?.status === 'contradicted')
 }
 
+function hasEarlyWarningClaim(entry) {
+  const claims = entry?.evidence?.claims
+  return Array.isArray(claims) && claims.some(claim => claim?.status === 'early_warning')
+}
+
+function hasUnresolvedRequiredEvidence(entry) {
+  if (entry?.requirement !== 'required')
+    return false
+  if (entry.verification_outcome != null)
+    return !['verified', 'partially_verified'].includes(entry.verification_outcome)
+  const claims = entry?.evidence?.claims
+  return !Array.isArray(claims)
+    || !claims.some(claim => ['verified', 'partially_verified'].includes(claim?.status))
+}
+
 export async function readCacheEntry({ cacheRoot, fingerprint, now = new Date(), ttlMs, forceRefresh = false }) {
   const key = validateFingerprint(fingerprint)
   if (!Number.isInteger(ttlMs) || ttlMs < 0)
@@ -242,6 +257,10 @@ export async function readCacheEntry({ cacheRoot, fingerprint, now = new Date(),
     return { hit: false, reason: 'unusable_status' }
   if (hasContradictedClaim(entry))
     return { hit: false, reason: 'contradicted_evidence' }
+  if (hasEarlyWarningClaim(entry))
+    return { hit: false, reason: 'early_warning_evidence' }
+  if (hasUnresolvedRequiredEvidence(entry))
+    return { hit: false, reason: 'unresolved_required_evidence' }
   return { hit: true, reason: 'valid', entry }
 }
 

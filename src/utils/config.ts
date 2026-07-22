@@ -102,6 +102,8 @@ export function normalizeIntelligenceConfig(
     throw new Error('intelligence.auth_mode must be browser_oauth or api_key')
   if (value?.x_search_policy != null && !['required', 'preferred', 'disabled'].includes(value.x_search_policy))
     throw new Error('intelligence.x_search_policy must be required, preferred, or disabled')
+  if (value?.cleanup_credential_artifacts === false)
+    throw new Error('intelligence.cleanup_credential_artifacts is a mandatory security invariant and must remain true')
   const artifactRoot = stringField('artifact_root', DEFAULT_INTELLIGENCE_CONFIG.artifact_root)
   const artifactParts = artifactRoot.replace(/\\/g, '/').split('/')
   if (/^(?:[A-Z]:|\/)/i.test(artifactRoot) || artifactParts.some(part => !part || part === '.' || part === '..'))
@@ -126,7 +128,7 @@ export function normalizeIntelligenceConfig(
     max_bundle_bytes: integerField('max_bundle_bytes', DEFAULT_INTELLIGENCE_CONFIG.max_bundle_bytes, 1024, 64 * 1024 * 1024),
     retention_days: integerField('retention_days', DEFAULT_INTELLIGENCE_CONFIG.retention_days, 1, 365),
     exported_retention_days: integerField('exported_retention_days', DEFAULT_INTELLIGENCE_CONFIG.exported_retention_days, 1, 3650),
-    cleanup_credential_artifacts: booleanField('cleanup_credential_artifacts', DEFAULT_INTELLIGENCE_CONFIG.cleanup_credential_artifacts),
+    cleanup_credential_artifacts: true,
     require_web_search: booleanField('require_web_search', DEFAULT_INTELLIGENCE_CONFIG.require_web_search),
     enabled,
     auto_route: enabled && (options.explicitConsent === true || value?.auto_route === true),

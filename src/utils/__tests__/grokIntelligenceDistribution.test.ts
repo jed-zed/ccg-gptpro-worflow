@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -13,6 +14,8 @@ import * as grokManage from '../../../templates/engine/tools/grok-intelligence/m
 import { createGrokAcpClient } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
 import { createPrivateRunRoots } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
+// @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
+import { computeSourceId } from '../../../templates/engine/tools/grok-intelligence/lib/source-registry.mjs'
 
 const { ensureDedicatedGrokHome, getDefaultGrokIntelligencePaths, resolveDoctorAuthentication } = grokManage
 
@@ -51,6 +54,7 @@ describe('Grok intelligence distribution', () => {
     expect(() => parseIntelligenceToml('[intelligence]\ntransport = "stdio"\n')).toThrow(/transport/i)
     expect(() => parseIntelligenceToml('[intelligence]\nauth_mode = "typo"\n')).toThrow(/auth_mode/i)
     expect(() => parseIntelligenceToml('[intelligence]\nallow_provider_fallback = true\n')).toThrow(/fallback/i)
+    expect(() => parseIntelligenceToml('[intelligence]\ncleanup_credential_artifacts = false\n')).toThrow(/cleanup_credential_artifacts/i)
     expect(() => parseIntelligenceToml('[intelligence]\ndeep_research_enabled = true\ndeep_research_model = ""\n')).toThrow(/deep_research_model/i)
   })
 
@@ -149,6 +153,8 @@ describe('Grok intelligence distribution', () => {
                 { tool: 'x_search', status: 'completed' },
               ] },
               registry: { sources: [{ id: 'source-1', canonical_url: 'https://docs.x.ai/build/cli/reference' }] },
+              claims: [{ id: 'verified', claim: 'Applicable CLI contract.', status: 'verified', source_ids: ['source-1'], applies_to: ['change.diff'] }],
+              validation: { valid: true, package_status: 'valid', verification_outcome: 'verified', qualifying_claims: ['verified'], effective_x_policy: 'preferred' },
             },
             raw: { notifications: [] },
           })
@@ -160,6 +166,9 @@ describe('Grok intelligence distribution', () => {
       expect(result.manifestSha256).toMatch(/^[a-f0-9]{64}$/)
       expect(runnerOptions.model).toBe('grok-4.5')
       expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({ model: 'grok-4.5' })
+      expect((await fs.readJson(join(root, result.manifestPath))).prompt_sha256).toBe(
+        createHash('sha256').update('ccg-grok-intelligence-prompt-v9-demote-ineligible-blockers').digest('hex'),
+      )
     }
     finally {
       await fs.remove(root)
@@ -181,6 +190,51 @@ describe('Grok intelligence distribution', () => {
       await expect(runManualCommand('verify', { task: 'Verify current API.', config: join(root, 'config.toml'), diff: 'empty.diff', files: ['package.json'] }, { repoRoot: root }))
         .rejects
         .toThrow(/empty diff/i)
+    }
+    finally {
+      await fs.remove(root)
+    }
+  })
+
+  it('refuses an unresolved required verify result even if a runner reports a structurally valid package', async () => {
+    const root = join(tmpdir(), `ccg-grok-unresolved-verify-${Date.now()}`)
+    await fs.ensureDir(root)
+    await Promise.all([
+      fs.writeFile(join(root, 'config.toml'), '[intelligence]\nenabled = true\nauth_mode = "browser_oauth"\nartifact_root = ".codex/ccg/intelligence"\n'),
+      fs.writeFile(join(root, 'package.json'), '{}\n'),
+      fs.writeFile(join(root, 'change.diff'), '+change\n'),
+    ])
+    try {
+      const result = await runManualCommand('verify', {
+        task: 'Verify the current API change.',
+        config: join(root, 'config.toml'),
+        diff: 'change.diff',
+        files: ['package.json'],
+      }, {
+        repoRoot: root,
+        paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
+        runDiagnostics: async () => ({ safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] }),
+        gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'repo-digest' }),
+        runner: async () => ({
+          exitCode: 0,
+          status: 'valid',
+          evidence: {
+            normalized: { searches: [{ tool: 'web_search', status: 'completed' }] },
+            registry: { sources: [] },
+            claims: [{ id: 'unresolved', claim: 'No applicable fact.', status: 'unresolved', source_ids: [] }],
+            validation: { valid: true, package_status: 'valid', verification_outcome: 'unresolved', qualifying_claims: [] },
+          },
+          raw: { notifications: [] },
+        }),
+      })
+      expect(result).toMatchObject({
+        exitCode: 2,
+        status: 'verification_unresolved',
+        package_status: 'valid',
+        verification_outcome: 'unresolved',
+      })
+      expect(await fs.pathExists(join(root, '.codex', 'ccg', 'intelligence'))).toBe(true)
+      expect((await fs.readdir(join(root, '.codex', 'ccg', 'intelligence'))).filter(name => !name.startsWith('.'))).toEqual([])
     }
     finally {
       await fs.remove(root)
@@ -255,6 +309,81 @@ describe('Grok intelligence distribution', () => {
     }
   })
 
+  it('keeps verify action, incident investigation mode, and deep depth independent', async () => {
+    const root = join(tmpdir(), `ccg-grok-verify-incident-deep-${Date.now()}`)
+    await fs.ensureDir(root)
+    await Promise.all([
+      fs.writeFile(join(root, 'config.toml'), '[intelligence]\nenabled = true\nauth_mode = "browser_oauth"\nx_search_policy = "preferred"\ndeep_research_enabled = true\ndefault_model = "grok-4.5"\ndeep_research_model = "grok-4.5-deep"\nartifact_root = ".codex/ccg/intelligence"\n'),
+      fs.writeFile(join(root, 'package.json'), '{}\n'),
+      fs.writeFile(join(root, 'change.diff'), '+incident mitigation\n'),
+    ])
+    let seen: any
+    try {
+      const result = await runManualCommand('verify', {
+        task: 'Verify the current incident mitigation.',
+        config: join(root, 'config.toml'),
+        mode: 'incident',
+        depth: 'deep',
+        diff: 'change.diff',
+        files: ['package.json'],
+        officialDomains: ['docs.x.ai'],
+      }, {
+        repoRoot: root,
+        paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
+        runDiagnostics: async () => ({ safe: true, version: 'grok 0.2.106', models: ['grok-4.5-deep'] }),
+        gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'repo-digest' }),
+        runner: async (options: any) => {
+          seen = options
+          return {
+            exitCode: 0,
+            status: 'valid',
+            evidence: {
+              normalized: { searches: [{ tool: 'web_search', status: 'completed' }, { tool: 'x_search', status: 'completed' }] },
+              registry: { sources: [{ id: 'source-1', canonical_url: 'https://docs.x.ai/build/cli/reference', source_tier: 'A' }] },
+              claims: [{ id: 'verified', claim: 'Applicable mitigation.', status: 'verified', source_ids: ['source-1'], applies_to: ['change.diff'] }],
+              validation: { valid: true, package_status: 'valid', verification_outcome: 'verified', qualifying_claims: ['verified'], effective_x_policy: 'required' },
+            },
+            raw: { notifications: [] },
+          }
+        },
+      })
+      expect(seen).toMatchObject({ action: 'verify', mode: 'incident', depth: 'deep', model: 'grok-4.5-deep' })
+      expect(result).toMatchObject({
+        exitCode: 0,
+        action: 'verify',
+        investigation_mode: 'incident',
+        mode: 'incident',
+        depth: 'deep',
+        effective_x_policy: 'required',
+        verification_outcome: 'verified',
+      })
+      expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({
+        action: 'verify',
+        investigation_mode: 'incident',
+        depth: 'deep',
+        requirement: 'required',
+        effective_x_policy: 'required',
+        cli_version: 'grok 0.2.106',
+        model: 'grok-4.5-deep',
+        prompt_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        git_head: '0123456789abcdef',
+        dirty_digest: 'repo-digest',
+        bindings: [expect.objectContaining({ kind: 'diff', path: 'change.diff', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) })],
+        official_domains: ['docs.x.ai'],
+        search_counts: { web: 1, x: 1 },
+        attempts: 1,
+        package_status: 'valid',
+        validation_outcome: 'verified',
+        verification_outcome: 'verified',
+        cache_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        cache_contract_versions: expect.objectContaining({ runnerVersion: '2', evidenceSchemaVersion: '2' }),
+      })
+    }
+    finally {
+      await fs.remove(root)
+    }
+  })
+
   it('reuses identical manual evidence while invalidating changed and force-refreshed requests', async () => {
     const root = join(tmpdir(), `ccg-grok-manual-cache-${Date.now()}`)
     const alias = `${root}-alias`
@@ -265,6 +394,8 @@ describe('Grok intelligence distribution', () => {
       fs.writeFile(join(root, 'change.diff'), '+current contract\n'),
     ])
     await fs.symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const sourceUrl = 'https://docs.x.ai/build/cli/reference'
+    const sourceId = computeSourceId('web_search', sourceUrl)
     const runner = vi.fn(async () => {
       await new Promise(resolvePromise => setTimeout(resolvePromise, 5))
       return {
@@ -272,8 +403,9 @@ describe('Grok intelligence distribution', () => {
         status: 'valid',
         evidence: {
           normalized: { searches: [{ tool: 'web_search', status: 'completed' }] },
-          registry: { sources: [{ id: 'source-1', canonical_url: 'https://docs.x.ai/build/cli/reference' }] },
-          claims: [{ id: 'unresolved', claim: 'No applicable fact in fixture.', status: 'unresolved', severity: 'info', source_ids: [] }],
+          registry: { sources: [{ id: sourceId, tool: 'web_search', observed_tool: 'web_search', canonical_url: sourceUrl, source_tier: 'A', independence_key: 'x.ai' }] },
+          claims: [{ id: 'verified', claim: 'Applicable contract.', status: 'verified', severity: 'info', source_ids: [sourceId], applies_to: ['change.diff'] }],
+          validation: { valid: true, package_status: 'valid', verification_outcome: 'verified', qualifying_claims: ['verified'], effective_x_policy: 'preferred' },
         },
         raw: { notifications: [] },
       }
@@ -392,21 +524,49 @@ describe('Grok intelligence distribution', () => {
       await fs.ensureDir(join(paths.grokHome, 'logs'))
       const historicalLog = join(paths.grokHome, 'logs', 'unified.jsonl')
       await fs.writeFile(historicalLog, '{"key_prefix":"historical-prefix"}\n')
-      const isolatedDiagnostics = vi.fn(async () => ({
-        help: { stdout: 'agent models inspect', stderr: '', exitCode: 0 },
-        diagnostics: { safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] },
-      }))
+      let leaseHeld = false
+      const leaseEvents: string[] = []
+      const withCredentialLease = vi.fn(async (_grokHome: string, action: () => Promise<any>) => {
+        expect(leaseHeld).toBe(false)
+        leaseHeld = true
+        leaseEvents.push('lease:start')
+        try {
+          return await action()
+        }
+        finally {
+          leaseEvents.push('lease:end')
+          leaseHeld = false
+        }
+      })
+      const isolatedDiagnostics = vi.fn(async (options: any) => {
+        expect(leaseHeld).toBe(true)
+        expect(options.credentialLeaseHeld).toBe(true)
+        return {
+          help: { stdout: 'agent models inspect', stderr: '', exitCode: 0 },
+          diagnostics: { safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] },
+        }
+      })
       const localDoctor = (grokManage as any).localDoctor
       const createPrivateRoots = vi.fn((options: any) => createPrivateRunRoots({
         ...options,
         platform: 'linux',
         validateDirectory: async (path: string) => path,
       }))
-      const createAcpClient = vi.fn((options: any) => createGrokAcpClient({
-        ...options,
-        validatePrivateDirectory: async (path: string) => path,
-      }))
+      const createAcpClient = vi.fn((options: any) => {
+        const client = createGrokAcpClient({
+          ...options,
+          validatePrivateDirectory: async (path: string) => path,
+        })
+        return {
+          run: async (runOptions: any) => {
+            expect(leaseHeld).toBe(true)
+            expect(runOptions.credentialLeaseHeld).toBe(true)
+            return client.run(runOptions)
+          },
+        }
+      })
       const clearCredentialState = vi.fn(async (grokHome: string) => {
+        expect(leaseHeld).toBe(true)
         for (const name of ['sessions', 'logs', 'memtrace'])
           await fs.remove(join(grokHome, name))
         for (const name of ['active_sessions.json', 'active_sessions.lock', 'session_search.sqlite'])
@@ -425,11 +585,14 @@ describe('Grok intelligence distribution', () => {
         createPrivateRoots,
         createAcpClient,
         clearCredentialState,
+        withCredentialLease,
       })
       expect(isolatedDiagnostics).toHaveBeenCalledTimes(1)
       expect(createPrivateRoots).toHaveBeenCalledTimes(1)
       expect(createAcpClient).toHaveBeenCalledTimes(1)
       expect(clearCredentialState).toHaveBeenCalledTimes(2)
+      expect(withCredentialLease).toHaveBeenCalledTimes(1)
+      expect(leaseEvents).toEqual(['lease:start', 'lease:end'])
       expect(result).toMatchObject({ ok: true, paidModelPromptSent: false, version: 'grok 0.2.106' })
       expect(await fs.pathExists(historicalLog)).toBe(false)
     }
@@ -437,4 +600,71 @@ describe('Grok intelligence distribution', () => {
       await fs.remove(root)
     }
   }, 60_000)
+
+  it('makes the paid live doctor a required verify flow with auditable model and claim semantics', async () => {
+    const root = join(tmpdir(), `ccg-grok-live-doctor-${Date.now()}`)
+    const paths = {
+      root,
+      grokHome: join(root, 'grok-home'),
+      neutralHome: join(root, 'neutral-home'),
+      tempParent: join(root, 'runs'),
+    }
+    await fs.ensureDir(root)
+    let runnerOptions: any
+    try {
+      const result = await (grokManage as any).liveDoctor({
+        paths,
+        sourceEnv: { XAI_API_KEY: 'live-test-key' },
+        secureDirectory: async (path: string) => {
+          await fs.ensureDir(path)
+          return path
+        },
+        runLocalDoctor: async () => ({ ok: true, status: { loggedIn: false } }),
+        runner: async (options: any) => {
+          runnerOptions = options
+          return {
+            exitCode: 0,
+            status: 'valid',
+            evidence: {
+              normalized: { searches: [
+                { tool: 'web_search', status: 'completed' },
+                { tool: 'x_search', status: 'completed' },
+              ] },
+              claims: [{ id: 'claim-1', status: 'verified', applies_to: ['probe.txt'] }],
+              validation: {
+                package_status: 'valid',
+                verification_outcome: 'verified',
+                qualifying_claims: ['claim-1'],
+              },
+              model: { requested: 'grok-4.5', actual: 'grok-4.5' },
+            },
+          }
+        },
+      })
+      expect(runnerOptions).toMatchObject({
+        action: 'verify',
+        mode: 'incident',
+        depth: 'normal',
+        requirement: 'required',
+        officialDomains: ['x.ai'],
+        officialXAccounts: ['xai'],
+      })
+      expect(result.live).toMatchObject({
+        action: 'verify',
+        investigationMode: 'incident',
+        depth: 'normal',
+        packageStatus: 'valid',
+        verificationOutcome: 'verified',
+        requestedModel: 'grok-4.5',
+        actualModel: 'grok-4.5',
+        claimCount: 1,
+        qualifyingClaimCount: 1,
+        webSearches: 1,
+        xSearches: 1,
+      })
+    }
+    finally {
+      await fs.remove(root)
+    }
+  }, 20_000)
 })

@@ -186,14 +186,14 @@ describe('normalizeIntelligenceConfig', () => {
       max_bundle_bytes: 1024,
       retention_days: 3,
       exported_retention_days: 9,
-      cleanup_credential_artifacts: false as any,
+      cleanup_credential_artifacts: true,
       require_web_search: false,
       x_search_policy: 'required',
     }, { existingInstall: true })).toMatchObject({
       deep_research_enabled: true,
       live_checks_on_init: true,
       artifact_root: '.private/intelligence',
-      cleanup_credential_artifacts: false,
+      cleanup_credential_artifacts: true,
     })
   })
 
@@ -202,6 +202,7 @@ describe('normalizeIntelligenceConfig', () => {
     expect(() => normalizeIntelligenceConfig({ transport: 'stdio' as any }, { existingInstall: true })).toThrow(/transport/i)
     expect(() => normalizeIntelligenceConfig({ max_retries: 99 }, { existingInstall: true })).toThrow(/max_retries/i)
     expect(() => normalizeIntelligenceConfig({ artifact_root: '../escape' }, { existingInstall: true })).toThrow(/artifact_root/i)
+    expect(() => normalizeIntelligenceConfig({ cleanup_credential_artifacts: false }, { existingInstall: true })).toThrow(/cleanup_credential_artifacts/i)
   })
 })
 

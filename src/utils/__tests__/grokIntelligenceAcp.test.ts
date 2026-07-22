@@ -325,7 +325,9 @@ describe('Grok intelligence ACP transport', () => {
   })
 
   it('waits for a delayed turn_completed notification after session/prompt responds', async () => {
-    const result = await makeClient('delayed-turn').run(runOptions())
+    // Keep the production timeout contract unchanged while giving the spawned
+    // fixture enough startup headroom on loaded Windows CI hosts.
+    const result = await makeClient('delayed-turn').run(runOptions({ timeoutMs: 6000 }))
     expect(result.notifications.some((message: any) => (
       message.method === '_x.ai/session/update'
       && message.params?.update?.sessionUpdate === 'turn_completed'

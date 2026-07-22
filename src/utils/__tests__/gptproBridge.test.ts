@@ -64,6 +64,8 @@ function writeGrokExternalEvidence(
   taskDir: string,
   options: {
     decision?: Record<string, unknown>
+    evidence?: Record<string, unknown>
+    manifest?: Record<string, unknown>
     item?: Record<string, unknown>
     pointer?: Record<string, unknown>
   } = {},
@@ -71,12 +73,18 @@ function writeGrokExternalEvidence(
   const evidenceId = 'grok-contract-1'
   const bundleDir = join(root, '.codex', 'ccg', 'intelligence', evidenceId)
   fs.ensureDirSync(bundleDir)
+  const createdAt = new Date().toISOString()
   const decision = {
     requirement: 'required',
     status: 'valid',
+    action: 'intel',
+    investigation_mode: 'contract',
     mode: 'contract',
+    depth: 'normal',
+    package_status: 'valid',
+    verification_outcome: 'verified',
     reason: 'Current external contract evidence validated.',
-    created_at: '2026-07-21T00:00:00.000Z',
+    created_at: createdAt,
     ...(options.decision || {}),
   }
   const artifact = `${JSON.stringify({
@@ -90,17 +98,28 @@ function writeGrokExternalEvidence(
         status: 'verified',
         severity: 'info',
         source_ids: ['source-1'],
+        applies_to: ['package.json'],
       }],
+      model: { requested: 'grok-4.5', actual: 'grok-4.5', provenance: 'grok agent --model' },
+      action: 'intel',
+      investigation_mode: 'contract',
+      depth: 'normal',
+      effective_x_policy: 'preferred',
+      bindings: [],
       registry: {
         sources: [{
           id: 'source-1',
+          tool: 'web_search',
+          observed_tool: 'web_search',
           canonical_url: 'https://docs.example.test/current-contract',
           publisher: 'Example Maintainer',
           official: true,
           source_tier: 'A',
-          retrieved_at: '2026-07-21T00:00:00.000Z',
+          independence_key: 'example.test',
+          retrieved_at: createdAt,
         }],
       },
+      ...(options.evidence || {}),
     },
   }, null, 2)}\n`
   const report = '# Validated Grok evidence\n'
@@ -113,15 +132,35 @@ function writeGrokExternalEvidence(
   const manifest = `${JSON.stringify({
     schemaVersion: 1,
     evidenceId,
-    createdAt: '2026-07-21T00:00:00.000Z',
+    createdAt,
     localOnly: true,
     exported: false,
     retentionDays: 7,
+    action: 'intel',
+    investigation_mode: 'contract',
+    depth: 'normal',
+    requirement: 'required',
+    effective_x_policy: 'preferred',
+    cli_version: 'grok 0.2.106',
+    model: 'grok-4.5',
+    prompt_sha256: 'a'.repeat(64),
+    git_head: 'unversioned',
+    dirty_digest: 'b'.repeat(64),
+    bindings: [],
+    official_domains: ['docs.example.test'],
+    search_counts: { web: 1, x: 0 },
+    attempts: 1,
+    package_status: 'valid',
+    validation_outcome: 'verified',
+    verification_outcome: 'verified',
+    cache_fingerprint: 'c'.repeat(64),
+    cache_contract_versions: { runnerVersion: '2', evidenceSchemaVersion: '2' },
     files: {
       'evidence.json': { sha256: sha256(artifact), bytes: Buffer.byteLength(artifact) },
       'report.md': { sha256: sha256(report), bytes: Buffer.byteLength(report) },
       'raw-stream.jsonl': { sha256: sha256(raw), bytes: Buffer.byteLength(raw) },
     },
+    ...(options.manifest || {}),
   }, null, 2)}\n`
   fs.writeFileSync(join(bundleDir, 'manifest.json'), manifest)
   const artifactSha256 = sha256(artifact)
@@ -133,13 +172,18 @@ function writeGrokExternalEvidence(
     provider: 'grok',
     role: 'external-intelligence',
     policy: 'required',
+    action: 'intel',
+    investigationMode: 'contract',
+    depth: 'normal',
+    packageStatus: 'valid',
+    verificationOutcome: 'verified',
     available: true,
     artifactFile,
     artifactSha256,
     manifestFile,
     manifestSha256,
     summary: 'Validated current external contract evidence.',
-    createdAt: '2026-07-21T00:00:00.000Z',
+    createdAt,
     localOnly: true,
     exported: false,
     ...(options.item || {}),
@@ -150,6 +194,11 @@ function writeGrokExternalEvidence(
   task.intelligence = {
     requirement: 'required',
     status: decision.status,
+    action: decision.action,
+    investigation_mode: decision.investigation_mode,
+    depth: decision.depth,
+    package_status: decision.package_status,
+    verification_outcome: decision.verification_outcome,
     evidence_id: evidenceId,
     manifest_file: manifestFile,
     manifest_sha256: manifestSha256,
@@ -162,21 +211,21 @@ function writeGrokExternalEvidence(
 }
 
 function writeGeminiGateEvidence(taskDir: string, artifactFile: string, response: string): void {
-  fs.writeJsonSync(join(taskDir, 'evidence.json'), {
-    schemaVersion: 1,
-    items: [{
-      id: 'gemini-gate-1',
-      provider: 'gemini',
-      role: 'gate',
-      policy: 'required',
-      available: true,
-      artifactFile,
-      artifactSha256: sha256(response),
-      artifactChars: response.length,
-      summary: 'Gemini gate evidence is available.',
-      createdAt: '2026-01-01T00:00:00.000Z',
-    }],
+  const evidencePath = join(taskDir, 'evidence.json')
+  const canonical = fs.pathExistsSync(evidencePath) ? fs.readJsonSync(evidencePath) : { schemaVersion: 1, items: [] }
+  canonical.items.push({
+    id: 'gemini-gate-1',
+    provider: 'gemini',
+    role: 'gate',
+    policy: 'required',
+    available: true,
+    artifactFile,
+    artifactSha256: sha256(response),
+    artifactChars: response.length,
+    summary: 'Gemini gate evidence is available.',
+    createdAt: '2026-01-01T00:00:00.000Z',
   })
+  fs.writeJsonSync(evidencePath, canonical)
 }
 
 function writeRoutingEvidence(
@@ -258,6 +307,10 @@ describe('GPT Pro manual bridge', () => {
     for (const [relativePath, grokMarker, ordinaryMarker] of surfaces) {
       const content = readFileSync(join(PACKAGE_ROOT, ...relativePath.split('/')), 'utf8')
       expect(content, relativePath).toContain('--require-external-intelligence')
+      expect(content, relativePath).toContain('--expected-intelligence-mode')
+      expect(content, relativePath).toContain('--expected-intelligence-depth')
+      expect(content, relativePath).toContain('status=valid')
+      expect(content, relativePath).toMatch(/waived/i)
       expect(content.indexOf(grokMarker), relativePath).toBeGreaterThanOrEqual(0)
       expect(content.indexOf(grokMarker), relativePath).toBeLessThan(content.indexOf(ordinaryMarker))
       expect(content, relativePath).toMatch(/exit `?2(?:`, `3`, or `4|\/3\/4)/i)
@@ -273,11 +326,19 @@ describe('GPT Pro manual bridge', () => {
 
     const output = runPython(PYTHON!, [
       BRIDGE,
-      '--mode', 'exc',
-      '--workdir', root,
-      '--task-dir', '.ccg/tasks/grok-task',
-      '--prompt', 'Review the execution route against current external facts.',
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/grok-task',
+      '--prompt',
+      'Review the execution route against current external facts.',
       '--require-external-intelligence',
+      '--expected-intelligence-mode',
+      'contract',
+      '--expected-intelligence-depth',
+      'normal',
     ], root)
     const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
     const promptFile = parseOutputPath(output, 'CCG_GPTPRO_PROMPT_FILE')
@@ -297,6 +358,47 @@ describe('GPT Pro manual bridge', () => {
     expect(prompt).not.toContain('RAW_DO_NOT_FORWARD')
   })
 
+  maybeIt('accepts review evidence only when verify semantics bind the current non-empty diff', () => {
+    const root = join(TMP_ROOT, 'grok-review-diff-evidence')
+    const taskDir = join(root, '.ccg', 'tasks', 'grok-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'grok-task', status: 'in_progress' })
+    const diff = '+current verified change\n'
+    fs.writeFileSync(join(root, 'change.diff'), diff)
+    fs.writeFileSync(join(taskDir, 'gemini-review.md'), 'Gemini independently reviewed the current diff.\n')
+    const binding = { kind: 'diff', path: 'change.diff', sha256: sha256(diff), bytes: Buffer.byteLength(diff), empty: false }
+    writeGrokExternalEvidence(root, taskDir, {
+      decision: { action: 'verify' },
+      evidence: { action: 'verify', bindings: [binding] },
+      manifest: { action: 'verify', bindings: [binding] },
+      item: { action: 'verify' },
+      pointer: { action: 'verify' },
+    })
+    writeGeminiGateEvidence(taskDir, 'gemini-review.md', 'Gemini independently reviewed the current diff.\n')
+    const output = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/grok-task',
+      '--prompt',
+      'Review the bound current diff.',
+      '--gemini-response-file',
+      join(taskDir, 'gemini-review.md'),
+      '--gemini-summary',
+      'Gemini review evidence is available.',
+      '--require-external-intelligence',
+      '--expected-intelligence-mode',
+      'contract',
+      '--expected-intelligence-depth',
+      'normal',
+    ], root)
+    const status = fs.readJsonSync(parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE'))
+    expect(status.external_intelligence).toMatchObject({ action: 'verify', verification_outcome: 'verified' })
+  })
+
   maybeIt.each([
     ['wrong role', { item: { role: 'review' } }, /missing required grok\/external-intelligence/i],
     ['wrong policy', { item: { policy: 'preferred' } }, /missing required grok\/external-intelligence/i],
@@ -308,6 +410,23 @@ describe('GPT Pro manual bridge', () => {
     ['task locality pointer drift', { pointer: { localOnly: false } }, /task pointer drift/i],
     ['manifest identity drift', { item: { id: 'grok-external-intelligence-other' } }, /does not bind/i],
     ['waiver without user metadata', { decision: { status: 'waived' } }, /explicit user waiver metadata/i],
+    ['action drift', { decision: { action: 'verify' } }, /action/i],
+    ['caller mode mismatch', {
+      decision: { investigation_mode: 'incident', mode: 'incident' },
+      evidence: { investigation_mode: 'incident' },
+      manifest: { investigation_mode: 'incident' },
+      item: { investigationMode: 'incident' },
+      pointer: { investigation_mode: 'incident' },
+    }, /investigation mode|handoff/i],
+    ['unresolved verification outcome', {
+      decision: { verification_outcome: 'unresolved' },
+      evidence: { claims: [{ id: 'claim-none', claim: 'No applicable fact.', status: 'unresolved', severity: 'info', source_ids: [] }] },
+      manifest: { validation_outcome: 'unresolved', verification_outcome: 'unresolved' },
+    }, /verification outcome|qualifying claim/i],
+    ['stale evidence', {
+      decision: { created_at: '2026-01-01T00:00:00.000Z' },
+      manifest: { createdAt: '2026-01-01T00:00:00.000Z' },
+    }, /stale|freshness/i],
   ])('rejects canonical Grok evidence with %s', (_label, evidenceOptions, expected) => {
     const root = join(TMP_ROOT, `grok-reject-${String(_label).replace(/\s+/g, '-')}`)
     const taskDir = join(root, '.ccg', 'tasks', 'grok-task')
@@ -316,13 +435,75 @@ describe('GPT Pro manual bridge', () => {
     writeGrokExternalEvidence(root, taskDir, evidenceOptions as any)
     const stderr = runPythonFailure(PYTHON!, [
       BRIDGE,
-      '--mode', 'exc',
-      '--workdir', root,
-      '--task-dir', '.ccg/tasks/grok-task',
-      '--prompt', 'This bridge must not be created.',
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/grok-task',
+      '--prompt',
+      'This bridge must not be created.',
       '--require-external-intelligence',
+      '--expected-intelligence-mode',
+      'contract',
+      '--expected-intelligence-depth',
+      'normal',
     ], root)
     expect(stderr).toMatch(expected as RegExp)
+    expect(fs.pathExistsSync(join(taskDir, 'gptpro'))).toBe(false)
+  })
+
+  maybeIt('recomputes bound file digests before accepting Grok evidence', () => {
+    const root = join(TMP_ROOT, 'grok-binding-drift')
+    const taskDir = join(root, '.ccg', 'tasks', 'grok-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'grok-task', status: 'in_progress' })
+    fs.writeFileSync(join(root, 'package.json'), '{"version":1}\n')
+    const binding = { kind: 'dependency', path: 'package.json', sha256: sha256('{"version":1}\n'), bytes: Buffer.byteLength('{"version":1}\n') }
+    writeGrokExternalEvidence(root, taskDir, {
+      evidence: { bindings: [binding] },
+      manifest: { bindings: [binding] },
+    })
+    fs.writeFileSync(join(root, 'package.json'), '{"version":2}\n')
+    const stderr = runPythonFailure(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/grok-task',
+      '--prompt',
+      'This bridge must reject stale bindings.',
+      '--require-external-intelligence',
+      '--expected-intelligence-mode',
+      'contract',
+      '--expected-intelligence-depth',
+      'normal',
+    ], root)
+    expect(stderr).toMatch(/binding|digest|sha256/i)
+    expect(fs.pathExistsSync(join(taskDir, 'gptpro'))).toBe(false)
+  })
+
+  maybeIt('requires the caller to declare expected Grok mode and depth', () => {
+    const root = join(TMP_ROOT, 'grok-missing-expectations')
+    const taskDir = join(root, '.ccg', 'tasks', 'grok-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'grok-task', status: 'in_progress' })
+    writeGrokExternalEvidence(root, taskDir)
+    const stderr = runPythonFailure(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/grok-task',
+      '--prompt',
+      'This bridge must require explicit expected semantics.',
+      '--require-external-intelligence',
+    ], root)
+    expect(stderr).toMatch(/explicit expected mode and depth/i)
     expect(fs.pathExistsSync(join(taskDir, 'gptpro'))).toBe(false)
   })
 
@@ -335,10 +516,14 @@ describe('GPT Pro manual bridge', () => {
 
     const stderr = runPythonFailure(PYTHON!, [
       BRIDGE,
-      '--mode', 'exc',
-      '--workdir', root,
-      '--task-dir', outsideTask,
-      '--prompt', 'This bridge must not escape the workdir.',
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      outsideTask,
+      '--prompt',
+      'This bridge must not escape the workdir.',
     ], root)
     expect(stderr).toMatch(/must be a direct child/i)
     expect(fs.pathExistsSync(join(outsideTask, 'gptpro'))).toBe(false)

@@ -112,9 +112,14 @@ function validateClaims(claims, sourcesById, errors, warnings) {
 
     let blocker = null
     if (claim.severity === 'blocker') {
-      blocker = blockerEligibility(claim, claimSources)
-      if (!blocker.eligible)
-        errors.push(`Claim ${claimId} is not blocker-eligible: ${blocker.reason}`)
+      if (['verified', 'partially_verified'].includes(claim.status)) {
+        blocker = blockerEligibility(claim, claimSources)
+        if (!blocker.eligible)
+          errors.push(`Claim ${claimId} is not blocker-eligible: ${blocker.reason}`)
+      }
+      else {
+        blocker = { eligible: false, reason: 'non-verifying claim cannot create a blocker' }
+      }
     }
     if (claim.status === 'verified' && claimSources.some(source => ['C', 'D', 'U'].includes(source.source_tier)))
       warnings.push(`Verified claim ${claimId} includes lower-tier evidence`)
@@ -122,15 +127,36 @@ function validateClaims(claims, sourcesById, errors, warnings) {
       .filter(source => ['A', 'B'].includes(source.source_tier))
       .map(source => source.independence_key)
       .filter(Boolean))
+    const applicable = claim.observed_applicability === true
+      || (Array.isArray(claim.applies_to)
+        && claim.applies_to.some(value => typeof value === 'string' && value.trim()))
+    const reputable = claimSources.some(source => ['A', 'B'].includes(source.source_tier))
+    const qualifying = ['verified', 'partially_verified'].includes(claim.status)
+      && applicable
+      && reputable
     evaluated.push({
       id: claimId,
+      status: claim.status,
       blocker,
       source_tiers: [...new Set(claimSources.map(source => source.source_tier))].sort(),
       cross_verified: reputableIndependenceKeys.size >= 2,
-      applicability: claim.observed_applicability === true ? 'observed' : 'unknown',
+      applicability: claim.observed_applicability === true ? 'observed' : applicable ? 'declared' : 'unknown',
+      qualifying,
     })
   }
   return evaluated
+}
+
+function verificationOutcome(evaluatedClaims) {
+  const qualifying = evaluatedClaims.filter(claim => claim.qualifying)
+  if (qualifying.length > 0) {
+    const fullyVerified = evaluatedClaims.length > 0
+      && evaluatedClaims.every(claim => claim.status === 'verified' && claim.qualifying)
+    return fullyVerified ? 'verified' : 'partially_verified'
+  }
+  if (evaluatedClaims.some(claim => claim.status === 'contradicted'))
+    return 'contradicted'
+  return 'unresolved'
 }
 
 export function validateEvidencePackage({
@@ -153,8 +179,12 @@ export function validateEvidencePackage({
   const evaluatedClaims = validateClaims(claims, sourcesById, errors, warnings)
   if (requireClaims && Array.isArray(claims) && claims.length === 0)
     errors.push('Required evidence package must contain at least one claim or an explicit unresolved claim')
+  const valid = errors.length === 0
   return {
-    valid: errors.length === 0,
+    valid,
+    package_status: valid ? 'valid' : 'invalid',
+    verification_outcome: verificationOutcome(evaluatedClaims),
+    qualifying_claims: evaluatedClaims.filter(claim => claim.qualifying).map(claim => claim.id),
     errors,
     warnings,
     effective_x_policy: effectiveXPolicy,

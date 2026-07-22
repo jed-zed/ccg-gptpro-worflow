@@ -277,6 +277,25 @@ func (d *drainBlockingCmd) Process() processHandle {
 	return d.inner.Process()
 }
 
+// waitClosingCmd models os/exec.Cmd.Wait closing StdoutPipe as soon as the
+// process exits. It makes the fast-process parser race deterministic.
+type waitClosingCmd struct {
+	inner *fakeCmd
+}
+
+func (w *waitClosingCmd) Start() error                       { return w.inner.Start() }
+func (w *waitClosingCmd) StdoutPipe() (io.ReadCloser, error) { return w.inner.StdoutPipe() }
+func (w *waitClosingCmd) StdinPipe() (io.WriteCloser, error) { return w.inner.StdinPipe() }
+func (w *waitClosingCmd) SetStderr(out io.Writer)            { w.inner.SetStderr(out) }
+func (w *waitClosingCmd) SetDir(dir string)                  { w.inner.SetDir(dir) }
+func (w *waitClosingCmd) SetEnv(env map[string]string)       { w.inner.SetEnv(env) }
+func (w *waitClosingCmd) Process() processHandle             { return w.inner.Process() }
+func (w *waitClosingCmd) Wait() error {
+	err := w.inner.Wait()
+	_ = w.inner.stdout.CloseWithReason("os-exec-wait")
+	return err
+}
+
 type bufferWriteCloser struct {
 	buf    bytes.Buffer
 	mu     sync.Mutex
@@ -775,8 +794,88 @@ func TestRunCodexTask_WaitBeforeParse(t *testing.T) {
 	if fake.stdout == nil {
 		t.Fatalf("stdout reader not initialized")
 	}
-	if reason := fake.stdout.Reason(); reason != stdoutCloseReasonWait {
-		t.Fatalf("stdout close reason = %q, want %q", reason, stdoutCloseReasonWait)
+	if reason := fake.stdout.Reason(); reason != stdoutCloseReasonDrain {
+		t.Fatalf("stdout close reason = %q, want %q", reason, stdoutCloseReasonDrain)
+	}
+}
+
+func TestRunCodexTask_WaitCannotCloseStdoutBeforeMessage(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{
+			{Data: `{"type":"thread.started","thread_id":"fast-thread"}` + "\n"},
+			{Delay: 25 * time.Millisecond, Data: `{"type":"item.completed","item":{"type":"agent_message","text":"fast-message"}}` + "\n"},
+		},
+	})
+	closing := &waitClosingCmd{inner: fake}
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+		return closing
+	}
+	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	codexCommand = "fast-cmd"
+
+	result := runCodexTask(TaskSpec{Task: "ignored"}, false, 5)
+	if result.ExitCode != 0 || result.Message != "fast-message" || result.SessionID != "fast-thread" {
+		t.Fatalf("unexpected result after wait-close race: %+v", result)
+	}
+}
+
+func TestRunCodexTask_CompletedProcessWinsContextDeadline(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{
+			{Delay: 40 * time.Millisecond, Data: `{"type":"item.completed","item":{"type":"agent_message","text":"completed"}}` + "\n"},
+		},
+	})
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+		return fake
+	}
+	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	codexCommand = "completed-cmd"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	result := runCodexTaskWithContext(ctx, TaskSpec{Task: "ignored"}, nil, nil, false, false, 5)
+	if result.ExitCode != 0 || result.Message != "completed" {
+		t.Fatalf("completed process was reclassified by the later deadline: %+v", result)
+	}
+}
+
+func TestRunCodexTask_PreCancelledContextRemainsCancelled(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{
+			{Data: `{"type":"item.completed","item":{"type":"agent_message","text":"too-late"}}` + "\n"},
+		},
+	})
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner { return fake }
+	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	codexCommand = "cancelled-cmd"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := runCodexTaskWithContext(ctx, TaskSpec{Task: "ignored"}, nil, nil, false, false, 5)
+	if result.ExitCode != 130 {
+		t.Fatalf("pre-cancelled context returned %+v, want exit 130", result)
+	}
+}
+
+func TestRunCodexTask_ContextKilledProcessRemainsTimeout(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{KeepStdoutOpen: true, WaitErr: errors.New("killed after context deadline")})
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner { return fake }
+	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	codexCommand = "timeout-cmd"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	result := runCodexTaskWithContext(ctx, TaskSpec{Task: "ignored"}, nil, nil, false, false, 5)
+	if result.ExitCode != 124 {
+		t.Fatalf("context-killed process returned %+v, want exit 124", result)
 	}
 }
 
