@@ -430,6 +430,18 @@ describe('Grok intelligence ACP transport', () => {
         access: [{ identity: 'MACHINE\\owner', inherited: true, type: 'Allow' }],
       }),
     })).resolves.toBe(await realpath(rawEventsDir))
+
+    await expect(validatePrivateDirectory(rawEventsDir, {
+      platform: 'win32',
+      inspectWindowsAcl: async () => ({
+        current: 'MACHINE\\owner',
+        currentSid: 'S-1-5-21-1000',
+        currentOwnerSid: 'S-1-5-32-544',
+        owner: 'BUILTIN\\Administrators',
+        ownerSid: 'S-1-5-32-544',
+        access: [{ identity: 'MACHINE\\owner', identitySid: 'S-1-5-21-1000', inherited: false, type: 'Allow' }],
+      }),
+    })).resolves.toBe(await realpath(rawEventsDir))
   })
 
   it('validates capture bounds before spawning', async () => {

@@ -136,8 +136,11 @@ function inspectWindowsAclDefault(path) {
     '$targetPath = [Console]::In.ReadToEnd()',
     '$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()',
     '$acl = Get-Acl -LiteralPath $targetPath',
-    '$access = @($acl.Access | ForEach-Object { [pscustomobject]@{ identity = $_.IdentityReference.Value; inherited = $_.IsInherited; type = $_.AccessControlType.ToString() } })',
-    '[pscustomobject]@{ current = $identity.Name; currentSid = $identity.User.Value; owner = $acl.Owner; access = $access } | ConvertTo-Json -Depth 5 -Compress',
+    '$sidType = [System.Security.Principal.SecurityIdentifier]',
+    '$ownerSid = ([System.Security.Principal.NTAccount]$acl.Owner).Translate($sidType).Value',
+    '$currentOwnerSid = if ($identity.Owner) { $identity.Owner.Value } else { $identity.User.Value }',
+    '$access = @($acl.Access | ForEach-Object { [pscustomobject]@{ identity = $_.IdentityReference.Value; identitySid = $_.IdentityReference.Translate($sidType).Value; inherited = $_.IsInherited; type = $_.AccessControlType.ToString() } })',
+    '[pscustomobject]@{ current = $identity.Name; currentSid = $identity.User.Value; currentOwnerSid = $currentOwnerSid; owner = $acl.Owner; ownerSid = $ownerSid; access = $access } | ConvertTo-Json -Depth 5 -Compress',
   ].join('; ')
   const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8',
@@ -169,11 +172,12 @@ export async function validatePrivateDirectory(path, {
 
   const acl = await inspectWindowsAcl(canonical)
   const currentIdentities = new Set([acl?.current, acl?.currentSid].filter(Boolean).map(value => String(value).toLowerCase()))
-  const owner = String(acl?.owner || '').toLowerCase()
+  const currentOwners = new Set([...currentIdentities, acl?.currentOwnerSid].filter(Boolean).map(value => String(value).toLowerCase()))
+  const owner = String(acl?.ownerSid || acl?.owner || '').toLowerCase()
   const access = Array.isArray(acl?.access) ? acl.access : acl?.access ? [acl.access] : []
-  const ownerMatches = currentIdentities.has(owner)
+  const ownerMatches = currentOwners.has(owner)
   const accessIsPrivate = access.length > 0 && access.every((entry) => {
-    const identity = String(entry?.identity || '').toLowerCase()
+    const identity = String(entry?.identitySid || entry?.identity || '').toLowerCase()
     return currentIdentities.has(identity) && String(entry?.type) === 'Allow'
   })
   if (!ownerMatches || !accessIsPrivate)
