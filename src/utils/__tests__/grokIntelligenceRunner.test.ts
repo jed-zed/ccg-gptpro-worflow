@@ -1,9 +1,7 @@
-import { chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-// @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { validatePrivateDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { buildExactGrokEnvironment, FORCED_GROK_ENV } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -178,8 +176,30 @@ describe('private roots and clean diagnostics', () => {
   it.runIf(process.platform === 'win32')('enforces the production owner-only Windows ACL contract once', async () => {
     const privateRoot = join(root, 'windows-private')
     const canonical = await securePrivateDirectory(privateRoot)
-    await expect(validatePrivateDirectory(privateRoot)).resolves.toBe(canonical)
+    expect(canonical).toBe(await realpath(privateRoot))
   }, 60_000)
+
+  it('reuses post-lock Windows ACL evidence for the private-directory validator', async () => {
+    const privateRoot = join(root, 'windows-private-evidence')
+    const acl = {
+      current: 'MACHINE\\owner',
+      currentSid: 'S-1-5-21-1000',
+      currentOwnerSid: 'S-1-5-32-544',
+      owner: 'BUILTIN\\Administrators',
+      ownerSid: 'S-1-5-32-544',
+      access: [{ identity: 'MACHINE\\owner', identitySid: 'S-1-5-21-1000', inherited: false, type: 'Allow' }],
+    }
+    const validateDirectory = vi.fn(async (path: string, options: any) => {
+      expect(await options.inspectWindowsAcl(path)).toBe(acl)
+      return path
+    })
+    await expect(securePrivateDirectory(privateRoot, {
+      platform: 'win32',
+      restrictWindowsAcl: () => acl,
+      validateDirectory,
+    })).resolves.toBe(privateRoot)
+    expect(validateDirectory).toHaveBeenCalledTimes(1)
+  })
 
   it('creates separate owner-only neutral, snapshot, and raw directories', async () => {
     const grokHome = join(root, 'grok-home')

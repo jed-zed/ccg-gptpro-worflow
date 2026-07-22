@@ -95,13 +95,18 @@ export function lockDownWindowsDirectory(path) {
     '$currentOwnerSid = if ($identity.Owner) { $identity.Owner.Value } else { $sid.Value }',
     '$unexpected = @($acl.Access | Where-Object { $_.IdentityReference.Translate($sidType).Value -ne $sid.Value -or $_.AccessControlType.ToString() -ne "Allow" })',
     '$ownerIsCurrent = $ownerSid -eq $sid.Value -or $ownerSid -eq $currentOwnerSid',
-    'if ($ownerIsCurrent -and $acl.Access.Count -gt 0 -and $unexpected.Count -eq 0) { exit 0 }',
-    '$acl.SetAccessRuleProtection($true, $false)',
-    '$otherIdentities = @($acl.Access | Where-Object { $_.IdentityReference.Translate($sidType).Value -ne $sid.Value } | ForEach-Object { $_.IdentityReference } | Sort-Object -Unique)',
-    'foreach ($other in $otherIdentities) { $acl.PurgeAccessRules($other) }',
-    '$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")',
-    '$acl.SetAccessRule($rule)',
-    'Set-Acl -LiteralPath $targetPath -AclObject $acl',
+    'if (-not ($ownerIsCurrent -and $acl.Access.Count -gt 0 -and $unexpected.Count -eq 0)) {',
+    '  $acl.SetAccessRuleProtection($true, $false)',
+    '  $otherIdentities = @($acl.Access | Where-Object { $_.IdentityReference.Translate($sidType).Value -ne $sid.Value } | ForEach-Object { $_.IdentityReference } | Sort-Object -Unique)',
+    '  foreach ($other in $otherIdentities) { $acl.PurgeAccessRules($other) }',
+    '  $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")',
+    '  $acl.SetAccessRule($rule)',
+    '  Set-Acl -LiteralPath $targetPath -AclObject $acl',
+    '  $acl = Get-Acl -LiteralPath $targetPath',
+    '}',
+    '$ownerSid = ([System.Security.Principal.NTAccount]$acl.Owner).Translate($sidType).Value',
+    '$access = @($acl.Access | ForEach-Object { [pscustomobject]@{ identity = $_.IdentityReference.Value; identitySid = $_.IdentityReference.Translate($sidType).Value; inherited = $_.IsInherited; type = $_.AccessControlType.ToString() } })',
+    '[pscustomobject]@{ current = $identity.Name; currentSid = $sid.Value; currentOwnerSid = $currentOwnerSid; owner = $acl.Owner; ownerSid = $ownerSid; access = $access } | ConvertTo-Json -Depth 5 -Compress',
   ].join('; ')
   const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8',
@@ -117,6 +122,7 @@ export function lockDownWindowsDirectory(path) {
   })
   if (result.status !== 0)
     throw new Error(`Unable to create owner-only Windows ACL: ${String(result.stderr).trim()}`)
+  return JSON.parse(String(result.stdout).replace(/^\uFEFF/, '').trim())
 }
 
 export async function securePrivateDirectory(path, {
@@ -126,9 +132,15 @@ export async function securePrivateDirectory(path, {
 } = {}) {
   await mkdir(path, { recursive: true, mode: 0o700 })
   await chmod(path, 0o700)
+  let windowsAcl
   if (platform === 'win32')
-    await restrictWindowsAcl(path)
-  return validateDirectory(path, { platform })
+    windowsAcl = await restrictWindowsAcl(path)
+  return validateDirectory(path, {
+    platform,
+    ...(windowsAcl && typeof windowsAcl === 'object'
+      ? { inspectWindowsAcl: async () => windowsAcl }
+      : {}),
+  })
 }
 
 async function assertNoReparseTree(path) {
