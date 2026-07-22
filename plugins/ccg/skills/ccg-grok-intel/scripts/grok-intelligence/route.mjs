@@ -53,6 +53,16 @@ function relativeInside(root, target, label) {
   return { absolute: resolvedTarget, relative: rel }
 }
 
+function mapInputPath(repoInput, repoRoot, target, label) {
+  const requested = resolve(repoInput, target)
+  for (const candidateRoot of new Set([resolve(repoInput), resolve(repoRoot)])) {
+    const rel = relative(candidateRoot, requested).replace(/\\/g, '/')
+    if (rel && !rel.startsWith('../') && !isAbsolute(rel))
+      return relativeInside(repoRoot, resolve(repoRoot, rel), label)
+  }
+  throw new Error(`${label} must stay inside the repository`)
+}
+
 async function assertNoLinkedPath(root, target, label, { allowMissing = false } = {}) {
   if (resolve(root) === resolve(target))
     return { absolute: resolve(root), relative: '' }
@@ -74,10 +84,11 @@ async function assertNoLinkedPath(root, target, label, { allowMissing = false } 
   return path
 }
 
-async function digestBinding(repoRoot, label, value) {
+async function digestBinding(repoRoot, repoInput, label, value) {
   if (!value)
     return null
-  const path = await assertNoLinkedPath(repoRoot, value, label)
+  const mapped = mapInputPath(repoInput, repoRoot, value, label)
+  const path = await assertNoLinkedPath(repoRoot, mapped.absolute, label)
   const metadata = await stat(path.absolute)
   if (!metadata.isFile())
     throw new Error(`${label} must be a regular file: ${path.relative}`)
@@ -85,13 +96,13 @@ async function digestBinding(repoRoot, label, value) {
   return { path: path.relative, sha256: sha256(bytes), bytes: bytes.length }
 }
 
-async function collectBindings(input, repoRoot) {
+async function collectBindings(input, repoRoot, repoInput) {
   return {
     task: { sha256: sha256(input.task.trim()), chars: input.task.trim().length },
-    target: await digestBinding(repoRoot, 'target', input.target),
-    plan: await digestBinding(repoRoot, 'plan', input.plan),
-    diff: await digestBinding(repoRoot, 'diff', input.diff),
-    dependencies: await Promise.all((input.dependencies || []).map(file => digestBinding(repoRoot, 'dependency', file))),
+    target: await digestBinding(repoRoot, repoInput, 'target', input.target),
+    plan: await digestBinding(repoRoot, repoInput, 'plan', input.plan),
+    diff: await digestBinding(repoRoot, repoInput, 'diff', input.diff),
+    dependencies: await Promise.all((input.dependencies || []).map(file => digestBinding(repoRoot, repoInput, 'dependency', file))),
   }
 }
 
@@ -153,9 +164,9 @@ async function writeRouteState(context, state) {
   await writeState(context.statePath, state)
 }
 
-function resolveActiveTaskDir(input, repoRoot, statePath) {
+function resolveActiveTaskDir(input, repoRoot, repoInput, statePath) {
   const candidate = input.taskDir
-    ? relativeInside(repoRoot, input.taskDir, 'task directory').absolute
+    ? mapInputPath(repoInput, repoRoot, input.taskDir, 'task directory').absolute
     : dirname(statePath)
   const tasksRoot = resolve(repoRoot, '.ccg', 'tasks')
   const taskRelative = relative(tasksRoot, candidate).replace(/\\/g, '/')
@@ -248,8 +259,8 @@ async function validateSuccessfulBundle(repoRoot, routeDecision, result, { confi
   }
 }
 
-async function publishCanonicalEvidence({ input, repoRoot, statePath, validated }) {
-  const taskDir = resolveActiveTaskDir(input, repoRoot, statePath)
+async function publishCanonicalEvidence({ input, repoRoot, repoInput, statePath, validated }) {
+  const taskDir = resolveActiveTaskDir(input, repoRoot, repoInput, statePath)
   if (!taskDir)
     return null
   const taskFile = resolve(taskDir, 'task.json')
@@ -290,7 +301,7 @@ async function publishCanonicalEvidence({ input, repoRoot, statePath, validated 
 }
 
 async function validateCanonicalReusePointer({ input, context, validated }) {
-  const taskDir = resolveActiveTaskDir(input, context.repoRoot, context.statePath)
+  const taskDir = resolveActiveTaskDir(input, context.repoRoot, context.repoInput, context.statePath)
   if (!taskDir)
     return
   const task = await readJsonIfPresent(resolve(taskDir, 'task.json'))
@@ -499,23 +510,25 @@ function routeInputDigest(input, decision, bindings, config = {}) {
 }
 
 async function prepareWorkflowRoute(input, runtime) {
-  const repoRoot = await realpath(resolve(input.repoRoot || process.cwd()))
+  const repoInput = resolve(input.repoRoot || process.cwd())
+  const repoRoot = await realpath(repoInput)
   const metadata = await stat(repoRoot)
   if (!metadata.isDirectory())
     throw new Error('repoRoot must be a directory')
   if (!input.stateFile)
     throw new Error('Automatic intelligence routing requires --state-file')
-  const statePath = assertAllowedStatePath(repoRoot, input.stateFile).absolute
+  const requestedStatePath = mapInputPath(repoInput, repoRoot, input.stateFile, 'state file')
+  const statePath = assertAllowedStatePath(repoRoot, requestedStatePath.absolute).absolute
   await assertNoLinkedPath(repoRoot, dirname(statePath), 'state directory', { allowMissing: true })
   const previous = validateExistingRouteState(await readJsonIfPresent(statePath))
   const config = await resolveConfig(input)
   const decision = classifyWorkflowRoute(input, config, previous)
   emit(runtime, 'decision')
-  const bindings = await collectBindings({ ...input, task: String(input.task || '') }, repoRoot)
+  const bindings = await collectBindings({ ...input, task: String(input.task || '') }, repoRoot, repoInput)
   if (decision.mode === 'verify' && (!bindings.diff || bindings.diff.bytes === 0))
     throw new Error('Final external verification requires a non-empty --diff binding')
   const inputDigest = routeInputDigest(input, decision, bindings, config)
-  return { repoRoot, statePath, previous, config, decision, bindings, inputDigest, clock: runtime.clock || (() => new Date()) }
+  return { repoRoot, repoInput, statePath, previous, config, decision, bindings, inputDigest, clock: runtime.clock || (() => new Date()) }
 }
 
 async function completeSkippedRoute(input, context, runtime) {
@@ -590,6 +603,7 @@ async function canonicalizeRunnerResult(input, context, result) {
       canonicalEvidence = await publishCanonicalEvidence({
         input,
         repoRoot: context.repoRoot,
+        repoInput: context.repoInput,
         statePath: context.statePath,
         validated,
       })

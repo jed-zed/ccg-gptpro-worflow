@@ -503,6 +503,44 @@ describe('Grok automatic intelligence routing', () => {
     await fs.remove(outside)
   })
 
+  it('accepts repository-root path aliases while preserving canonical containment checks', async () => {
+    const alias = `${root}-alias`
+    const taskDir = join(root, '.ccg', 'tasks', 'alias-route')
+    await fs.ensureDir(taskDir)
+    await fs.writeJson(join(taskDir, 'task.json'), { id: 'alias-route', status: 'in_progress' })
+    try {
+      await fs.symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    }
+    catch (error: any) {
+      if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error?.code))
+        return
+      throw error
+    }
+
+    try {
+      const result = await (routeRuntime as any).runWorkflowRoute({
+        repoRoot: alias,
+        config: enabledConfig(),
+        workflow: 'gptpro-plan',
+        phase: 'intake',
+        task: 'Verify the current SDK API contract.',
+        plan: join(alias, 'plan.md'),
+        dependencies: [join(alias, 'pnpm-lock.yaml')],
+        stateFile: join(alias, '.ccg', 'tasks', 'alias-route', 'intelligence-route.json'),
+        taskDir: join(alias, '.ccg', 'tasks', 'alias-route'),
+      }, {
+        invoke: async () => validRunnerResult(),
+      })
+
+      expect(result).toMatchObject({ exitCode: 0, decision: { status: 'valid' } })
+      expect(await fs.pathExists(join(taskDir, 'intelligence-route.json'))).toBe(true)
+      expect(await fs.pathExists(join(taskDir, 'evidence.json'))).toBe(true)
+    }
+    finally {
+      await fs.remove(alias)
+    }
+  })
+
   it('rejects arbitrary state files before invoking the runner', async () => {
     let calls = 0
     await expect((routeRuntime as any).runWorkflowRoute({
