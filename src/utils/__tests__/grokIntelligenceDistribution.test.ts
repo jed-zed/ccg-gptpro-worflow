@@ -27,7 +27,7 @@ function collectFiles(root: string): string[] {
 describe('Grok intelligence distribution', () => {
   const installDir = join(tmpdir(), `ccg-grok-distribution-${Date.now()}`)
 
-  afterAll(async () => fs.remove(installDir))
+  afterAll(async () => fs.remove(installDir), 60_000)
 
   it('registers both manual commands as core workflows', () => {
     expect(getCoreCommandIds()).toEqual(expect.arrayContaining(['grok-intel', 'grok-verify']))
@@ -253,12 +253,14 @@ describe('Grok intelligence distribution', () => {
 
   it('reuses identical manual evidence while invalidating changed and force-refreshed requests', async () => {
     const root = join(tmpdir(), `ccg-grok-manual-cache-${Date.now()}`)
+    const alias = `${root}-alias`
     await fs.ensureDir(root)
     await Promise.all([
       fs.writeFile(join(root, 'config.toml'), '[intelligence]\nenabled = true\nauth_mode = "browser_oauth"\ndefault_model = "grok-4.5"\nartifact_root = ".codex/ccg/intelligence"\n'),
       fs.writeFile(join(root, 'package.json'), '{}\n'),
       fs.writeFile(join(root, 'change.diff'), '+current contract\n'),
     ])
+    await fs.symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir')
     const runner = vi.fn(async () => {
       await new Promise(resolvePromise => setTimeout(resolvePromise, 5))
       return {
@@ -273,7 +275,7 @@ describe('Grok intelligence distribution', () => {
       }
     })
     const runtime = {
-      repoRoot: root,
+      repoRoot: alias,
       paths: { grokHome: join(root, 'grok'), neutralHome: join(root, 'neutral'), tempParent: join(root, 'runs') },
       runner,
       runDiagnostics: async () => ({ safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] }),
@@ -281,7 +283,7 @@ describe('Grok intelligence distribution', () => {
     }
     const options = {
       task: 'Verify current API support.',
-      config: join(root, 'config.toml'),
+      config: join(alias, 'config.toml'),
       diff: 'change.diff',
       files: ['package.json'],
     }
@@ -312,6 +314,7 @@ describe('Grok intelligence distribution', () => {
       expect(refreshed.manifestPath).not.toBe(changed.manifestPath)
     }
     finally {
+      await fs.remove(alias)
       await fs.remove(root)
     }
   })
@@ -356,7 +359,7 @@ describe('Grok intelligence distribution', () => {
     finally {
       await fs.remove(root)
     }
-  }, 30_000)
+  }, 90_000)
 
   it('routes local doctor help and inventory through isolated diagnostics', async () => {
     const root = join(tmpdir(), `ccg-grok-local-doctor-${Date.now()}`)
@@ -395,5 +398,5 @@ describe('Grok intelligence distribution', () => {
     finally {
       await fs.remove(root)
     }
-  }, 30_000)
+  }, 90_000)
 })

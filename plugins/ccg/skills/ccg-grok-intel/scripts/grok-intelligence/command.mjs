@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { access, lstat, readFile, readlink, stat } from 'node:fs/promises'
+import { access, lstat, readFile, readlink, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -347,7 +347,7 @@ async function exportCachedResult({ repoRoot, options, result }) {
 export async function runManualCommand(action, options, runtime = {}) {
   if (!['intel', 'verify'].includes(action)) throw new Error('Action must be intel or verify')
   if (typeof options.task !== 'string' || !options.task.trim()) throw new Error('--task is required')
-  const repoRoot = resolve(runtime.repoRoot || process.cwd())
+  const repoRoot = await realpath(resolve(runtime.repoRoot || process.cwd()))
   const configPath = resolve(options.config || runtime.configPath || resolve(homedir(), '.claude', '.ccg', 'config.toml'))
   const config = parseIntelligenceToml(await readFile(configPath, 'utf8'))
   const mode = action === 'verify' ? 'contract' : (options.mode || 'discover')

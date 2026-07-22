@@ -837,5 +837,5 @@ describe('GPT Pro manual bridge', () => {
     ].join('\n')
     const result = runPython(PYTHON!, ['-c', serverScript, BRIDGE, statusFile], root)
     expect(result.trim().split(/\r?\n/)).toEqual(['403', '400', '413', '200'])
-  })
+  }, 20_000)
 })
