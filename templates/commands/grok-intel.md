@@ -1,6 +1,6 @@
 ---
 description: "Collect source-backed current Web/X evidence with the isolated Grok CLI profile"
-argument-hint: "<task> [--mode discover|contract|incident|landscape] [--depth normal|deep] [--force-refresh] [--export <dir>]"
+argument-hint: "<task> [--mode discover|contract|incident|landscape] [--depth normal|deep] [--official-domain <domain>] [--force-refresh] [--export <dir>]"
 allowed-tools: [Read, Glob, Grep, Bash, Write]
 ---
 
@@ -14,15 +14,18 @@ Grok Search MCP as a substitute.
 
 ## Procedure
 
-1. Parse `--mode discover|contract|incident|landscape`, `--depth normal|deep`,
-   `--force-refresh`, and `--export <dir>` from the arguments. Treat the remaining text as the task.
+1. Parse `--mode discover|contract|incident|landscape`, `--depth normal|deep`, repeated
+   `--official-domain <domain>`, `--force-refresh`, and `--export <dir>` from the arguments. Treat
+   the remaining text as the task. Derive official domains only from an explicit task target or
+   trusted package/repository metadata; if unknown, omit the flag so evidence remains
+   `official_unknown` instead of guessing.
 2. Write the task text to a bounded UTF-8 task file under the active `.ccg/tasks/<task-id>/` directory.
    Do not interpolate task text into a shell command.
 3. Select only the minimum relevant repository files. Add each with `--file <relative-path>`.
 4. Run:
 
 ```text
-node ~/.claude/.ccg/engine/tools/grok-intelligence/command.mjs intel --task-file <task-file> --mode <mode> --depth <depth> [--file <path>] [--force-refresh] [--export <dir>]
+node ~/.claude/.ccg/engine/tools/grok-intelligence/command.mjs intel --task-file <task-file> --mode <mode> --depth <depth> [--official-domain <domain>] [--file <path>] [--force-refresh] [--export <dir>]
 ```
 
 5. Print `requirement`, `status`, `webSearches`, `xSearches`, `evidencePath`,

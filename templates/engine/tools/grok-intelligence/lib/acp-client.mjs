@@ -7,13 +7,15 @@ import {
   open,
   readdir,
   readFile,
-  realpath,
   rm,
   stat,
   writeFile,
 } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { buildExactGrokEnvironment } from './exact-env.mjs'
+import { assertExistingPathWithoutLinks } from './path-safety.mjs'
+import { signalProcessTree } from './process-tree.mjs'
+import { canonicalizeSourceUrl } from './source-registry.mjs'
 
 const MAX_RAW_BYTES = 8 * 1024 * 1024
 const MAX_RAW_EVENTS = 20000
@@ -21,6 +23,8 @@ const MAX_JSON_RPC_LINE_BYTES = 1024 * 1024
 const MAX_PROMPT_BYTES = 256 * 1024
 const MAX_TIMEOUT_MS = 10 * 60 * 1000
 const MAX_CREDENTIAL_SNAPSHOT_BYTES = 8 * 1024 * 1024
+const CREDENTIAL_LEASE_NAME = '.ccg-intelligence-lease'
+const CREDENTIAL_RECLAIM_NAME = 'reclaim.json'
 
 export const GROK_ACP_DISALLOWED_TOOLS = Object.freeze([
   'run_terminal_command',
@@ -63,9 +67,11 @@ export const GROK_INTELLIGENCE_SYSTEM_PROMPT = [
   'Never use files, terminal commands, MCP tools, subagents, memory, or write actions.',
 ].join(' ')
 
-export function buildGrokAcpArgs({ maxTurns = 6 } = {}) {
+export function buildGrokAcpArgs({ maxTurns = 6, model = 'grok-4.5' } = {}) {
   if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 6)
     throw new Error('maxTurns must be an integer between 1 and 6')
+  if (typeof model !== 'string' || !model.trim() || /[\u0000-\u001f\u007f]/.test(model))
+    throw new Error('model must be a non-empty single-line Grok model id')
 
   const args = [
     '--no-auto-update',
@@ -86,7 +92,7 @@ export function buildGrokAcpArgs({ maxTurns = 6 } = {}) {
   ]
   for (const rule of GROK_ACP_DENY_RULES)
     args.push('--deny', rule)
-  args.push('agent', 'stdio')
+  args.push('agent', '--model', model.trim(), 'stdio')
   return args
 }
 
@@ -115,22 +121,9 @@ export function selectAcpAuthMethod(authMethods, { authMode, hasApiKey }) {
   throw new Error(`Unsupported intelligence auth mode: ${String(authMode)}`)
 }
 
-function normalizeComparablePath(path, platform = process.platform) {
-  const normalized = resolve(path).replace(/[\\/]+$/, '')
-  return platform === 'win32' ? normalized.toLowerCase() : normalized
-}
-
 async function assertDirectoryWithoutLinks(path, { platform = process.platform } = {}) {
-  if (typeof path !== 'string' || !isAbsolute(path))
-    throw new Error('Directory path must be absolute')
-  const metadata = await lstat(path)
-  if (!metadata.isDirectory())
-    throw new Error(`Expected a directory: ${path}`)
-  if (metadata.isSymbolicLink())
-    throw new Error(`Directory must not be a symbolic link or reparse point: ${path}`)
-  const canonical = await realpath(path)
-  if (normalizeComparablePath(canonical, platform) !== normalizeComparablePath(path, platform))
-    throw new Error(`Directory real path differs; links or reparse points are not allowed: ${path}`)
+  void platform
+  const { metadata, canonical } = await assertExistingPathWithoutLinks(path, { name: 'Directory path', expectedType: 'directory' })
   return { metadata, canonical }
 }
 
@@ -286,6 +279,121 @@ export async function withCredentialHomeVolatileSnapshot(grokHome, action, {
   }
 }
 
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (error) {
+    return error?.code === 'EPERM'
+  }
+}
+
+async function readLeaseOwner(ownerPath) {
+  const metadata = await lstat(ownerPath)
+  if (!metadata.isFile() || metadata.isSymbolicLink())
+    throw new Error('Credential lease owner is not a regular file')
+  const value = JSON.parse(await readFile(ownerPath, 'utf8'))
+  if (typeof value?.owner !== 'string' || !Number.isInteger(value?.pid) || value.pid < 1)
+    throw new Error('Credential lease owner metadata is invalid')
+  return value
+}
+
+async function reclaimAbandonedCredentialLease(leasePath, ownerPath, isAlive) {
+  let observed
+  try {
+    observed = await readLeaseOwner(ownerPath)
+  }
+  catch {
+    return false
+  }
+  if (isAlive(observed.pid)) return false
+
+  const reclaimPath = resolve(leasePath, CREDENTIAL_RECLAIM_NAME)
+  const claimant = `${process.pid}-${randomUUID()}`
+  try {
+    await writeFile(reclaimPath, `${JSON.stringify({ claimant, pid: process.pid })}\n`, { flag: 'wx', mode: 0o600 })
+  }
+  catch (error) {
+    if (error?.code === 'EEXIST') return false
+    throw error
+  }
+
+  try {
+    const current = await readLeaseOwner(ownerPath)
+    if (current.owner !== observed.owner || isAlive(current.pid)) return false
+    await rm(leasePath, { recursive: true, force: true })
+    return true
+  }
+  finally {
+    await rm(reclaimPath, { force: true }).catch(() => {})
+  }
+}
+
+async function acquireCredentialHomeLease(grokHome, {
+  validateDirectory = validatePrivateDirectory,
+  processIsAlive: isAlive = processIsAlive,
+  retryMs = 25,
+  timeoutMs = 30000,
+} = {}) {
+  if (!Number.isInteger(retryMs) || retryMs < 1 || retryMs > 1000)
+    throw new Error('Credential lease retryMs is out of range')
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000)
+    throw new Error('Credential lease timeoutMs is out of range')
+  const root = await validateDirectory(grokHome)
+  const leasePath = resolve(root, CREDENTIAL_LEASE_NAME)
+  const ownerPath = resolve(leasePath, 'owner.json')
+  const owner = `${process.pid}-${randomUUID()}`
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    try {
+      await mkdir(leasePath, { mode: 0o700 })
+      try {
+        await writeFile(ownerPath, `${JSON.stringify({ owner, pid: process.pid, created_at: new Date().toISOString() })}\n`, { flag: 'wx', mode: 0o600 })
+      }
+      catch (error) {
+        await rm(leasePath, { recursive: true, force: true }).catch(() => {})
+        throw error
+      }
+      let released = false
+      return async () => {
+        if (released) return
+        released = true
+        let current
+        try { current = await readLeaseOwner(ownerPath) }
+        catch (error) { throw new Error(`Credential lease owner cannot be verified: ${error instanceof Error ? error.message : String(error)}`) }
+        if (current?.owner !== owner)
+          throw new Error('Credential lease ownership changed before release')
+        await rm(ownerPath, { force: true })
+        await rm(leasePath, { recursive: true, force: true })
+      }
+    }
+    catch (error) {
+      if (error?.code !== 'EEXIST') throw error
+      const metadata = await lstat(leasePath)
+      if (!metadata.isDirectory() || metadata.isSymbolicLink())
+        throw new Error('Credential lease path is not a regular directory')
+      if (await reclaimAbandonedCredentialLease(leasePath, ownerPath, isAlive))
+        continue
+      if (Date.now() >= deadline)
+        throw new Error('Timed out waiting for the shared Grok credential-home lease')
+      await new Promise(resolvePromise => setTimeout(resolvePromise, retryMs))
+    }
+  }
+}
+
+export async function withCredentialHomeLease(grokHome, action, options = {}) {
+  if (typeof action !== 'function')
+    throw new Error('Credential lease action must be a function')
+  const release = await acquireCredentialHomeLease(grokHome, options)
+  try {
+    return await action()
+  }
+  finally {
+    await release()
+  }
+}
+
 async function assertNoLinksRecursively(path) {
   let metadata
   try {
@@ -380,6 +488,10 @@ function redactText(value, secrets) {
     if (secret)
       redacted = redacted.split(secret).join('[REDACTED]')
   }
+  redacted = redacted.replace(/https?:\/\/[^\s"'<>\\]+/gi, (candidate) => {
+    try { return canonicalizeSourceUrl(candidate) }
+    catch { return '[REDACTED_URL]' }
+  })
   return redacted
     .replace(/((?:api[_-]?key|token|authorization)\s*[:=]\s*)\S+/gi, '$1[REDACTED]')
     .replace(/\bBearer\s+[A-Za-z0-9._~-]+/gi, 'Bearer [REDACTED]')
@@ -422,7 +534,7 @@ function validateRunOptions(options) {
     throw new Error('authMode must be browser_oauth or api_key')
   if (options.authMode === 'api_key' && (typeof options.apiKey !== 'string' || options.apiKey.trim().length === 0))
     throw new Error('API key authentication requires an explicitly configured API key')
-  buildGrokAcpArgs({ maxTurns: options.maxTurns ?? 6 })
+  buildGrokAcpArgs({ maxTurns: options.maxTurns ?? 6, model: options.model ?? 'grok-4.5' })
 }
 
 function supportsSessionClose(initializeResult) {
@@ -430,7 +542,7 @@ function supportsSessionClose(initializeResult) {
     || initializeResult?.capabilities?.sessionClose === true
 }
 
-async function terminateChild(child, graceMs = 250) {
+async function terminateChild(child, graceMs = 250, treeEnabled = false) {
   if (!child || child.exitCode != null || child.signalCode != null)
     return
   await new Promise((resolvePromise, rejectPromise) => {
@@ -447,7 +559,7 @@ async function terminateChild(child, graceMs = 250) {
     }
     child.once('close', finish)
     try {
-      child.kill('SIGTERM')
+      signalProcessTree(child, 'SIGTERM', { treeEnabled })
     }
     catch {
       finish()
@@ -455,7 +567,7 @@ async function terminateChild(child, graceMs = 250) {
     }
     terminateTimer = setTimeout(() => {
       try {
-        child.kill('SIGKILL')
+        signalProcessTree(child, 'SIGKILL', { treeEnabled })
       }
       catch {}
     }, graceMs)
@@ -464,7 +576,7 @@ async function terminateChild(child, graceMs = 250) {
         return
       completed = true
       rejectPromise(new Error('ACP child did not terminate after forced shutdown'))
-    }, graceMs * 2)
+    }, treeEnabled && process.platform === 'win32' ? Math.max(5000, graceMs * 2) : graceMs * 2)
   })
 }
 
@@ -482,13 +594,17 @@ export function createGrokAcpClient({
       const cwd = await validateWorkingDirectory(options.cwd, options.allowedCwdRoots)
       await validatePrivate(options.neutralHome)
       const grokHome = await validatePrivate(options.grokHome)
+      const releaseCredentialLease = options.credentialLeaseHeld === true
+        ? async () => {}
+        : await acquireCredentialHomeLease(grokHome, { validateDirectory: validatePrivate })
+      try {
       const childEnvironment = buildExactGrokEnvironment({
         sourceEnv: options.sourceEnv || {},
         neutralHome: options.neutralHome,
         grokHome,
         apiKey: options.authMode === 'api_key' ? options.apiKey : undefined,
       })
-      const acpArgs = buildGrokAcpArgs({ maxTurns: options.maxTurns ?? 6 })
+      const acpArgs = buildGrokAcpArgs({ maxTurns: options.maxTurns ?? 6, model: options.model ?? 'grok-4.5' })
       const credentialSnapshot = await snapshotCredentialHome(grokHome)
       const capture = await createExclusiveCapture(options.rawEventsDir, {
         randomName,
@@ -502,6 +618,7 @@ export function createGrokAcpClient({
           env: childEnvironment,
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
+          detached: spawnProcess === spawn && process.platform !== 'win32',
         })
       }
       catch (error) {
@@ -646,6 +763,10 @@ export function createGrokAcpClient({
 
       child.stdout?.setEncoding('utf8')
       child.stdout?.on('data', consumeStdout)
+      child.stdin?.on('error', (error) => {
+        if (!expectedShutdown)
+          fail(new Error(`Grok ACP stdin failed: ${error.message}`))
+      })
       child.stderr?.setEncoding('utf8')
       child.stderr?.on('data', (chunk) => {
         if (stderrChunks.join('').length < 65536)
@@ -712,7 +833,7 @@ export function createGrokAcpClient({
       }
 
       const stopChild = () => {
-        terminatePromise ||= terminateChild(child)
+        terminatePromise ||= terminateChild(child, 250, spawnProcess === spawn)
         return terminatePromise
       }
 
@@ -822,6 +943,10 @@ export function createGrokAcpClient({
         await restoreCredentialHome(grokHome, credentialSnapshot)
       }
       return result
+      }
+      finally {
+        await releaseCredentialLease()
+      }
     },
   }
 }

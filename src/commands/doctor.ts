@@ -40,6 +40,10 @@ export function buildGrokDoctorArguments(options: DoctorOptions): string[] {
   return args
 }
 
+export function getGrokDoctorTimeout(options: DoctorOptions): number {
+  return options.grokLive ? 600_000 : 180_000
+}
+
 export function validateIntelligenceDoctorConfig(config: any): string[] {
   const expected: Record<string, unknown> = {
     provider: 'grok-cli',
@@ -220,9 +224,11 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
       })
     }
     const manager = await grokManagerPath()
-    const execution = execFileCaptured(process.execPath, [manager, ...buildGrokDoctorArguments(options)], options.grokLive ? 180_000 : 60_000)
+    const execution = execFileCaptured(process.execPath, [manager, ...buildGrokDoctorArguments(options)], getGrokDoctorTimeout(options))
     let result: any = null
-    try { result = execution.stdout ? JSON.parse(execution.stdout) : null }
+    try {
+      result = execution.stdout ? JSON.parse(execution.stdout) : null
+    }
     catch {}
     checks.push({
       label: options.grokLive ? 'Grok live Web/X' : 'Grok local ACP',

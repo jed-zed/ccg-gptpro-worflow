@@ -61,6 +61,17 @@ type reasonReadCloser struct {
 	closedC chan struct{}
 }
 
+type delayedReadCloser struct {
+	reader io.Reader
+	delay  time.Duration
+}
+
+func (r *delayedReadCloser) Read(p []byte) (int, error) {
+	time.Sleep(r.delay)
+	return r.reader.Read(p)
+}
+func (r *delayedReadCloser) Close() error { return nil }
+
 func newReasonReadCloser(data string) *reasonReadCloser {
 	return &reasonReadCloser{r: strings.NewReader(data), closedC: make(chan struct{}, 1)}
 }
@@ -584,6 +595,24 @@ func TestExecutorRunCodexTaskWithContext(t *testing.T) {
 		}
 		if !strings.Contains(string(data), "task-context") {
 			t.Fatalf("task log missing task id, content: %s", string(data))
+		}
+	})
+
+	t.Run("completedProcessWinsOverLaterContextDeadline", func(t *testing.T) {
+		newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+			return &execFakeRunner{
+				stdout: &delayedReadCloser{
+					reader: strings.NewReader(`{"type":"item.completed","item":{"type":"agent_message","text":"completed"}}`),
+					delay:  40 * time.Millisecond,
+				},
+				process: &execFakeProcess{pid: 15},
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		defer cancel()
+		res := runCodexTaskWithContext(ctx, TaskSpec{Task: "payload", WorkDir: "."}, nil, nil, false, true, 1)
+		if res.ExitCode != 0 || res.Message != "completed" {
+			t.Fatalf("completed process should not be reclassified by a later deadline: %+v", res)
 		}
 	})
 

@@ -34,7 +34,7 @@ function validateRegistry(registry, errors) {
         errors.push(`Source ${source.id} does not match its runtime-derived ID`)
       if (source.observed_tool !== 'web_search')
         errors.push(`Source ${source.id} did not originate from built-in WebSearch`)
-      if (!['A', 'B', 'C', 'D'].includes(source.source_tier))
+      if (!['A', 'B', 'C', 'D', 'U'].includes(source.source_tier))
         errors.push(`Source ${source.id} has an invalid runtime tier`)
       if (source.tool === 'x_search' && source.source_tier !== 'D')
         errors.push(`X source ${source.id} must remain Tier D radar evidence`)
@@ -116,9 +116,19 @@ function validateClaims(claims, sourcesById, errors, warnings) {
       if (!blocker.eligible)
         errors.push(`Claim ${claimId} is not blocker-eligible: ${blocker.reason}`)
     }
-    if (claim.status === 'verified' && claimSources.some(source => ['C', 'D'].includes(source.source_tier)))
+    if (claim.status === 'verified' && claimSources.some(source => ['C', 'D', 'U'].includes(source.source_tier)))
       warnings.push(`Verified claim ${claimId} includes lower-tier evidence`)
-    evaluated.push({ id: claimId, blocker })
+    const reputableIndependenceKeys = new Set(claimSources
+      .filter(source => ['A', 'B'].includes(source.source_tier))
+      .map(source => source.independence_key)
+      .filter(Boolean))
+    evaluated.push({
+      id: claimId,
+      blocker,
+      source_tiers: [...new Set(claimSources.map(source => source.source_tier))].sort(),
+      cross_verified: reputableIndependenceKeys.size >= 2,
+      applicability: claim.observed_applicability === true ? 'observed' : 'unknown',
+    })
   }
   return evaluated
 }
@@ -130,6 +140,7 @@ export function validateEvidencePackage({
   requireWebSearch = true,
   xSearchPolicy = 'preferred',
   mode = 'discover',
+  requireClaims = false,
 }) {
   requireNonEmptyString(mode, 'mode')
   const errors = []
@@ -140,6 +151,8 @@ export function validateEvidencePackage({
   const sourcesById = validateRegistry(registry, errors)
   validateSearchRequirements({ sourcesById, requireWebSearch, effectiveXPolicy, errors, warnings })
   const evaluatedClaims = validateClaims(claims, sourcesById, errors, warnings)
+  if (requireClaims && Array.isArray(claims) && claims.length === 0)
+    errors.push('Required evidence package must contain at least one claim or an explicit unresolved claim')
   return {
     valid: errors.length === 0,
     errors,

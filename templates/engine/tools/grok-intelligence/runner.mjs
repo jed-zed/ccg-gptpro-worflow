@@ -1,9 +1,9 @@
-import { createGrokAcpClient, withCredentialHomeVolatileSnapshot } from './lib/acp-client.mjs'
+import { createGrokAcpClient, withCredentialHomeLease, withCredentialHomeVolatileSnapshot } from './lib/acp-client.mjs'
 import { buildExactGrokEnvironment } from './lib/exact-env.mjs'
 import { normalizeAcpEvents } from './lib/events.mjs'
 import { createPrivateRunRoots } from './lib/private-temp.mjs'
 import { runGrokDiagnostics } from './lib/process.mjs'
-import { buildSourceRegistry } from './lib/source-registry.mjs'
+import { bindClaimsFromObservedUrls, buildSourceRegistry, canonicalizeSourceUrl, extractClaimsEnvelope } from './lib/source-registry.mjs'
 import { createFocusedSnapshot } from './lib/snapshot.mjs'
 import { assertValidEvidencePackage } from './lib/validator.mjs'
 
@@ -15,6 +15,10 @@ function failureText(error, secrets = []) {
     if (typeof secret === 'string' && secret)
       text = text.split(secret).join('[REDACTED]')
   }
+  text = text.replace(/https?:\/\/[^\s"'<>\\]+/gi, (candidate) => {
+    try { return canonicalizeSourceUrl(candidate) }
+    catch { return '[REDACTED_URL]' }
+  })
   return text
     .replace(/((?:api[_-]?key|token|authorization)\s*[:=]\s*)\S+/gi, '$1[REDACTED]')
     .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
@@ -56,6 +60,9 @@ function buildPrompt({ task, mode, requireWebSearch, xSearchPolicy }) {
     'Only state facts supported by URLs returned in WebSearch rawOutput.action.sources. Never invent or copy a URL from prose.',
     xInstruction,
     `Mode: ${mode}. Web search required: ${requireWebSearch ? 'yes' : 'no'}. X-domain policy: ${xSearchPolicy}.`,
+    'End the final response with exactly one compact JSON envelope on a new line using this marker:',
+    'CCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"fact without URLs","status":"verified|partially_verified|contradicted|unresolved|early_warning","severity":"blocker|warning|info","urls":["only URLs observed in WebSearch sources"]}]}',
+    'The claims array must never be empty. If no applicable fact can be verified, return one status=unresolved claim with urls=[]. Do not put URLs in claim text or any field other than urls.',
     'Task:',
     task.trim(),
   ].join('\n')
@@ -118,19 +125,23 @@ export async function runGrokIntelligence(options) {
       requireWebSearch: options.config.require_web_search !== false,
       xSearchPolicy: options.config.x_search_policy || 'preferred',
     })
+    const selectedModel = String(options.model || options.config.default_model || 'grok-4.5').trim()
+    if (!selectedModel || /[\u0000-\u001f\u007f]/.test(selectedModel))
+      throw new Error('Selected Grok model is invalid')
     const maxRetries = Math.min(2, Math.max(0, Number.isInteger(options.config.max_retries) ? options.config.max_retries : 2))
     let lastError
     while (attempts <= maxRetries) {
       attempts++
       try {
-        await withCredentialHomeVolatileSnapshot(roots.grokHome, () => dependencies.diagnostics({
-          command: options.command || 'grok',
-          prefixArgs: options.prefixArgs || [],
-          cwd: roots.neutralHome,
-          env,
-          timeoutMs: options.diagnosticTimeoutMs,
-        }), { validateDirectory: async path => path })
-        const acpOptions = {
+        const acpResult = await withCredentialHomeLease(roots.grokHome, async () => {
+          await withCredentialHomeVolatileSnapshot(roots.grokHome, () => dependencies.diagnostics({
+            command: options.command || 'grok',
+            prefixArgs: options.prefixArgs || [],
+            cwd: roots.neutralHome,
+            env,
+            timeoutMs: options.diagnosticTimeoutMs,
+          }), { validateDirectory: async path => path })
+          const acpOptions = {
           prompt,
           cwd: roots.snapshotRoot,
           allowedCwdRoots: [roots.snapshotRoot],
@@ -141,13 +152,16 @@ export async function runGrokIntelligence(options) {
           rawEventsMaxEvents: options.rawEventsMaxEvents ?? 20000,
           timeoutMs: options.timeoutMs ?? 10 * 60 * 1000,
           maxTurns: options.maxTurns ?? 6,
+          model: selectedModel,
           authMode: options.config.auth_mode,
           apiKey: options.config.auth_mode === 'api_key' ? options.apiKey : undefined,
           sourceEnv: options.sourceEnv || {},
           signal: options.signal,
           attempt: attempts,
-        }
-        const acpResult = await dependencies.acp(acpOptions)
+            credentialLeaseHeld: true,
+          }
+          return dependencies.acp(acpOptions)
+        }, { validateDirectory: async path => path })
         if (acpResult?.mcpPreflight?.serversEmpty !== true || acpResult?.mcpPreflight?.toolCount !== 0) {
           const unsafe = new Error('unsafe_cli_context: ACP empty-MCP preflight did not match the pinned contract')
           unsafe.code = 'unsafe_cli_context'
@@ -160,11 +174,11 @@ export async function runGrokIntelligence(options) {
         const retrievedAt = (options.clock ? options.clock() : new Date()).toISOString()
         const registry = buildSourceRegistry(normalized, {
           retrievedAt,
-          officialDomains: options.officialDomains || ['x.ai', 'docs.x.ai'],
-          officialXAccounts: options.officialXAccounts || ['xai', 'grok'],
+          officialDomains: options.officialDomains || [],
+          officialXAccounts: options.officialXAccounts || [],
           domainTiers: options.domainTiers || {},
         })
-        const claims = []
+        const claims = bindClaimsFromObservedUrls(extractClaimsEnvelope(normalized.finalText), registry)
         const validation = assertValidEvidencePackage({
           normalized,
           registry,
@@ -172,6 +186,7 @@ export async function runGrokIntelligence(options) {
           requireWebSearch: options.config.require_web_search !== false,
           xSearchPolicy: options.config.x_search_policy || 'preferred',
           mode: options.mode || 'discover',
+          requireClaims: true,
         })
         result = {
           exitCode: EXIT.OK,
@@ -179,7 +194,14 @@ export async function runGrokIntelligence(options) {
           attempts,
           runRoot: roots.runRoot,
           snapshot,
-          evidence: { retrieved_at: retrievedAt, normalized, registry, claims, validation },
+          evidence: {
+            retrieved_at: retrievedAt,
+            model: { requested: selectedModel, actual: selectedModel, provenance: 'grok agent --model' },
+            normalized,
+            registry,
+            claims,
+            validation,
+          },
           raw: { notifications: acpResult.notifications, stderr: acpResult.stderr || [] },
         }
         break

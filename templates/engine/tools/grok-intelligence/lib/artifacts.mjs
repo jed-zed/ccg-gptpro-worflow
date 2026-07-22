@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { createIntelligenceDecision } from './router.mjs'
+import { canonicalizeSourceUrl } from './source-registry.mjs'
+import { assertExistingPathWithoutLinks } from './path-safety.mjs'
 
 const LOCAL_RETENTION_DAYS = 7
 const EXPORT_RETENTION_DAYS = 30
@@ -26,15 +28,7 @@ function isWithin(parent, child) {
 }
 
 async function assertPlainDirectory(path, name) {
-  const metadata = await lstat(path)
-  if (!metadata.isDirectory() || metadata.isSymbolicLink())
-    throw new Error(`${name} must be a regular directory without links or reparse points`)
-  const canonical = await realpath(path)
-  const expected = resolve(path)
-  const normalize = value => process.platform === 'win32' ? value.toLowerCase() : value
-  if (normalize(canonical) !== normalize(expected))
-    throw new Error(`${name} must not resolve through a link or reparse point`)
-  return canonical
+  return (await assertExistingPathWithoutLinks(resolve(path), { name, expectedType: 'directory' })).canonical
 }
 
 async function prepareContainedRoot(projectRoot, requestedRoot) {
@@ -56,6 +50,14 @@ function redactText(value, secrets) {
     if (typeof secret === 'string' && secret)
       result = result.split(secret).join('[REDACTED]')
   }
+  result = result.replace(/https?:\/\/[^\s"'<>\\]+/gi, (candidate) => {
+    try {
+      return canonicalizeSourceUrl(candidate)
+    }
+    catch {
+      return '[REDACTED_URL]'
+    }
+  })
   return result
     .replace(/((?:api[_-]?key|token|authorization|secret)\s*[:=]\s*)\S+/gi, '$1[REDACTED]')
     .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
@@ -132,7 +134,7 @@ async function safeRemoveDirectory(parent, target) {
   await rm(canonicalTarget, { recursive: true, force: true })
 }
 
-function buildManifest({ evidenceId, createdAt, files, exported = false, retentionDays }) {
+function buildManifest({ evidenceId, createdAt, files, exported = false, retentionDays, model }) {
   const manifestFiles = {}
   for (const [name, bytes] of Object.entries(files))
     manifestFiles[name] = { sha256: sha256(bytes), bytes: bytes.length }
@@ -144,6 +146,7 @@ function buildManifest({ evidenceId, createdAt, files, exported = false, retenti
     exported,
     retentionDays,
     files: manifestFiles,
+    ...(model ? { model } : {}),
   }
 }
 
@@ -189,6 +192,7 @@ export async function writeIntelligenceBundle({
   secrets = [],
   clock = () => new Date(),
   randomName,
+  model,
 }) {
   const id = validateEvidenceId(evidenceId)
   const normalizedDecision = createIntelligenceDecision(decision)
@@ -206,6 +210,7 @@ export async function writeIntelligenceBundle({
     createdAt,
     files,
     retentionDays: LOCAL_RETENTION_DAYS,
+    model,
   })
   const { destination, manifestBytes } = await atomicBundleWrite({ root, evidenceId: id, files, manifest, randomName })
   const relativeDirectory = relative(project, destination).replace(/\\/g, '/')

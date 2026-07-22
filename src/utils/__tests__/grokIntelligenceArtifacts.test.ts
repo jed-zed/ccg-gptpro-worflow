@@ -75,7 +75,10 @@ describe('Grok intelligence artifacts', () => {
       decision: validDecision(),
       evidence: { claims: [], registry: { sources: [] } },
       report: '# External intelligence\n\nValidated.\n',
-      rawEvents: [{ method: 'session/update', params: { token: 'secret-token' } }],
+      rawEvents: [{ method: 'session/update', params: {
+        token: 'secret-token',
+        source: 'https://user:password@example.com/object?X-Amz-Signature=signed-secret&X-Amz-Credential=credential-secret',
+      } }],
       secrets: ['secret-token'],
       clock: () => new Date(NOW),
     })
@@ -94,7 +97,10 @@ describe('Grok intelligence artifacts', () => {
       expect(metadata.bytes).toBe(bytes.length)
     }
     expect(bundle.manifestSha256).toBe(sha256(manifestText))
-    expect(await readFile(join(bundle.directory, 'raw-stream.jsonl'), 'utf8')).not.toContain('secret-token')
+    const rawStream = await readFile(join(bundle.directory, 'raw-stream.jsonl'), 'utf8')
+    expect(rawStream).not.toContain('secret-token')
+    expect(rawStream).not.toMatch(/password|signed-secret|credential-secret/i)
+    expect(rawStream).toContain('https://example.com/object')
   })
 
   it.each([

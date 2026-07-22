@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -13,6 +14,52 @@ import { resolveEffectiveXPolicy, validateEvidencePackage } from '../../../templ
 const packageRoot = resolve('.')
 const tempRoot = join(tmpdir(), `ccg-grok-workflow-${Date.now()}`)
 const routeCommand = 'node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs'
+let evidenceCounter = 0
+
+function hash(value: string | Buffer) {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function statePath(repoRoot: string, id: string) {
+  return join(repoRoot, '.codex', 'ccg', id, 'status.json')
+}
+
+function validRunnerResult(repoRoot: string, mode = 'contract') {
+  const evidenceId = `workflow-evidence-${++evidenceCounter}`
+  const bundleDir = join(repoRoot, '.codex', 'ccg', 'intelligence', evidenceId)
+  fs.ensureDirSync(bundleDir)
+  const createdAt = new Date().toISOString()
+  const model = 'grok-4.5'
+  const artifact = `${JSON.stringify({
+    schemaVersion: 2,
+    decision: { requirement: 'required', status: 'valid', mode: mode === 'verify' ? 'contract' : mode, reason: 'Fixture verified.', created_at: createdAt },
+    evidence: {
+      model: { requested: model, actual: model, provenance: 'grok agent --model' },
+      claims: [{ id: 'unresolved', claim: 'No applicable fixture fact.', status: 'unresolved', source_ids: [] }],
+    },
+  }, null, 2)}\n`
+  const raw = ''
+  const report = '# Workflow fixture\n'
+  fs.writeFileSync(join(bundleDir, 'evidence.json'), artifact)
+  fs.writeFileSync(join(bundleDir, 'raw-stream.jsonl'), raw)
+  fs.writeFileSync(join(bundleDir, 'report.md'), report)
+  const files = {
+    'evidence.json': { sha256: hash(artifact), bytes: Buffer.byteLength(artifact) },
+    'raw-stream.jsonl': { sha256: hash(raw), bytes: Buffer.byteLength(raw) },
+    'report.md': { sha256: hash(report), bytes: Buffer.byteLength(report) },
+  }
+  const manifest = `${JSON.stringify({ schemaVersion: 1, evidenceId, createdAt, localOnly: true, exported: false, retentionDays: 7, model, files }, null, 2)}\n`
+  fs.writeFileSync(join(bundleDir, 'manifest.json'), manifest)
+  return {
+    exitCode: 0,
+    status: 'valid',
+    model,
+    evidencePath: `.codex/ccg/intelligence/${evidenceId}/evidence.json`,
+    evidenceSha256: hash(artifact),
+    manifestPath: `.codex/ccg/intelligence/${evidenceId}/manifest.json`,
+    manifestSha256: hash(manifest),
+  }
+}
 
 describe('Grok workflow routing behavior', () => {
   afterAll(async () => {
@@ -35,7 +82,11 @@ describe('Grok workflow routing behavior', () => {
       'quality-gates',
     ]))
     expect(coverage.defaultSkips).toEqual([
-      'commit', 'rollback', 'clean-branches', 'worktree', 'context',
+      'commit',
+      'rollback',
+      'clean-branches',
+      'worktree',
+      'context',
     ])
     for (const entry of coverage.defaultSkipSurfaces) {
       expect(coverage.defaultSkips).toContain(entry.id)
@@ -76,7 +127,7 @@ describe('Grok workflow routing behavior', () => {
     const runtime = {
       invoke: async (request: any) => {
         invocations.push(request)
-        return { exitCode: 0, status: 'valid' }
+        return validRunnerResult(repoRoot, request.options.mode || 'contract')
       },
       onEvent: (event: string) => events.push(event),
     }
@@ -99,7 +150,9 @@ describe('Grok workflow routing behavior', () => {
   ])('runs the %s family gate before its ordinary workflow', async (_family, workflow, phase, trigger) => {
     const repoRoot = join(tempRoot, `family-${workflow}`)
     await fs.ensureDir(repoRoot)
-    const stateFile = join(repoRoot, 'route.json')
+    const stateFile = statePath(repoRoot, `route-${workflow}`)
+    const diff = join(repoRoot, 'change.diff')
+    if (trigger === 'final_diff_verify') await fs.writeFile(diff, '+ verified change\n')
     const order: string[] = []
     const result = await (routeRuntime as any).runWorkflowRoute({
       repoRoot,
@@ -107,13 +160,14 @@ describe('Grok workflow routing behavior', () => {
       workflow,
       phase,
       trigger,
+      ...(trigger === 'final_diff_verify' ? { diff } : {}),
       task: 'Use the latest SDK API contract in this workflow.',
       stateFile,
     }, {
       onEvent: (event: string) => order.push(event),
-      invoke: async () => {
+      invoke: async (request: any) => {
         order.push('runner')
-        return { exitCode: 0, status: 'valid' }
+        return validRunnerResult(repoRoot, request.options.mode || 'contract')
       },
     })
 
@@ -135,11 +189,11 @@ describe('Grok workflow routing behavior', () => {
       fs.writeFile(diff, 'diff-v1'),
       fs.writeFile(target, 'target-v1'),
     ])
-    const stateFile = join(repoRoot, 'spec-route.json')
+    const stateFile = statePath(repoRoot, 'spec-route')
     const invocations: any[] = []
     const runtime = { invoke: async (request: any) => {
       invocations.push(request)
-      return { exitCode: 0, status: 'valid' }
+      return validRunnerResult(repoRoot, request.options.mode || 'contract')
     } }
     const base = {
       repoRoot,
@@ -187,7 +241,7 @@ describe('Grok workflow routing behavior', () => {
     const runtime = {
       invoke: async (request: any) => {
         invocations.push(request)
-        return { exitCode: 0, status: 'valid' }
+        return validRunnerResult(repoRoot, request.options.mode || 'contract')
       },
       onEvent: (event: string) => events.push(event),
     }
@@ -197,7 +251,7 @@ describe('Grok workflow routing behavior', () => {
       workflow: 'verify-quality',
       phase: 'quality-verify',
       target,
-      stateFile: join(repoRoot, 'quality-route.json'),
+      stateFile: statePath(repoRoot, 'quality-route'),
     }
 
     const local = await (routeRuntime as any).runWorkflowRoute({ ...common, task: 'Check local formatting.' }, runtime)
@@ -237,8 +291,13 @@ describe('Grok workflow routing behavior', () => {
 
     const registry = buildSourceRegistry({
       searches: [{
-        tool: 'web_search', observed_tool: 'web_search', status: 'completed', query: 'current market',
-        sources: [{ url: 'https://docs.x.ai/overview' }], toolCallId: 'web-1', backend: true,
+        tool: 'web_search',
+        observed_tool: 'web_search',
+        status: 'completed',
+        query: 'current market',
+        sources: [{ url: 'https://docs.x.ai/overview' }],
+        toolCallId: 'web-1',
+        backend: true,
       }],
     }, {
       retrievedAt: '2026-07-21T00:00:00.000Z',
@@ -259,8 +318,13 @@ describe('Grok workflow routing behavior', () => {
   it('keeps X-only material advisory and never elevates it into a blocker', () => {
     const registry = buildSourceRegistry({
       searches: [{
-        tool: 'x_search', observed_tool: 'web_search', status: 'completed', query: 'site:x.com from:xai',
-        sources: [{ url: 'https://x.com/xai/status/1' }], toolCallId: 'x-1', backend: true,
+        tool: 'x_search',
+        observed_tool: 'web_search',
+        status: 'completed',
+        query: 'site:x.com from:xai',
+        sources: [{ url: 'https://x.com/xai/status/1' }],
+        toolCallId: 'x-1',
+        backend: true,
       }],
     }, {
       retrievedAt: '2026-07-21T00:00:00.000Z',
@@ -301,11 +365,11 @@ describe('Grok workflow routing behavior', () => {
       workflow: 'debug',
       phase: 'diagnosis',
       task: 'Diagnose the current hosted API outage.',
-      stateFile: join(tempRoot, 'state.json'),
+      stateFile: statePath(tempRoot, 'disabled-x'),
     }, {
       invoke: async (request: any) => {
         invocations.push(request)
-        return { exitCode: 0, status: 'valid' }
+        return validRunnerResult(tempRoot, request.options.mode || 'contract')
       },
     })
 

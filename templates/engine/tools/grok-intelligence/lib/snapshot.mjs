@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { chmod, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
+import { assertExistingPathWithoutLinks } from './path-safety.mjs'
 
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 200,
@@ -110,16 +111,7 @@ async function assertPathChainWithoutLinks(root, relativePath) {
 }
 
 async function assertRootWithoutLinks(path, name) {
-  const metadata = await lstat(path)
-  if (!metadata.isDirectory() || metadata.isSymbolicLink())
-    throw new Error(`${name} must be a regular directory without links or reparse points`)
-  const canonical = await realpath(path)
-  const expected = resolve(path)
-  const comparableCanonical = process.platform === 'win32' ? canonical.toLowerCase() : canonical
-  const comparableExpected = process.platform === 'win32' ? expected.toLowerCase() : expected
-  if (comparableCanonical !== comparableExpected)
-    throw new Error(`${name} must not resolve through a symbolic link, junction, or reparse point`)
-  return canonical
+  return (await assertExistingPathWithoutLinks(resolve(path), { name, expectedType: 'directory' })).canonical
 }
 
 function normalizeLimits(limits = {}) {

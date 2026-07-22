@@ -18,6 +18,20 @@ const TRACKING_PARAMETERS = new Set([
   'mc_eid',
   'msclkid',
 ])
+const SENSITIVE_QUERY_PARAMETERS = new Set([
+  'access_token', 'api_key', 'apikey', 'auth', 'authorization', 'code', 'credential',
+  'id_token', 'key', 'password', 'passwd', 'refresh_token', 'secret', 'sig', 'signature',
+  'token',
+  // Azure SAS fields: a signed URL is a credential, so the complete query is removed.
+  'se', 'skoid', 'sks', 'skt', 'sktid', 'skv', 'sp', 'spr', 'st', 'sv',
+])
+
+const CLAIM_ENVELOPE_MARKER = 'CCG_CLAIMS_JSON:'
+const CLAIM_ENVELOPE_KEYS = new Set(['schemaVersion', 'claims'])
+const FALLBACK_CLAIM_KEYS = new Set([
+  'id', 'claim', 'status', 'severity', 'urls', 'applies_to', 'repo_impact',
+  'required_action', 'published_at', 'effective_at', 'notes',
+])
 
 const CLAIM_KEYS = new Set([
   'id',
@@ -56,8 +70,18 @@ export function canonicalizeSourceUrl(input) {
   }
   if (!['http:', 'https:'].includes(url.protocol))
     throw new Error(`Source URL must use HTTP or HTTPS: ${raw}`)
+  url.username = ''
+  url.password = ''
   url.hash = ''
   const parameterNames = [...url.searchParams.keys()]
+  const containsSignedCredential = parameterNames.some((name) => {
+    const normalized = name.toLowerCase()
+    return SENSITIVE_QUERY_PARAMETERS.has(normalized)
+      || normalized.startsWith('x-amz-')
+      || normalized.startsWith('x-goog-')
+  })
+  if (containsSignedCredential)
+    url.search = ''
   for (const name of parameterNames) {
     const normalized = name.toLowerCase()
     if (normalized.startsWith('utm_') || TRACKING_PARAMETERS.has(normalized))
@@ -65,6 +89,49 @@ export function canonicalizeSourceUrl(input) {
   }
   url.searchParams.sort()
   return url.toString()
+}
+
+export function extractClaimsEnvelope(finalText) {
+  const text = requireNonEmptyString(finalText, 'finalText')
+  const markerIndex = text.lastIndexOf(CLAIM_ENVELOPE_MARKER)
+  if (markerIndex < 0)
+    throw new Error('Final Grok response is missing the required claim envelope')
+  if (text.indexOf(CLAIM_ENVELOPE_MARKER) !== markerIndex)
+    throw new Error('Final Grok response contains more than one claim envelope')
+  const payloadText = text.slice(markerIndex + CLAIM_ENVELOPE_MARKER.length).trim()
+  if (!payloadText || Buffer.byteLength(payloadText, 'utf8') > 256 * 1024)
+    throw new Error('Final Grok claim envelope is empty or exceeds its byte cap')
+  let payload
+  try {
+    payload = JSON.parse(payloadText)
+  }
+  catch {
+    throw new Error('Final Grok claim envelope is malformed JSON')
+  }
+  if (!isPlainObject(payload) || payload.schemaVersion !== 1 || !Array.isArray(payload.claims))
+    throw new Error('Final Grok claim envelope has an unsupported schema')
+  for (const key of Object.keys(payload)) {
+    if (!CLAIM_ENVELOPE_KEYS.has(key))
+      throw new Error(`Unsupported claim envelope field: ${key}`)
+  }
+  if (payload.claims.length < 1 || payload.claims.length > 100)
+    throw new Error('Final Grok claim envelope must contain at least one claim and at most 100 claims')
+  for (const claim of payload.claims) {
+    if (!isPlainObject(claim))
+      throw new Error('Fallback claim must be a plain object')
+    for (const key of Object.keys(claim)) {
+      if (!FALLBACK_CLAIM_KEYS.has(key))
+        throw new Error(`Unsupported fallback claim field: ${key}`)
+    }
+    const status = requireNonEmptyString(claim.status, 'claim.status')
+    if (!CLAIM_STATUSES.includes(status))
+      throw new Error(`Unsupported claim status: ${status}`)
+    if (!Array.isArray(claim.urls))
+      throw new Error('Fallback claim urls must be an array')
+    if (status !== 'unresolved' && claim.urls.length === 0)
+      throw new Error('A resolved fallback claim must contain at least one observed URL')
+  }
+  return cloneJson(payload.claims)
 }
 
 function domainMatches(hostname, configuredDomain) {
@@ -109,9 +176,11 @@ function sourcePolicy(canonicalUrl, tool, options) {
   const officialDomain = (options.officialDomains || []).some(domain => domainMatches(hostname, domain))
   const official = officialX || officialDomain
   const configuredTier = findConfiguredTier(hostname, options.domainTiers)
-  const sourceTier = tool === 'x_search' ? 'D' : officialDomain ? 'A' : configuredTier || 'C'
+  const hasOfficialDomainPolicy = (options.officialDomains || []).length > 0 || (options.officialXAccounts || []).length > 0
+  const sourceTier = tool === 'x_search' ? 'D' : officialDomain ? 'A' : configuredTier || (hasOfficialDomainPolicy ? 'C' : 'U')
   return {
     official,
+    official_status: official ? 'official' : hasOfficialDomainPolicy ? 'non_official' : 'official_unknown',
     source_tier: sourceTier,
     publisher: hostname,
     independence_key: effectiveDomain(hostname),
@@ -167,7 +236,7 @@ export function buildSourceRegistry(normalized, options = {}) {
           tool: search.tool,
           observed_tool: 'web_search',
           canonical_url: canonicalUrl,
-          observed_url: observedUrl,
+          observed_url: canonicalUrl,
           retrieved_at: retrievedAt,
           ...sourcePolicy(canonicalUrl, search.tool, options),
         })
@@ -277,7 +346,9 @@ export function bindClaimsFromObservedUrls(claims, registry, options = {}) {
     observed.set(source.canonical_url, existing)
   }
   const converted = claims.map((claim) => {
-    if (!isPlainObject(claim) || !Array.isArray(claim.urls) || claim.urls.length === 0)
+    if (!isPlainObject(claim) || !Array.isArray(claim.urls))
+      throw new Error('Fallback claim must contain an observed urls array')
+    if (claim.status !== 'unresolved' && claim.urls.length === 0)
       throw new Error('Fallback claim must contain observed urls')
     const sourceIds = []
     for (const rawUrl of claim.urls) {

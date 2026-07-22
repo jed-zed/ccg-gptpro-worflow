@@ -7,7 +7,7 @@ export const CLAIM_STATUSES = Object.freeze([
   'unresolved',
   'early_warning',
 ])
-export const SOURCE_TIERS = Object.freeze(['A', 'B', 'C', 'D'])
+export const SOURCE_TIERS = Object.freeze(['A', 'B', 'C', 'D', 'U'])
 export const X_SEARCH_POLICIES = Object.freeze(['required', 'preferred', 'disabled'])
 
 export function isPlainObject(value) {

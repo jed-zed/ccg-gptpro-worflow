@@ -167,6 +167,42 @@ describe('normalizeIntelligenceConfig', () => {
       auto_route: false,
     })
   })
+
+  it('round-trips every supported intelligence field without silently resetting it', () => {
+    expect(normalizeIntelligenceConfig({
+      enabled: true,
+      auto_route: true,
+      provider: 'grok-cli',
+      transport: 'acp',
+      auth_mode: 'api_key',
+      legacy_search_provider: 'grok-search-mcp',
+      allow_provider_fallback: false,
+      default_model: 'grok-4.5',
+      deep_research_model: 'grok-4.5-deep',
+      deep_research_enabled: true,
+      live_checks_on_init: true as any,
+      artifact_root: '.private/intelligence',
+      max_retries: 1,
+      max_bundle_bytes: 1024,
+      retention_days: 3,
+      exported_retention_days: 9,
+      cleanup_credential_artifacts: false as any,
+      require_web_search: false,
+      x_search_policy: 'required',
+    }, { existingInstall: true })).toMatchObject({
+      deep_research_enabled: true,
+      live_checks_on_init: true,
+      artifact_root: '.private/intelligence',
+      cleanup_credential_artifacts: false,
+    })
+  })
+
+  it('rejects invalid pinned transports and out-of-range numeric policy', () => {
+    expect(() => normalizeIntelligenceConfig({ provider: 'other' as any }, { existingInstall: true })).toThrow(/provider/i)
+    expect(() => normalizeIntelligenceConfig({ transport: 'stdio' as any }, { existingInstall: true })).toThrow(/transport/i)
+    expect(() => normalizeIntelligenceConfig({ max_retries: 99 }, { existingInstall: true })).toThrow(/max_retries/i)
+    expect(() => normalizeIntelligenceConfig({ artifact_root: '../escape' }, { existingInstall: true })).toThrow(/artifact_root/i)
+  })
 })
 
 describe('resolveNonInteractiveIntelligenceConsent', () => {

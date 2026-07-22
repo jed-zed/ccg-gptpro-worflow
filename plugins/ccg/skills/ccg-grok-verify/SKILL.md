@@ -9,8 +9,10 @@ Load `skills/ccg-grok-intel/SKILL.md`, then run its shared
 `scripts/grok-intelligence/command.mjs verify` entry.
 
 - Put task text in a file and pass `--task-file`.
-- Bind the exact plan with `--plan`, applied diff with `--diff`, and every dependency/lock input with
-  repeated `--dependency`. The runtime records their SHA-256 digests.
+- Bind the exact plan with `--plan`, a mandatory non-empty applied diff with `--diff`, and every
+  dependency/lock input with repeated `--dependency`. Generate a bounded Git diff when no trusted
+  diff artifact was supplied. The runtime records their SHA-256 digests.
+- `--allow-empty-diff` is permitted only for an explicit no-change verification subject.
 - Support `--force-refresh` and `--export`.
 - Print requirement/status, search counts, bindings, evidence/manifest paths and hashes.
 - Preserve exit 2, exit 3, and exit 4. Never replace official ACP evidence with a Grok Search MCP.

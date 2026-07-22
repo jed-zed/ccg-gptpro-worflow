@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
 import {
+  EXPECTED_BINARY_VERSION,
   getAllCommandIds,
   getWorkflowById,
   getWorkflowConfigs,
@@ -11,7 +12,6 @@ import {
   installWorkflows,
   promoteBinaryCandidate,
   uninstallWorkflows,
-  verifyBinaryVersion,
 } from '../installer'
 
 // Helper: find package root
@@ -391,22 +391,11 @@ describe('installWorkflows — binary installation', () => {
     await fs.remove(tmpDir)
   })
 
-  it('installs only a codeagent-wrapper binary with the expected version', async () => {
-    const result = await installWorkflows(['workflow'], tmpDir, true, {
-      mcpProvider: 'skip',
-    })
-
-    const binaryName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
-    const binaryPath = join(tmpDir, 'bin', binaryName)
-    if (fs.existsSync(binaryPath)) {
-      expect(result.binInstalled).toBe(true)
-      expect(await verifyBinaryVersion(tmpDir)).toBe(true)
-    }
-    else {
-      expect(result.binInstalled).not.toBe(true)
-      expect(result.errors.some(error => /binary version mismatch|failed to download binary/i.test(error))).toBe(true)
-    }
-  }, 30_000)
+  it('keeps installer and wrapper source versions synchronized without a release-network dependency', () => {
+    const source = readFileSync(join(PACKAGE_ROOT, 'codeagent-wrapper', 'main.go'), 'utf8')
+    const sourceVersion = /\bversion\s*=\s*"([^"]+)"/.exec(source)?.[1]
+    expect(sourceVersion).toBe(EXPECTED_BINARY_VERSION)
+  })
 
   it('preserves the installed binary when a downloaded candidate has the wrong version', async () => {
     const candidateDir = join(tmpDir, 'candidate-version-mismatch')

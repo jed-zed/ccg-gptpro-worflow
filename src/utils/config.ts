@@ -22,16 +22,14 @@ export async function ensureCcgDir(): Promise<void> {
 }
 
 export async function readCcgConfig(): Promise<CcgConfig | null> {
-  try {
-    if (await fs.pathExists(CONFIG_FILE)) {
-      const content = await fs.readFile(CONFIG_FILE, 'utf-8')
-      return parse(content) as unknown as CcgConfig
-    }
+  if (!await fs.pathExists(CONFIG_FILE))
+    return null
+  const content = await fs.readFile(CONFIG_FILE, 'utf-8')
+  const parsed = parse(content) as unknown as CcgConfig
+  return {
+    ...parsed,
+    intelligence: normalizeIntelligenceConfig(parsed.intelligence, { existingInstall: true }),
   }
-  catch {
-    // Config doesn't exist or is invalid
-  }
-  return null
 }
 
 export async function writeCcgConfig(config: CcgConfig): Promise<void> {
@@ -66,22 +64,70 @@ export function normalizeIntelligenceConfig(
   value: Partial<IntelligenceConfig> | undefined,
   options: { existingInstall: boolean, explicitConsent?: boolean },
 ): IntelligenceConfig {
+  const pinned = {
+    provider: 'grok-cli',
+    transport: 'acp',
+    legacy_search_provider: 'grok-search-mcp',
+    allow_provider_fallback: false,
+  } as const
+  for (const [key, expected] of Object.entries(pinned)) {
+    if (value && Object.prototype.hasOwnProperty.call(value, key) && (value as any)[key] !== expected)
+      throw new Error(`intelligence.${key} must remain ${JSON.stringify(expected)}`)
+  }
+  const booleanField = (key: keyof IntelligenceConfig, fallback: boolean) => {
+    const candidate = value?.[key]
+    if (candidate == null)
+      return fallback
+    if (typeof candidate !== 'boolean')
+      throw new TypeError(`intelligence.${key} must be boolean`)
+    return candidate
+  }
+  const integerField = (key: keyof IntelligenceConfig, fallback: number, minimum: number, maximum: number) => {
+    const candidate = value?.[key]
+    if (candidate == null)
+      return fallback
+    if (!Number.isInteger(candidate) || (candidate as number) < minimum || (candidate as number) > maximum)
+      throw new RangeError(`intelligence.${key} must be an integer between ${minimum} and ${maximum}`)
+    return candidate as number
+  }
+  const stringField = (key: keyof IntelligenceConfig, fallback: string, allowEmpty = false) => {
+    const candidate = value?.[key]
+    if (candidate == null)
+      return fallback
+    if (typeof candidate !== 'string' || (!allowEmpty && !candidate.trim()) || /[\u0000-\u001F\u007F]/.test(candidate))
+      throw new TypeError(`intelligence.${key} must be ${allowEmpty ? 'a single-line string' : 'a non-empty single-line string'}`)
+    return candidate.trim()
+  }
+  if (value?.auth_mode != null && !['browser_oauth', 'api_key'].includes(value.auth_mode))
+    throw new Error('intelligence.auth_mode must be browser_oauth or api_key')
+  if (value?.x_search_policy != null && !['required', 'preferred', 'disabled'].includes(value.x_search_policy))
+    throw new Error('intelligence.x_search_policy must be required, preferred, or disabled')
+  const artifactRoot = stringField('artifact_root', DEFAULT_INTELLIGENCE_CONFIG.artifact_root)
+  const artifactParts = artifactRoot.replace(/\\/g, '/').split('/')
+  if (/^(?:[A-Z]:|\/)/i.test(artifactRoot) || artifactParts.some(part => !part || part === '.' || part === '..'))
+    throw new Error('intelligence.artifact_root must be a contained relative path without traversal')
   const configuredEnabled = options.existingInstall && value?.enabled === true
   const enabled = options.explicitConsent ?? configuredEnabled
-  const authMode = value?.auth_mode === 'api_key' ? 'api_key' : 'browser_oauth'
-  const xSearchPolicy = value?.x_search_policy === 'required' || value?.x_search_policy === 'disabled'
-    ? value.x_search_policy
-    : 'preferred'
+  const authMode = value?.auth_mode || DEFAULT_INTELLIGENCE_CONFIG.auth_mode
+  const xSearchPolicy = value?.x_search_policy || DEFAULT_INTELLIGENCE_CONFIG.x_search_policy
+  const deepResearchEnabled = booleanField('deep_research_enabled', DEFAULT_INTELLIGENCE_CONFIG.deep_research_enabled)
+  const deepResearchModel = stringField('deep_research_model', DEFAULT_INTELLIGENCE_CONFIG.deep_research_model, true)
+  if (deepResearchEnabled && !deepResearchModel)
+    throw new Error('intelligence.deep_research_model is required when deep research is enabled')
 
   return {
     ...DEFAULT_INTELLIGENCE_CONFIG,
-    default_model: value?.default_model || DEFAULT_INTELLIGENCE_CONFIG.default_model,
-    deep_research_model: value?.deep_research_model || DEFAULT_INTELLIGENCE_CONFIG.deep_research_model,
-    max_retries: value?.max_retries ?? DEFAULT_INTELLIGENCE_CONFIG.max_retries,
-    max_bundle_bytes: value?.max_bundle_bytes ?? DEFAULT_INTELLIGENCE_CONFIG.max_bundle_bytes,
-    retention_days: value?.retention_days ?? DEFAULT_INTELLIGENCE_CONFIG.retention_days,
-    exported_retention_days: value?.exported_retention_days ?? DEFAULT_INTELLIGENCE_CONFIG.exported_retention_days,
-    require_web_search: value?.require_web_search ?? DEFAULT_INTELLIGENCE_CONFIG.require_web_search,
+    default_model: stringField('default_model', DEFAULT_INTELLIGENCE_CONFIG.default_model),
+    deep_research_model: deepResearchModel,
+    deep_research_enabled: deepResearchEnabled,
+    live_checks_on_init: booleanField('live_checks_on_init', DEFAULT_INTELLIGENCE_CONFIG.live_checks_on_init),
+    artifact_root: artifactRoot,
+    max_retries: integerField('max_retries', DEFAULT_INTELLIGENCE_CONFIG.max_retries, 0, 2),
+    max_bundle_bytes: integerField('max_bundle_bytes', DEFAULT_INTELLIGENCE_CONFIG.max_bundle_bytes, 1024, 64 * 1024 * 1024),
+    retention_days: integerField('retention_days', DEFAULT_INTELLIGENCE_CONFIG.retention_days, 1, 365),
+    exported_retention_days: integerField('exported_retention_days', DEFAULT_INTELLIGENCE_CONFIG.exported_retention_days, 1, 3650),
+    cleanup_credential_artifacts: booleanField('cleanup_credential_artifacts', DEFAULT_INTELLIGENCE_CONFIG.cleanup_credential_artifacts),
+    require_web_search: booleanField('require_web_search', DEFAULT_INTELLIGENCE_CONFIG.require_web_search),
     enabled,
     auto_route: enabled && (options.explicitConsent === true || value?.auto_route === true),
     auth_mode: authMode,

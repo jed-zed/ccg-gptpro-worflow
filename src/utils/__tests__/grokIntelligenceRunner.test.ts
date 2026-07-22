@@ -7,13 +7,15 @@ import { buildExactGrokEnvironment, FORCED_GROK_ENV } from '../../../templates/e
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { createPrivateRunRoots, removePrivateRunRoot } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { assertCleanGrokDiagnostics, runGrokDiagnostics } from '../../../templates/engine/tools/grok-intelligence/lib/process.mjs'
+import { assertCleanGrokDiagnostics, parseGrokModelInventory, runGrokDiagnostics } from '../../../templates/engine/tools/grok-intelligence/lib/process.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { createFocusedSnapshot } from '../../../templates/engine/tools/grok-intelligence/lib/snapshot.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
+import { pathsShareIdentity } from '../../../templates/engine/tools/grok-intelligence/lib/path-safety.mjs'
+// @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { runGrokIntelligence } from '../../../templates/engine/tools/grok-intelligence/runner.mjs'
 
-function searchNotifications(url = 'https://docs.x.ai/build/cli/reference') {
+function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', finalText?: string) {
   return [
     {
       method: 'session/update',
@@ -25,7 +27,7 @@ function searchNotifications(url = 'https://docs.x.ai/build/cli/reference') {
     },
     {
       method: 'session/update',
-      params: { update: { sessionUpdate: 'agent_message_chunk', content: { text: 'Evidence collected.' } } },
+      params: { update: { sessionUpdate: 'agent_message_chunk', content: { text: finalText || `Evidence collected.\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"The current contract is documented by an observed source.","status":"verified","severity":"info","urls":["${url}"]}]}` } } },
     },
     {
       method: 'session/update',
@@ -35,6 +37,12 @@ function searchNotifications(url = 'https://docs.x.ai/build/cli/reference') {
 }
 
 describe('focused Grok snapshot', () => {
+  it('accepts alternate path spellings only when filesystem identity is unchanged', () => {
+    const directory = () => true
+    const file = () => false
+    expect(pathsShareIdentity({ dev: 1, ino: 42, isDirectory: directory, isFile: file }, { dev: 1, ino: 42, isDirectory: directory, isFile: file })).toBe(true)
+    expect(pathsShareIdentity({ dev: 1, ino: 42, isDirectory: directory, isFile: file }, { dev: 1, ino: 43, isDirectory: directory, isFile: file })).toBe(false)
+  })
   let root: string
   let repo: string
   let snapshot: string
@@ -199,10 +207,10 @@ describe('private roots and clean diagnostics', () => {
       cwd: root,
       env,
       runProcess: async (command: string, args: string[], options: any) => {
-        calls.push({ command, args, env: options.env })
+        calls.push({ command, args, env: options.env, timeoutMs: options.timeoutMs })
         if (args.includes('inspect'))
           return { stdout: '{"externalCompat":{"remoteSettingsLoaded":false,"cells":[{"vendor":"claude","surface":"hooks","enabled":false}]}}', stderr: '', exitCode: 0 }
-        return { stdout: args.includes('version') ? '0.1.20' : 'none configured', stderr: '', exitCode: 0 }
+        return { stdout: args.includes('version') ? '0.1.20' : args.includes('models') ? 'grok-4.5' : 'none configured', stderr: '', exitCode: 0 }
       },
     })
     expect(calls.map(call => call.args.slice(-2).join(' '))).toEqual([
@@ -213,8 +221,13 @@ describe('private roots and clean diagnostics', () => {
       'mcp list',
     ])
     expect(calls.every(call => call.env === env)).toBe(true)
+    expect(calls.every(call => call.timeoutMs === 30_000)).toBe(true)
     expect(Object.keys(env)).not.toContain('SECRET_SHOULD_DROP')
     expect(result.safe).toBe(true)
+    expect(parseGrokModelInventory('You are not authenticated.\nDefault model: grok-4.5\nAvailable models:\n* grok-4.5 (default)\n* grok-4.5-deep')).toEqual({
+      models: ['grok-4.5', 'grok-4.5-deep'],
+      defaultModel: 'grok-4.5',
+    })
 
     expect(() => assertCleanGrokDiagnostics({
       inspect: { externalCompat: { remoteSettingsLoaded: false, cells: [{ vendor: 'claude', surface: 'hooks', enabled: true }] } },
@@ -248,7 +261,7 @@ describe('private roots and clean diagnostics', () => {
       cwd: root,
       env,
     })).rejects.toThrow(/unsafe_cli_context/i)
-  })
+  }, 20_000)
 })
 
 describe('isolated Grok runner lifecycle', () => {
@@ -336,6 +349,7 @@ describe('isolated Grok runner lifecycle', () => {
     expect(seenAcpOptions.prompt).toContain('does not count as source-backed evidence')
     expect(result).toMatchObject({ exitCode: 0, status: 'valid' })
     expect(result.evidence.validation.valid).toBe(true)
+    expect(result.evidence.claims).toEqual([expect.objectContaining({ id: 'claim-1', status: 'verified', source_ids: [expect.stringMatching(/^src-/)] })])
     expect(result.evidence.registry.sources[0].canonical_url).toBe('https://docs.x.ai/build/cli/reference')
     expect(JSON.stringify(result.raw)).not.toContain('USER_SECRET')
     await expect(stat(result.runRoot)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -381,10 +395,15 @@ describe('isolated Grok runner lifecycle', () => {
 
     const invented = searchNotifications('https://docs.x.ai/build/cli/reference')
     const inventedMessage: any = invented[2]
-    inventedMessage.params.update.content.text = 'Invented https://invented.invalid is not a source.'
+    inventedMessage.params.update.content.text = `Invented https://invented.invalid is not a source.\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"Observed contract","status":"verified","urls":["https://docs.x.ai/build/cli/reference"]}]}`
     const inventedResult = await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: invented, mcpPreflight: { serversEmpty: true, toolCount: 0 } }) }))
     expect(inventedResult.exitCode).toBe(0)
     expect(inventedResult.evidence.registry.sources.some((source: any) => source.canonical_url.includes('invented.invalid'))).toBe(false)
+
+    const missingClaims = await runGrokIntelligence(baseOptions({
+      runAcp: async () => ({ notifications: searchNotifications(undefined, 'Evidence collected.'), mcpPreflight: { serversEmpty: true, toolCount: 0 } }),
+    }))
+    expect(missingClaims).toMatchObject({ exitCode: 2, status: 'unavailable' })
 
     const cleanupFailure = await runGrokIntelligence(baseOptions({
       cleanupRunRoots: async () => { throw new Error('cleanup failed') },

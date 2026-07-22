@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
+import { assertExistingPathWithoutLinks } from './path-safety.mjs'
 
 const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/
 const REQUIRED_VERSION_FIELDS = Object.freeze([
@@ -87,15 +88,7 @@ async function ensureCacheRoot(cacheRoot) {
   if (!isAbsolute(cacheRoot))
     throw new Error('cacheRoot must be absolute')
   await mkdir(cacheRoot, { recursive: true, mode: 0o700 })
-  const metadata = await lstat(cacheRoot)
-  if (!metadata.isDirectory() || metadata.isSymbolicLink())
-    throw new Error('cacheRoot must not be a link or reparse point')
-  const canonical = await realpath(cacheRoot)
-  const expected = resolve(cacheRoot)
-  const normalize = value => process.platform === 'win32' ? value.toLowerCase() : value
-  if (normalize(canonical) !== normalize(expected))
-    throw new Error('cacheRoot must not resolve through a link or reparse point')
-  return canonical
+  return (await assertExistingPathWithoutLinks(resolve(cacheRoot), { name: 'cacheRoot', expectedType: 'directory' })).canonical
 }
 
 async function assertNoLinksRecursively(path) {

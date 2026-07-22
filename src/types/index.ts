@@ -25,13 +25,13 @@ export interface IntelligenceConfig {
   default_model: string
   deep_research_model: string
   deep_research_enabled: boolean
-  live_checks_on_init: false
+  live_checks_on_init: boolean
   artifact_root: string
   max_retries: number
   max_bundle_bytes: number
   retention_days: number
   exported_retention_days: number
-  cleanup_credential_artifacts: true
+  cleanup_credential_artifacts: boolean
   require_web_search: boolean
   x_search_policy: XSearchPolicy
 }

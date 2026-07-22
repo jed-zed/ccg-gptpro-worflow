@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
+import { signalProcessTree } from './process-tree.mjs'
 
 const MAX_DIAGNOSTIC_BYTES = 1024 * 1024
-const DEFAULT_TIMEOUT_MS = 15000
+const DEFAULT_TIMEOUT_MS = 30000
 
 export class UnsafeCliContextError extends Error {
   constructor(message) {
@@ -11,17 +12,17 @@ export class UnsafeCliContextError extends Error {
   }
 }
 
-function terminate(child) {
+function terminate(child, treeEnabled = false) {
   if (!child || child.exitCode != null || child.signalCode != null)
     return
   try {
-    child.kill('SIGTERM')
+    signalProcessTree(child, 'SIGTERM', { treeEnabled })
   }
   catch {}
   setTimeout(() => {
     if (child.exitCode == null && child.signalCode == null) {
       try {
-        child.kill('SIGKILL')
+        signalProcessTree(child, 'SIGKILL', { treeEnabled })
       }
       catch {}
     }
@@ -44,7 +45,9 @@ export function runBoundedProcess(command, args, {
       windowsHide: true,
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: spawnProcess === spawn && process.platform !== 'win32',
     })
+    const treeEnabled = spawnProcess === spawn
     const stdout = []
     const stderr = []
     let bytes = 0
@@ -64,7 +67,7 @@ export function runBoundedProcess(command, args, {
       if (settled || pendingFailure)
         return
       pendingFailure = error
-      terminate(child)
+      terminate(child, treeEnabled)
       forcedFinishTimer = setTimeout(() => finish(() => rejectPromise(error)), 1000)
     }
     const collect = target => chunk => {
@@ -139,6 +142,27 @@ export function assertCleanGrokDiagnostics({ inspect, plugins, mcp }) {
   return { safe: true }
 }
 
+export function parseGrokModelInventory(value) {
+  const models = []
+  let defaultModel = null
+  for (const rawLine of String(value || '').split(/\r?\n/)) {
+    const line = rawLine.trim()
+    const declaredDefault = /^Default model:\s*(grok-[A-Za-z0-9._-]+)\s*$/i.exec(line)
+    if (declaredDefault)
+      defaultModel = declaredDefault[1]
+    const listed = /^(?:[*-]\s*)?(grok-[A-Za-z0-9._-]+)(?:\s+\(default\))?\s*$/i.exec(line)
+    if (listed && !models.includes(listed[1]))
+      models.push(listed[1])
+    if (listed && /\(default\)\s*$/i.test(line))
+      defaultModel = listed[1]
+  }
+  if (defaultModel && !models.includes(defaultModel))
+    models.unshift(defaultModel)
+  if (models.length === 0)
+    throw new UnsafeCliContextError('grok models returned no valid model ids')
+  return { models, defaultModel }
+}
+
 export async function runGrokDiagnostics({
   command = 'grok',
   prefixArgs = [],
@@ -168,10 +192,12 @@ export async function runGrokDiagnostics({
     throw new UnsafeCliContextError('grok inspect --json returned malformed JSON')
   }
   const safety = assertCleanGrokDiagnostics({ inspect, plugins: output.plugin, mcp: output.mcp })
+  const inventory = parseGrokModelInventory(output.models)
   return {
     ...safety,
     version: String(output.version).trim(),
-    models: String(output.models).trim().split(/\r?\n/).filter(Boolean),
+    models: inventory.models,
+    defaultModel: inventory.defaultModel,
     inspect,
   }
 }

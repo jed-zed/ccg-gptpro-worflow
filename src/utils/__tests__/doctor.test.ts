@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGrokDoctorArguments, execSafe, formatGrokDoctorFailure, validateIntelligenceDoctorConfig } from '../../commands/doctor'
+import { buildGrokDoctorArguments, execSafe, formatGrokDoctorFailure, getGrokDoctorTimeout, validateIntelligenceDoctorConfig } from '../../commands/doctor'
 
 describe('doctor command helpers', () => {
   it('executes child commands from the ESM CLI', () => {
@@ -12,14 +12,25 @@ describe('doctor command helpers', () => {
     expect(buildGrokDoctorArguments({ grok: true, grokCleanup: true })).toEqual(['doctor', '--json', '--cleanup'])
   })
 
+  it('allows enough time for model discovery plus the bounded ACP handshake', () => {
+    expect(getGrokDoctorTimeout({ grok: true })).toBe(180_000)
+    expect(getGrokDoctorTimeout({ grokLive: true })).toBe(600_000)
+  })
+
   it('rejects provider fallback and incompatible intelligence config', () => {
     expect(validateIntelligenceDoctorConfig({
-      provider: 'grok-cli', transport: 'acp', auth_mode: 'browser_oauth',
-      legacy_search_provider: 'grok-search-mcp', allow_provider_fallback: false,
+      provider: 'grok-cli',
+      transport: 'acp',
+      auth_mode: 'browser_oauth',
+      legacy_search_provider: 'grok-search-mcp',
+      allow_provider_fallback: false,
     })).toEqual([])
     expect(validateIntelligenceDoctorConfig({
-      provider: 'other', transport: 'headless', auth_mode: 'cookie',
-      legacy_search_provider: 'other', allow_provider_fallback: true,
+      provider: 'other',
+      transport: 'headless',
+      auth_mode: 'cookie',
+      legacy_search_provider: 'other',
+      allow_provider_fallback: true,
     })).toHaveLength(5)
   })
 

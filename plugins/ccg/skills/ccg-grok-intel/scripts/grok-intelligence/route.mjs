@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseIntelligenceToml, runManualCommand } from './command.mjs'
 import {
@@ -18,6 +18,15 @@ const REQUIREMENTS = new Set(['required', 'preferred', 'disabled'])
 const CONTRACT_PATTERN = /(?:\b(?:api|sdk|dependency|package|library|protocol|cloud|database|cve|advisory|authentication|cryptograph\w*|regulation|standard|deprecat\w*|compatib\w*|version|upgrade)\b|依赖|接口|协议|升级|弃用|兼容|漏洞|安全公告|认证|加密|法规|标准)/i
 const INCIDENT_PATTERN = /(?:\b(?:incident|outage|downtime|service\s+status|regression|regional\s+errors?|production\s+failure)\b|事故|宕机|服务状态|线上故障|区域错误|新回归)/i
 const CURRENT_PATTERN = /(?:\b(?:current|latest|recent|today|now|newly)\b|当前|最新|最近|今天|刚刚|新发布)/i
+const SAFE_STATE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/
+const EVIDENCE_TTL_MS = Object.freeze({
+  incident: 30 * 60 * 1000,
+  verify: 2 * 60 * 60 * 1000,
+  contract: 72 * 60 * 60 * 1000,
+  discover: 7 * 24 * 60 * 60 * 1000,
+  landscape: 7 * 24 * 60 * 60 * 1000,
+  deep: 7 * 24 * 60 * 60 * 1000,
+})
 
 function emit(runtime, event) {
   runtime.onEvent?.(event)
@@ -104,6 +113,46 @@ async function writeState(path, state) {
   await rename(temporary, path)
 }
 
+function assertAllowedStatePath(repoRoot, requested) {
+  const path = relativeInside(repoRoot, requested, 'state file')
+  const parts = path.relative.split('/')
+  const taskState = parts.length === 4
+    && parts[0] === '.ccg' && parts[1] === 'tasks'
+    && SAFE_STATE_ID.test(parts[2]) && parts[3] === 'intelligence-route.json'
+  const codexStatus = parts.length === 4
+    && parts[0] === '.codex' && parts[1] === 'ccg'
+    && SAFE_STATE_ID.test(parts[2]) && parts[3] === 'status.json'
+  if (!taskState && !codexStatus)
+    throw new Error('state file must match .ccg/tasks/<id>/intelligence-route.json or .codex/ccg/<id>/status.json')
+  return path
+}
+
+function validateExistingRouteState(value) {
+  if (value == null)
+    return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || value.schemaVersion !== 1
+    || typeof value.workflow !== 'string'
+    || !value.decision || typeof value.decision !== 'object'
+    || !value.execution || typeof value.execution !== 'object')
+    throw new Error('Existing state file does not contain the Grok intelligence route schema')
+  return value
+}
+
+async function writeRouteState(context, state) {
+  await mkdir(dirname(context.statePath), { recursive: true, mode: 0o700 })
+  await assertNoLinkedPath(context.repoRoot, dirname(context.statePath), 'state directory')
+  try {
+    const metadata = await lstat(context.statePath)
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink > 1)
+      throw new Error('Existing route state must be one regular, non-linked file')
+  }
+  catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  await writeState(context.statePath, state)
+}
+
 function resolveActiveTaskDir(input, repoRoot, statePath) {
   const candidate = input.taskDir
     ? relativeInside(repoRoot, input.taskDir, 'task directory').absolute
@@ -115,11 +164,23 @@ function resolveActiveTaskDir(input, repoRoot, statePath) {
   return candidate
 }
 
-async function validateSuccessfulBundle(repoRoot, routeDecision, result) {
+async function validateSuccessfulBundle(repoRoot, routeDecision, result, { config = {}, clock = () => new Date() } = {}) {
+  if (result?.exitCode !== 0 || result?.status !== 'valid')
+    throw new Error('Automatic route result is not a successful evidence bundle')
+  const artifactRoot = relativeInside(repoRoot, String(config.artifact_root || '.codex/ccg/intelligence'), 'artifact root')
+  await assertNoLinkedPath(repoRoot, artifactRoot.absolute, 'artifact root')
   const artifact = await assertNoLinkedPath(repoRoot, result.evidencePath, 'evidence artifact')
   const manifest = await assertNoLinkedPath(repoRoot, result.manifestPath, 'evidence manifest')
+  if (basename(artifact.absolute) !== 'evidence.json' || basename(manifest.absolute) !== 'manifest.json')
+    throw new Error('Automatic route bundle must use canonical evidence.json and manifest.json names')
+  const artifactMeta = await stat(artifact.absolute)
+  const manifestMeta = await stat(manifest.absolute)
+  if (!artifactMeta.isFile() || !manifestMeta.isFile() || artifactMeta.nlink > 1 || manifestMeta.nlink > 1)
+    throw new Error('Automatic route bundle paths must be non-linked regular files')
   if (dirname(artifact.absolute) !== dirname(manifest.absolute))
     throw new Error('Evidence artifact and manifest must share one bundle directory')
+  if (dirname(dirname(artifact.absolute)) !== artifactRoot.absolute)
+    throw new Error('Automatic route bundle must be one direct child of the configured artifact root')
   const [artifactBytes, manifestBytes] = await Promise.all([
     readFile(artifact.absolute),
     readFile(manifest.absolute),
@@ -142,12 +203,39 @@ async function validateSuccessfulBundle(repoRoot, routeDecision, result) {
     throw new Error('Automatic route manifest evidenceId does not match its bundle directory')
   if (manifestJson.localOnly !== true || manifestJson.exported !== false)
     throw new Error('Automatic route evidence must remain local-only and unexported')
+  const createdAt = new Date(manifestJson.createdAt)
+  if (!Number.isFinite(createdAt.getTime()) || createdAt.toISOString() !== manifestJson.createdAt)
+    throw new Error('Automatic route manifest has no exact creation timestamp')
+  const ttl = EVIDENCE_TTL_MS[routeDecision.mode] || EVIDENCE_TTL_MS.contract
+  const age = clock().getTime() - createdAt.getTime()
+  if (age < -5 * 60 * 1000 || age > ttl)
+    throw new Error('Automatic route evidence is outside its freshness window')
+  const expectedModel = String(config.default_model || 'grok-4.5').trim()
+  if (typeof result.model !== 'string' || !result.model || result.model !== expectedModel || manifestJson.model !== result.model)
+    throw new Error('Automatic route manifest does not bind the executed Grok model')
+  const expectedFiles = ['evidence.json', 'raw-stream.jsonl', 'report.md']
+  if (JSON.stringify(Object.keys(manifestJson.files || {}).sort()) !== JSON.stringify(expectedFiles))
+    throw new Error('Automatic route manifest must bind the canonical evidence, report, and raw stream files')
+  for (const name of expectedFiles) {
+    const child = await assertNoLinkedPath(repoRoot, resolve(dirname(manifest.absolute), name), `bundle ${name}`)
+    const metadata = await stat(child.absolute)
+    if (!metadata.isFile() || metadata.nlink > 1)
+      throw new Error(`Automatic route bundle ${name} is not a regular file`)
+    const bytes = await readFile(child.absolute)
+    const binding = manifestJson.files[name]
+    if (binding?.sha256 !== sha256(bytes) || binding?.bytes !== bytes.length)
+      throw new Error(`Automatic route manifest hash mismatch for ${name}`)
+  }
   const boundArtifact = manifestJson.files?.['evidence.json']
   if (boundArtifact?.sha256 !== result.evidenceSha256 || boundArtifact?.bytes !== artifactBytes.length)
     throw new Error('Automatic route manifest does not bind evidence.json bytes')
   const decision = createIntelligenceDecision(artifactJson.decision)
   if (decision.requirement !== routeDecision.requirement || decision.status !== 'valid')
     throw new Error('Automatic route bundle decision does not match the required route')
+  if (artifactJson.schemaVersion !== 2 || !Array.isArray(artifactJson.evidence?.claims) || artifactJson.evidence.claims.length === 0)
+    throw new Error('Automatic route evidence must contain at least one bound or explicit unresolved claim')
+  if (artifactJson.evidence?.model?.actual !== result.model)
+    throw new Error('Automatic route evidence provenance does not match the executed Grok model')
   return {
     evidenceId,
     decision,
@@ -160,7 +248,7 @@ async function validateSuccessfulBundle(repoRoot, routeDecision, result) {
   }
 }
 
-async function publishCanonicalEvidence({ input, repoRoot, statePath, routeDecision, result }) {
+async function publishCanonicalEvidence({ input, repoRoot, statePath, validated }) {
   const taskDir = resolveActiveTaskDir(input, repoRoot, statePath)
   if (!taskDir)
     return null
@@ -171,7 +259,6 @@ async function publishCanonicalEvidence({ input, repoRoot, statePath, routeDecis
       throw new Error('Explicit task directory is missing task.json')
     return null
   }
-  const validated = await validateSuccessfulBundle(repoRoot, routeDecision, result)
   const item = createCanonicalEvidenceItem({
     evidenceId: validated.evidenceId,
     decision: validated.decision,
@@ -200,6 +287,28 @@ async function publishCanonicalEvidence({ input, repoRoot, statePath, routeDecis
     manifest_file: validated.bundle.manifestRelativePath,
     manifest_sha256: validated.bundle.manifestSha256,
   }
+}
+
+async function validateCanonicalReusePointer({ input, context, validated }) {
+  const taskDir = resolveActiveTaskDir(input, context.repoRoot, context.statePath)
+  if (!taskDir)
+    return
+  const task = await readJsonIfPresent(resolve(taskDir, 'task.json'))
+  if (!task)
+    return
+  const pointer = task.intelligence
+  if (pointer?.evidence_id !== validated.evidenceId
+    || pointer?.manifest_file !== validated.bundle.manifestRelativePath
+    || pointer?.manifest_sha256 !== validated.bundle.manifestSha256
+    || pointer?.localOnly !== true || pointer?.exported !== false)
+    throw new Error('Canonical task intelligence pointer does not match the reusable bundle')
+  const evidence = await readJsonIfPresent(resolve(taskDir, 'evidence.json'))
+  const item = evidence?.items?.find(entry => entry?.id === `grok-external-intelligence-${validated.evidenceId}`)
+  if (!item || item.artifactFile !== validated.bundle.artifactRelativePath
+    || item.artifactSha256 !== validated.bundle.artifactSha256
+    || item.manifestFile !== validated.bundle.manifestRelativePath
+    || item.manifestSha256 !== validated.bundle.manifestSha256)
+    throw new Error('Canonical task evidence item does not match the reusable bundle')
 }
 
 async function resolveConfig(input) {
@@ -324,6 +433,8 @@ export function buildRouteCommandArgv(decision, input) {
     argv.push('--diff', input.diff)
   for (const dependency of input.dependencies || [])
     argv.push('--dependency', dependency)
+  for (const domain of input.officialDomains || [])
+    argv.push('--official-domain', domain)
   if (input.forceRefresh === true)
     argv.push('--force-refresh')
   return argv
@@ -336,6 +447,7 @@ function commandOptions(input, decision, config) {
     ...(input.plan ? { plan: input.plan } : {}),
     ...(input.diff ? { diff: input.diff } : {}),
     dependencies: [...(input.dependencies || [])],
+    officialDomains: [...(input.officialDomains || [])],
     forceRefresh: input.forceRefresh === true,
     config,
   }
@@ -362,7 +474,7 @@ function makeState({ input, bindings, decision, execution, inputDigest }) {
   }
 }
 
-function routeInputDigest(input, decision, bindings) {
+function routeInputDigest(input, decision, bindings, config = {}) {
   return sha256(stableJson({
     workflow: input.workflow,
     phase: input.phase,
@@ -375,6 +487,14 @@ function routeInputDigest(input, decision, bindings) {
       effective_x_policy: decision.effective_x_policy,
     },
     bindings,
+    official_domains: [...new Set((input.officialDomains || []).map(value => String(value).trim().toLowerCase()))].sort(),
+    execution_profile: {
+      model: String(config.default_model || 'grok-4.5').trim(),
+      artifact_root: String(config.artifact_root || '.codex/ccg/intelligence').trim(),
+      auth_mode: String(config.auth_mode || ''),
+      provider: String(config.provider || ''),
+      transport: String(config.transport || ''),
+    },
   }))
 }
 
@@ -385,15 +505,17 @@ async function prepareWorkflowRoute(input, runtime) {
     throw new Error('repoRoot must be a directory')
   if (!input.stateFile)
     throw new Error('Automatic intelligence routing requires --state-file')
-  const statePath = relativeInside(repoRoot, input.stateFile, 'state file').absolute
+  const statePath = assertAllowedStatePath(repoRoot, input.stateFile).absolute
   await assertNoLinkedPath(repoRoot, dirname(statePath), 'state directory', { allowMissing: true })
-  const previous = await readJsonIfPresent(statePath)
+  const previous = validateExistingRouteState(await readJsonIfPresent(statePath))
   const config = await resolveConfig(input)
   const decision = classifyWorkflowRoute(input, config, previous)
   emit(runtime, 'decision')
   const bindings = await collectBindings({ ...input, task: String(input.task || '') }, repoRoot)
-  const inputDigest = routeInputDigest(input, decision, bindings)
-  return { repoRoot, statePath, previous, config, decision, bindings, inputDigest }
+  if (decision.mode === 'verify' && (!bindings.diff || bindings.diff.bytes === 0))
+    throw new Error('Final external verification requires a non-empty --diff binding')
+  const inputDigest = routeInputDigest(input, decision, bindings, config)
+  return { repoRoot, statePath, previous, config, decision, bindings, inputDigest, clock: runtime.clock || (() => new Date()) }
 }
 
 async function completeSkippedRoute(input, context, runtime) {
@@ -404,15 +526,36 @@ async function completeSkippedRoute(input, context, runtime) {
     inputDigest: context.inputDigest,
     execution: { status: 'skipped', exit_code: 0, invoked: false },
   })
-  await writeState(context.statePath, state)
+  await writeRouteState(context, state)
   emit(runtime, 'state:complete')
   return { exitCode: 0, invoked: false, reused: false, ...state }
 }
 
-function reusableRoute(context) {
-  return context.previous?.input_digest === context.inputDigest
+async function reusableRoute(input, context) {
+  const candidate = input.forceRefresh !== true
+    && context.previous?.input_digest === context.inputDigest
     && context.previous?.decision?.status === 'valid'
     && context.previous?.execution?.exit_code === 0
+  if (!candidate)
+    return false
+  try {
+    const execution = context.previous.execution
+    const result = {
+      exitCode: execution.exit_code,
+      status: execution.status,
+      evidencePath: execution.evidence_path,
+      evidenceSha256: execution.evidence_sha256,
+      manifestPath: execution.manifest_path,
+      manifestSha256: execution.manifest_sha256,
+      model: execution.model,
+    }
+    const validated = await validateSuccessfulBundle(context.repoRoot, context.decision, result, context)
+    await validateCanonicalReusePointer({ input, context, validated })
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 async function invokeRouteRunner(input, context, runtime) {
@@ -425,7 +568,7 @@ async function invokeRouteRunner(input, context, runtime) {
     inputDigest: context.inputDigest,
     execution: { status: 'pending', exit_code: null, invoked: true, action, argv },
   })
-  await writeState(context.statePath, pendingState)
+  await writeRouteState(context, pendingState)
   emit(runtime, 'state:pending')
   const invoke = runtime.invoke || defaultInvoke
   const result = await invoke({
@@ -441,14 +584,14 @@ async function invokeRouteRunner(input, context, runtime) {
 
 async function canonicalizeRunnerResult(input, context, result) {
   let canonicalEvidence = null
-  if (result?.exitCode === 0 && result?.status === 'valid' && result?.evidencePath) {
+  if (result?.exitCode === 0 && result?.status === 'valid') {
     try {
+      const validated = await validateSuccessfulBundle(context.repoRoot, context.decision, result, context)
       canonicalEvidence = await publishCanonicalEvidence({
         input,
         repoRoot: context.repoRoot,
         statePath: context.statePath,
-        routeDecision: context.decision,
-        result,
+        validated,
       })
     }
     catch (error) {
@@ -490,12 +633,13 @@ async function completeInvokedRoute(input, context, invocation, runtime) {
         evidence_sha256: result.evidenceSha256,
         manifest_path: result.manifestPath,
         manifest_sha256: result.manifestSha256,
+        model: result.model,
       } : {}),
     },
   })
   if (published.canonicalEvidence)
     finalState.canonical_evidence = published.canonicalEvidence
-  await writeState(context.statePath, finalState)
+  await writeRouteState(context, finalState)
   emit(runtime, 'state:complete')
   return { exitCode, invoked: true, reused: false, ...finalState }
 }
@@ -504,14 +648,14 @@ export async function runWorkflowRoute(input, runtime = {}) {
   const context = await prepareWorkflowRoute(input, runtime)
   if (context.decision.requirement === 'disabled')
     return completeSkippedRoute(input, context, runtime)
-  if (reusableRoute(context))
+  if (await reusableRoute(input, context))
     return { exitCode: 0, invoked: false, reused: true, ...context.previous }
   const invocation = await invokeRouteRunner(input, context, runtime)
   return completeInvokedRoute(input, context, invocation, runtime)
 }
 
 function parseArgs(argv) {
-  const output = { dependencies: [] }
+  const output = { dependencies: [], officialDomains: [] }
   for (let index = 0; index < argv.length; index++) {
     const value = argv[index]
     if (!value.startsWith('--'))
@@ -526,6 +670,8 @@ function parseArgs(argv) {
       throw new Error(`Missing value for ${value}`)
     if (key === 'dependency')
       output.dependencies.push(next)
+    else if (key === 'officialDomain')
+      output.officialDomains.push(next)
     else
       output[key] = next
   }
@@ -552,6 +698,7 @@ async function main(argv = process.argv.slice(2)) {
     plan: args.plan,
     diff: args.diff,
     dependencies: args.dependencies,
+    officialDomains: args.officialDomains,
     forceRefresh: args.forceRefresh === true,
   })
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

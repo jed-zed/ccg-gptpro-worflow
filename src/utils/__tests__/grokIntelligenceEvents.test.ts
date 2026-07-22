@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { parseAcpJsonl, normalizeAcpEvents } from '../../../templates/engine/tools/grok-intelligence/lib/events.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { bindClaims, bindClaimsFromObservedUrls, buildSourceRegistry, canonicalizeSourceUrl, createSynthesisInput } from '../../../templates/engine/tools/grok-intelligence/lib/source-registry.mjs'
+import { bindClaims, bindClaimsFromObservedUrls, buildSourceRegistry, canonicalizeSourceUrl, createSynthesisInput, extractClaimsEnvelope } from '../../../templates/engine/tools/grok-intelligence/lib/source-registry.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { assertValidEvidencePackage, resolveEffectiveXPolicy, validateEvidencePackage } from '../../../templates/engine/tools/grok-intelligence/lib/validator.mjs'
 
@@ -175,6 +175,17 @@ describe('Grok ACP event normalization', () => {
 })
 
 describe('runtime source registry', () => {
+  it('extracts one strict claim envelope and permits an explicit unresolved result', () => {
+    expect(extractClaimsEnvelope('summary\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"Observed contract","status":"verified","urls":["https://docs.x.ai/reference"]}]}')).toEqual([
+      expect.objectContaining({ id: 'claim-1', status: 'verified', urls: ['https://docs.x.ai/reference'] }),
+    ])
+    expect(extractClaimsEnvelope('CCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-none","claim":"No applicable fact could be verified","status":"unresolved","urls":[]}]}')).toEqual([
+      expect.objectContaining({ id: 'claim-none', status: 'unresolved', urls: [] }),
+    ])
+    expect(() => extractClaimsEnvelope('Evidence collected without a machine-readable claim.')).toThrow(/claim envelope/i)
+    expect(() => extractClaimsEnvelope('CCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[]}')).toThrow(/at least one claim/i)
+  })
+
   it('creates deterministic IDs only from observed tool sources', async () => {
     const normalized = normalizeAcpEvents(
       parseAcpJsonl(await readFixture('acp-web-success.jsonl')),
@@ -197,6 +208,12 @@ describe('runtime source registry', () => {
   it('canonicalizes equivalent URLs while preserving semantic query parameters', () => {
     expect(canonicalizeSourceUrl('HTTPS://Example.COM:443/path?b=2&utm_source=x&a=1#fragment'))
       .toBe('https://example.com/path?a=1&b=2')
+    expect(canonicalizeSourceUrl('https://user:password@example.com/object?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=top-secret&safe=1'))
+      .toBe('https://example.com/object')
+    expect(canonicalizeSourceUrl('https://storage.example.com/blob?sv=2024-01-01&sig=sas-secret&sp=r'))
+      .toBe('https://storage.example.com/blob')
+    expect(canonicalizeSourceUrl('https://storage.googleapis.com/object?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=google-secret'))
+      .toBe('https://storage.googleapis.com/object')
 
     const registry = buildSourceRegistry({
       searches: [{
@@ -222,6 +239,26 @@ describe('runtime source registry', () => {
         sources: [{ url: 'https://invented.invalid' }],
       }],
     }, registryOptions())).toThrow(/built-in WebSearch/i)
+  })
+
+  it('marks official provenance unknown when no target domains were supplied', () => {
+    const registry = buildSourceRegistry({
+      searches: [{
+        tool: 'web_search',
+        observed_tool: 'web_search',
+        toolCallId: 'unknown-official',
+        query: 'target docs',
+        status: 'completed',
+        sources: [{ url: 'https://vendor.example/docs?token=secret' }],
+      }],
+    }, { retrievedAt, officialDomains: [], officialXAccounts: [], domainTiers: {} })
+    expect(registry.sources[0]).toMatchObject({
+      canonical_url: 'https://vendor.example/docs',
+      observed_url: 'https://vendor.example/docs',
+      official: false,
+      official_status: 'official_unknown',
+      source_tier: 'U',
+    })
   })
 
   it('builds a URL-free synthesis input and only accepts registry IDs back', async () => {
@@ -298,6 +335,12 @@ describe('runtime source registry', () => {
       status: 'verified',
       urls: ['https://invented.invalid'],
     }], registry)).toThrow(/unobserved source/i)
+    expect(bindClaimsFromObservedUrls([{
+      id: 'claim-unresolved',
+      claim: 'No applicable fact could be verified.',
+      status: 'unresolved',
+      urls: [],
+    }], registry)[0]).toMatchObject({ status: 'unresolved', source_ids: [] })
   })
 })
 

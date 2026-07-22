@@ -5,11 +5,13 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { GROK_ACP_DENY_RULES, GROK_ACP_DISALLOWED_TOOLS, GROK_INTELLIGENCE_SYSTEM_PROMPT, buildGrokAcpArgs, createExclusiveCapture, createGrokAcpClient, selectAcpAuthMethod, validatePrivateDirectory, validateWorkingDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
+import { GROK_ACP_DENY_RULES, GROK_ACP_DISALLOWED_TOOLS, GROK_INTELLIGENCE_SYSTEM_PROMPT, buildGrokAcpArgs, createExclusiveCapture, createGrokAcpClient, selectAcpAuthMethod, validatePrivateDirectory, validateWorkingDirectory, withCredentialHomeLease } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import * as grokAcp from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { FORCED_GROK_ENV, INTELLIGENCE_ENV_ALLOWLIST, buildExactGrokEnvironment } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
+// @ts-expect-error Runtime template modules intentionally ship as plain ESM.
+import { signalProcessTree } from '../../../templates/engine/tools/grok-intelligence/lib/process-tree.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -229,8 +231,8 @@ describe('Grok intelligence ACP transport', () => {
   })
 
   it('builds the strict agent-stdio command and never uses one-shot prompt mode', () => {
-    const args = buildGrokAcpArgs({ maxTurns: 6 })
-    expect(args.slice(-2)).toEqual(['agent', 'stdio'])
+    const args = buildGrokAcpArgs({ maxTurns: 6, model: 'grok-4.5' })
+    expect(args.slice(-4)).toEqual(['agent', '--model', 'grok-4.5', 'stdio'])
     expect(args).not.toContain('-p')
     expect(args).toContain('dontAsk')
     expect(args).toContain('--no-plan')
@@ -244,6 +246,19 @@ describe('Grok intelligence ACP transport', () => {
     expect(args[args.indexOf('--disallowed-tools') + 1]).toBe(GROK_ACP_DISALLOWED_TOOLS.join(','))
     expect(args.filter((arg: string) => GROK_ACP_DENY_RULES.includes(arg))).toEqual(GROK_ACP_DENY_RULES)
     expect(() => buildGrokAcpArgs({ maxTurns: 7 })).toThrow(/maxTurns/i)
+    expect(() => buildGrokAcpArgs({ maxTurns: 6, model: 'bad\nmodel' })).toThrow(/model/i)
+  })
+
+  it('targets the complete child process tree on Unix and Windows', () => {
+    const directSignals: string[] = []
+    const child = { pid: 4321, kill: (signal: string) => directSignals.push(signal) }
+    const groupSignals: any[] = []
+    signalProcessTree(child, 'SIGTERM', { platform: 'linux', treeEnabled: true, killGroup: (pid: number, signal: string) => groupSignals.push([pid, signal]) })
+    expect(groupSignals).toEqual([[-4321, 'SIGTERM']])
+    const taskkill: any[] = []
+    signalProcessTree(child, 'SIGKILL', { platform: 'win32', treeEnabled: true, runTaskkill: (args: string[]) => taskkill.push(args) })
+    expect(taskkill).toEqual([['/PID', '4321', '/T', '/F']])
+    expect(directSignals).toEqual([])
   })
 
   it('builds child env from an allowlist and forces compatibility surfaces off', () => {
@@ -478,5 +493,42 @@ describe('Grok intelligence ACP transport', () => {
     expect(await readFile(join(grokHome, 'auth.json'), 'utf8')).toContain('preserve-me')
     expect(await readFile(join(grokHome, 'config.toml'), 'utf8')).toContain('write_file = false')
     expect(await readFile(join(grokHome, 'models_cache.json'), 'utf8')).toBe('{}')
+  })
+
+  it('serializes shared credential-home mutations with a bounded global lease', async () => {
+    let active = 0
+    let maximum = 0
+    const action = () => withCredentialHomeLease(grokHome, async () => {
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 30))
+      active--
+    }, { validateDirectory: async (path: string) => path, retryMs: 5, timeoutMs: 1000 })
+    await Promise.all([action(), action()])
+    expect(maximum).toBe(1)
+    expect(await stat(grokHome)).toBeDefined()
+  })
+
+  it('recovers a credential-home lease whose owner process was terminated', async () => {
+    const leasePath = join(grokHome, '.ccg-intelligence-lease')
+    await mkdir(leasePath)
+    await writeFile(join(leasePath, 'owner.json'), `${JSON.stringify({
+      owner: 'terminated-owner',
+      pid: 999999,
+      created_at: '2026-01-01T00:00:00.000Z',
+    })}\n`)
+
+    let ran = false
+    await withCredentialHomeLease(grokHome, async () => {
+      ran = true
+    }, {
+      validateDirectory: async (path: string) => path,
+      processIsAlive: () => false,
+      retryMs: 5,
+      timeoutMs: 100,
+    })
+
+    expect(ran).toBe(true)
+    await expect(stat(leasePath)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })

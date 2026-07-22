@@ -2,15 +2,15 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-07-21 (v3.3.0)
+**Last Updated**: 2026-07-22 (v3.3.0)
 
 ---
 
 ## 变更记录
 
-### 2026-07-21 (v3.3.0)
+### 2026-07-22 (v3.3.0)
 - 新增 `commands/grok.ts`、Grok doctor 分层和 `external_intelligence` opt-in 配置迁移。
-- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 仍由 codeagent-wrapper v5.12.1 处理。
+- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 由 codeagent-wrapper v5.12.2 处理。
 - Grok 情报登录默认走浏览器 OAuth；无头 CI 可显式提供 `XAI_API_KEY`，live smoke 仅手动触发。
 
 ---
@@ -148,7 +148,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.1'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.2'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 双源下载策略（优先国内 CDN）：
 const BINARY_SOURCES = [

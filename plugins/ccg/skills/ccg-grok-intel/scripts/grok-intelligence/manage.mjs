@@ -5,12 +5,15 @@ import { access, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/p
 import { homedir } from 'node:os'
 import { isAbsolute, resolve, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { clearCredentialHomeVolatileState, createGrokAcpClient, withCredentialHomeVolatileSnapshot } from './lib/acp-client.mjs'
+import { clearCredentialHomeVolatileState, createGrokAcpClient, withCredentialHomeLease, withCredentialHomeVolatileSnapshot } from './lib/acp-client.mjs'
 import { cleanupIntelligenceArtifacts } from './lib/artifacts.mjs'
 import { buildExactGrokEnvironment } from './lib/exact-env.mjs'
 import { createPrivateRunRoots, securePrivateDirectory, validatePinnedGrokConfig, writePinnedGrokConfig } from './lib/private-temp.mjs'
 import { runBoundedProcess, runGrokDiagnostics } from './lib/process.mjs'
 import { runGrokIntelligence } from './runner.mjs'
+
+export const LOCAL_DOCTOR_ACP_TIMEOUT_MS = 120_000
+export const LIVE_DOCTOR_ACP_TIMEOUT_MS = 300_000
 
 const HELP = `CCG Grok intelligence account and diagnostics
 
@@ -190,7 +193,7 @@ export async function runIsolatedGrokDiagnostics({
       grokHome: roots.grokHome,
       apiKey: authentication?.authMode === 'api_key' ? authentication.apiKey : undefined,
     })
-    return await withCredentialHomeVolatileSnapshot(roots.grokHome, async () => {
+    return await withCredentialHomeLease(roots.grokHome, () => withCredentialHomeVolatileSnapshot(roots.grokHome, async () => {
       const help = await runProcess(command, [...prefixArgs, '--no-auto-update', '--help'], {
         cwd: roots.neutralHome,
         env,
@@ -205,7 +208,7 @@ export async function runIsolatedGrokDiagnostics({
         runProcess,
       })
       return { help, diagnostics }
-    }, { validateDirectory: async path => path })
+    }, { validateDirectory: async path => path }), { validateDirectory: async path => path })
   }
   finally {
     await roots.cleanup()
@@ -254,7 +257,7 @@ async function localDoctor(options = {}) {
         rawEventsDir: roots.rawEventsDir,
         rawEventsMaxBytes: 1024 * 1024,
         rawEventsMaxEvents: 2000,
-        timeoutMs: 30_000,
+        timeoutMs: LOCAL_DOCTOR_ACP_TIMEOUT_MS,
         maxTurns: 6,
         authMode: authentication.authMode,
         apiKey: authentication.apiKey,
@@ -323,7 +326,7 @@ async function liveDoctor(options = {}) {
       grokHome: paths.grokHome,
       sourceEnv,
       apiKey: authentication.apiKey,
-      timeoutMs: 120_000,
+      timeoutMs: LIVE_DOCTOR_ACP_TIMEOUT_MS,
     })
   }
   finally {

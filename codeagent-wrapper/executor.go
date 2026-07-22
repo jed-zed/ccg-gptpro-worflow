@@ -1316,7 +1316,11 @@ waitLoop:
 		}
 	}
 
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	// A deadline that expires while stdout is being drained must not reclassify a
+	// process that already exited successfully. ctxCancelled is set only when the
+	// wait loop actually selected ctx.Done() before observing process completion.
+	if ctxCancelled {
+		ctxErr := ctx.Err()
 		if errors.Is(ctxErr, context.DeadlineExceeded) {
 			result.ExitCode = 124
 			result.Error = attachStderr(fmt.Sprintf("%s execution timeout", commandName))

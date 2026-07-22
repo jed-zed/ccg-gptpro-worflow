@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [3.3.0] - 2026-07-21
+## [3.3.0] - 2026-07-22
 
 ### ✨ Features
 
@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 Fixes
 
+- **External-intelligence review hardening** — Require non-empty claim envelopes, execute and fingerprint the selected normal/deep Grok model, validate every manifest member before fresh publication or reuse, constrain route-state paths, bind verification to a real diff plus tracked and untracked Git state, preserve and validate all config fields at both installer and runtime entrypoints, sanitize credential-bearing URLs, and make official provenance task-specific.
+- **Cross-platform isolation** — Accept Windows short/long path aliases only when file identity matches, serialize shared Grok credential-home mutations, terminate complete ACP/diagnostic process trees, and avoid reclassifying a completed Go wrapper process when its context expires during output drain.
+- **Fork-safe binary CI** — Build binaries on feature branches without replacing the preset release or requiring unavailable Cloudflare R2 secrets; publishing remains restricted to `main`.
 - **Manual Grok evidence caching** — Wire `grok-intel` and `grok-verify` through the versioned cache, same-key lock, bound-input invalidation, dual-hash artifact validation, and `--force-refresh` replacement path so identical manual requests do not repeat paid model calls.
 - **Grok credential-home diagnostics cleanup** — Snapshot and restore volatile credential state around every local diagnostic, purge historical sessions/logs/memtrace during doctor runs, and prevent `unified.jsonl` authentication key prefixes from persisting while preserving browser login, pinned config, and model metadata.
 - **Automatic route invalidation** — Re-run intelligence when task phase, plan, target, dependency, or diff digests change; reuse identical valid Team decisions instead of invoking once per teammate.
@@ -33,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Windows CI** — Run Node 20/22 and Go gates on Ubuntu and Windows, with dedicated Windows ACP, junction/reparse, ACL, exact-environment, timeout, cleanup, and PowerShell doctor coverage.
 - **Manual paid live smoke** — Add an environment-approved `workflow_dispatch` job that validates real Web/X events and cleanup without uploading raw evidence.
-- **Distribution version** — Bump npm and both plugin marketplaces to `3.3.0`. The unchanged generic `codeagent-wrapper` protocol remains at `5.12.1`; intelligence uses the separate Node ACP runtime.
+- **Distribution version** — Bump npm and both plugin marketplaces to `3.3.0`; bump `codeagent-wrapper` to `5.12.2` for the completed-process timeout classification fix. Intelligence continues to use the separate Node ACP runtime.
 
 ## [3.2.2] - 2026-07-15
 

@@ -67,13 +67,13 @@ ccg grok login                  # Official browser OAuth in a dedicated private 
 ccg doctor --grok               # Local-only checks; no model prompt
 ccg doctor --grok-live          # Explicit bounded paid Web/X smoke
 
-/ccg:grok-intel <task> --mode discover|contract|incident|landscape
-/ccg:grok-verify [plan-or-diff]
+/ccg:grok-intel <task> --mode discover|contract|incident|landscape [--official-domain vendor.example]
+/ccg:grok-verify <task> --diff <bounded-diff-file>
 ```
 
-Automatic routing covers planning, execution, review, Team, Spec, GPT Pro, and externally relevant quality gates. Hard triggers include current APIs/SDKs, dependency upgrades, incidents, CVEs, cloud/database versions, regulations, and deprecations; Codex may also make an explicit semantic decision. Local-only refactors and Git utilities remain offline by default. Decisions are re-evaluated when the task phase, plan, target, dependency, or diff digest changes. A required gate fails closed with no fallback to the legacy `grok-search` MCP or another provider.
+Automatic routing covers planning, execution, review, Team, Spec, GPT Pro, and externally relevant quality gates. Hard triggers include current APIs/SDKs, dependency upgrades, incidents, CVEs, cloud/database versions, regulations, and deprecations; Codex may also make an explicit semantic decision. Local-only refactors and Git utilities remain offline by default. Verification requires a non-empty bounded diff, and decisions are re-evaluated against the complete Git worktree state plus task phase, plan, target, dependency, and diff digests. A required gate fails closed with no fallback to the legacy `grok-search` MCP or another provider.
 
-`x_search_policy` supports `required`, `preferred`, and `disabled`. Incident mode may elevate `preferred`; `disabled` is never elevated, and X-only material is discovery evidence rather than an independent blocker. Current Grok ACP may also emit native `XSearch` events without source URLs: CCG records those as advisory discovery only, while source-backed X evidence must come from a correlated `WebSearch site:x.com/site:twitter.com` result. Deep research is disabled by default; if enabled later, it remains leader-visible advisory evidence and cannot satisfy a required gate by itself.
+`x_search_policy` supports `required`, `preferred`, and `disabled`. Incident mode may elevate `preferred`; `disabled` is never elevated, and X-only material is discovery evidence rather than an independent blocker. Official domains come only from an explicit target or trusted package/repository metadata; unknown targets stay `official_unknown`. Current Grok ACP may also emit native `XSearch` events without source URLs: CCG records those as advisory discovery only, while source-backed X evidence must come from a correlated `WebSearch site:x.com/site:twitter.com` result. Deep research is disabled by default; when enabled with a configured model, that exact model is validated, executed, fingerprinted, and recorded in evidence and the manifest.
 
 Validated evidence is local-only by default:
 
@@ -89,7 +89,7 @@ Validated evidence is local-only by default:
 └── task.json            # intelligence pointer + hashes
 ```
 
-Cache keys bind the task, mode, model/CLI/policy versions, selected-file state, plan, dependencies, and diff. Manual cache hits revalidate both the evidence and manifest hashes before reuse; `--force-refresh` replaces the same-key entry after a successful fresh run. Local bundles retain for 7 days; sanitized explicit exports retain for 30 days. Export requires `--export <directory>` and never happens automatically. A required decision can be waived only by explicit user authorization with an auditable reason and timestamp.
+Cache keys bind the task, mode, model/CLI/policy versions, the complete tracked diff and untracked-file contents, plan, dependencies, official-domain policy, and verification diff. Manual and automatic cache hits revalidate every manifest member plus evidence/model provenance before reuse; `--force-refresh` always runs a fresh collection and replaces the same-key entry only after success. Local bundles retain for 7 days; sanitized explicit exports retain for 30 days. Export requires `--export <directory>` and never happens automatically. A required decision can be waived only by explicit user authorization with an auditable reason and timestamp.
 
 On Windows, the dedicated credential and run roots are protected with owner-only ACLs and reject junction/reparse traversal. Local diagnostics snapshot and restore volatile credential state, and doctor runs purge historical sessions, logs, memtrace, and active-session indexes while preserving browser login, pinned config, and model metadata. Browser OAuth is the normal desktop path; the manual GitHub Actions live smoke uses an environment-approved `XAI_API_KEY`. Junction tests can be skipped by Windows itself when the runner lacks link-creation privilege, but production paths still fail closed on observed links/reparse points.
 
