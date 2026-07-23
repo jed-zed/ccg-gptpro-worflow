@@ -7,6 +7,7 @@ dist/
 # Pre-compiled binaries (hosted on GitHub Release, not tracked in git)
 bin/codeagent-wrapper-*
 node_modules/
+.worktrees/
 
 # Python
 __pycache__/
@@ -61,3 +62,8 @@ FINAL_VERIFICATION.md
 
 # Old package tarballs
 *.tgz
+.codegraph/
+coverage/
+
+# Local Grok external-intelligence bundles (sanitized exports are explicit)
+/.codex/ccg/intelligence/

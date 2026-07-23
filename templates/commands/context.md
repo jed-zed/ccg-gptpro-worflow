@@ -2,6 +2,8 @@
 description: '项目上下文管理：初始化 .context 目录、记录决策日志、压缩归档、查看历史'
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # Context - 项目上下文管理
 
 管理 `.context/` 目录结构，为 LLM 工具提供决策审计链。

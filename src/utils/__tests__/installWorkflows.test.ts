@@ -35,6 +35,7 @@ describe('installWorkflows E2E — mcpProvider="skip"', () => {
   it('installs all workflows without errors', async () => {
     const result = await installWorkflows(ALL_IDS, tmpDir, true, {
       mcpProvider: 'skip',
+      skipBinary: true,
     })
     expect(result.success).toBe(true)
     expect(result.errors).toEqual([])
@@ -100,6 +101,7 @@ describe('installWorkflows E2E — mcpProvider="ace-tool" (control)', () => {
   it('installs all workflows and injects ace-tool references', async () => {
     const result = await installWorkflows(ALL_IDS, tmpDir, true, {
       mcpProvider: 'ace-tool',
+      skipBinary: true,
     })
     expect(result.success).toBe(true)
     expect(result.errors).toEqual([])

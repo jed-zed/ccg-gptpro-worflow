@@ -3,6 +3,14 @@ name: backend
 description: Implement backend-heavy work with Codex as the primary executor. Use when the user invokes /ccg:backend or asks CCG to handle APIs, services, data flows, jobs, storage, or backend architecture.
 ---
 
+## Automatic External Intelligence Gate
+
+Before ordinary work, run the shared route once from the controller:
+
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow backend --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+
+Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+
 # CCG Backend
 
 Load and follow `skills/ccg-executor/SKILL.md`.

@@ -19,6 +19,21 @@ function findProjectRoot(startDir) {
   return null;
 }
 
+// Terminal task statuses — a task in any of these is no longer active, so the
+// hooks stop injecting its breadcrumb. Matched case-insensitively after trim,
+// covering common synonyms the model may write (done/finished/closed/...) so a
+// committed-and-finished task is never misjudged as still in progress. The
+// canonical write-side value is "completed" (see go.md), but the read side must
+// be forgiving because status is free-text written by the model.
+const TERMINAL_STATUSES = new Set([
+  'completed', 'complete', 'done', 'finished', 'finish',
+  'archived', 'archive', 'cancelled', 'canceled', 'closed', 'resolved', 'abandoned'
+]);
+
+function isTerminalStatus(status) {
+  return TERMINAL_STATUSES.has(String(status == null ? '' : status).trim().toLowerCase());
+}
+
 function getActiveTask(projectRoot) {
   const tasksDir = path.join(projectRoot, '.ccg', 'tasks');
   if (!fs.existsSync(tasksDir)) return null;
@@ -41,7 +56,7 @@ function getActiveTask(projectRoot) {
         if (!fs.existsSync(taskPath)) continue; // stale pointer detection
         const raw = fs.readFileSync(taskPath, 'utf-8');
         const task = JSON.parse(raw);
-        if (task.status !== 'completed' && task.status !== 'archived') {
+        if (!isTerminalStatus(task.status)) {
           return { dir: path.join(tasksDir, dir), ...task, _stale: false };
         }
       } catch { /* skip malformed */ }
@@ -71,7 +86,7 @@ function evidencePath(taskDir) {
 
 function normalizeEvidenceItem(item) {
   const source = item || {};
-  return {
+  const normalized = {
     id: String(source.id || `${source.provider || 'unknown'}-${source.role || 'evidence'}-${source.artifactFile || ''}`),
     provider: String(source.provider || 'unknown'),
     role: String(source.role || 'unknown'),
@@ -85,6 +100,13 @@ function normalizeEvidenceItem(item) {
     round: Number(source.round || 1),
     createdAt: String(source.createdAt || source.created_at || new Date().toISOString()),
   };
+  const manifestFile = source.manifestFile || source.manifest_file;
+  const manifestSha256 = source.manifestSha256 || source.manifest_sha256;
+  if (manifestFile) normalized.manifestFile = String(manifestFile);
+  if (manifestSha256) normalized.manifestSha256 = String(manifestSha256);
+  if (source.localOnly != null) normalized.localOnly = source.localOnly !== false;
+  if (source.exported != null) normalized.exported = source.exported === true;
+  return normalized;
 }
 
 function normalizeEvidence(evidence) {
@@ -150,9 +172,26 @@ function appendEvidenceItem(taskDir, item) {
 
 function resolveArtifactPath(taskDir, artifactFile) {
   if (!artifactFile) return null;
-  if (path.isAbsolute(artifactFile)) return path.resolve(artifactFile);
-  if (artifactFile.startsWith('.ccg/')) return path.resolve(taskProjectRoot(taskDir), artifactFile);
-  return path.resolve(taskDir, artifactFile);
+  const projectRoot = path.resolve(taskProjectRoot(taskDir));
+  if (/^[A-Za-z]:[\\/]/.test(artifactFile) && !path.isAbsolute(artifactFile)) return null;
+  const portableArtifactFile = artifactFile.replace(/\\/g, '/');
+  let candidate;
+  if (path.isAbsolute(artifactFile)) candidate = path.resolve(artifactFile);
+  else if (portableArtifactFile.startsWith('.ccg/') || portableArtifactFile.startsWith('.codex/')) {
+    candidate = path.resolve(projectRoot, portableArtifactFile);
+  } else candidate = path.resolve(taskDir, artifactFile);
+  const relativePath = path.relative(projectRoot, candidate);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return null;
+  if (fs.existsSync(candidate)) {
+    try {
+      const canonicalRoot = fs.realpathSync(projectRoot);
+      const canonicalCandidate = fs.realpathSync(candidate);
+      const canonicalRelative = path.relative(canonicalRoot, canonicalCandidate);
+      if (!canonicalRelative || canonicalRelative.startsWith('..') || path.isAbsolute(canonicalRelative)) return null;
+      return canonicalCandidate;
+    } catch { return null; }
+  }
+  return candidate;
 }
 
 function sha256File(filePath) {
@@ -184,12 +223,29 @@ function validateEvidenceArtifact(taskDir, item, policy) {
   if (!artifactPath || !fs.existsSync(artifactPath)) {
     return { ok: false, reason: 'artifact_missing', item };
   }
+  try {
+    if (!fs.statSync(artifactPath).isFile()) return { ok: false, reason: 'artifact_unreadable', item };
+  } catch { return { ok: false, reason: 'artifact_unreadable', item }; }
   const text = fs.readFileSync(artifactPath, 'utf-8').trim();
   if (policy === 'required' && !text) {
     return { ok: false, reason: 'artifact_empty', item };
   }
   if (item.artifactSha256 && sha256File(artifactPath) !== item.artifactSha256) {
     return { ok: false, reason: 'artifact_hash_mismatch', item };
+  }
+  if (item.manifestFile) {
+    const manifestPath = resolveArtifactPath(taskDir, item.manifestFile);
+    if (!manifestPath || !fs.existsSync(manifestPath)) {
+      return { ok: false, reason: 'manifest_missing', item };
+    }
+    try {
+      if (!fs.statSync(manifestPath).isFile()) return { ok: false, reason: 'manifest_unreadable', item };
+    } catch { return { ok: false, reason: 'manifest_unreadable', item }; }
+    if (item.manifestSha256 && sha256File(manifestPath) !== item.manifestSha256) {
+      return { ok: false, reason: 'manifest_hash_mismatch', item };
+    }
+  } else if (item.manifestSha256) {
+    return { ok: false, reason: 'manifest_missing', item };
   }
   return { ok: true, item };
 }
@@ -266,13 +322,20 @@ function getGitInfo(projectRoot) {
   } catch { return { branch: 'unknown', dirtyCount: 0 }; }
 }
 
-function outputHook(eventName, additionalContext) {
-  console.log(JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: eventName,
-      additionalContext
-    }
-  }));
+// outputHook(event, additionalContext)           → inject context into the CALLING session
+// outputHook(event, null, { updatedInput, ... })  → rewrite the tool input before it runs
+//   `extra` is merged into hookSpecificOutput, so it can carry updatedInput /
+//   permissionDecision / permissionDecisionReason. Pass additionalContext = null
+//   to omit it. Back-compatible: existing 2-arg calls behave exactly as before.
+function outputHook(eventName, additionalContext, extra) {
+  const hookSpecificOutput = { hookEventName: eventName };
+  if (additionalContext != null && additionalContext !== '') {
+    hookSpecificOutput.additionalContext = additionalContext;
+  }
+  if (extra && typeof extra === 'object') {
+    Object.assign(hookSpecificOutput, extra);
+  }
+  console.log(JSON.stringify({ hookSpecificOutput }));
 }
 
 function archiveTask(taskDir, projectRoot) {
@@ -347,11 +410,13 @@ function detectLoop(turns, threshold) {
 module.exports = {
   findProjectRoot,
   getActiveTask,
+  isTerminalStatus,
   readFileSafe,
   readJsonSafe,
   readEvidence,
   writeEvidence,
   validateEvidence,
+  resolveArtifactPath,
   normalizeEvidenceItem,
   appendEvidenceItem,
   composeEvidenceSummary,

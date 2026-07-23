@@ -1,4 +1,5 @@
 import type { InstallResult } from '../types'
+import { execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import ansis from 'ansis'
 import fs from 'fs-extra'
@@ -7,6 +8,7 @@ import { getLegacyCommandIds, getWorkflowById } from './installer-data'
 import { PACKAGE_ROOT, injectConfigVariables, replaceHomePathsInTemplate } from './installer-template'
 import { readCcgConfig } from './config'
 import { installSkillCommands } from './skill-registry'
+import { version as packageVersion } from '../../package.json'
 
 // ═══════════════════════════════════════════════════════
 // Re-exports — all consumers import from './installer'
@@ -62,7 +64,7 @@ export type { SkillMeta } from './skill-registry'
  * Must match the `version` constant in codeagent-wrapper/main.go.
  * When this differs from the installed binary, update triggers re-download.
  */
-const EXPECTED_BINARY_VERSION = '5.11.0'
+export const EXPECTED_BINARY_VERSION = '5.12.2'
 
 // ═══════════════════════════════════════════════════════
 // Install context — shared across sub-functions
@@ -169,13 +171,60 @@ async function downloadFromUrl(url: string, destPath: string, timeoutMs: number,
  * Download codeagent-wrapper binary with dual-source fallback.
  * Strategy: R2 mirror (60s) → GitHub Release (120s). Uses curl for proxy support.
  */
-async function downloadBinaryFromRelease(binaryName: string, destPath: string): Promise<boolean> {
+interface BinaryDownloadResult {
+  downloaded: boolean
+  observedVersions: string[]
+}
+
+async function readBinaryVersion(binaryPath: string): Promise<string | null> {
+  try {
+    const output = execFileSync(binaryPath, ['--version'], { stdio: 'pipe' }).toString().trim()
+    const versionMatch = output.match(/\bversion\s+(\S+)/i)
+    return versionMatch?.[1] ?? output
+  }
+  catch {
+    return null
+  }
+}
+
+/**
+ * Replace an installed binary only after the candidate reports the expected version.
+ * A rejected candidate is removed while the currently installed binary is preserved.
+ */
+export async function promoteBinaryCandidate(
+  candidatePath: string,
+  destPath: string,
+  expectedVersion: string,
+): Promise<{ promoted: boolean, actualVersion: string | null }> {
+  const actualVersion = await readBinaryVersion(candidatePath)
+  if (actualVersion !== expectedVersion) {
+    await fs.remove(candidatePath)
+    return { promoted: false, actualVersion }
+  }
+
+  await fs.move(candidatePath, destPath, { overwrite: true })
+  return { promoted: true, actualVersion }
+}
+
+async function downloadBinaryFromRelease(
+  binaryName: string,
+  destPath: string,
+  expectedVersion: string,
+): Promise<BinaryDownloadResult> {
+  const observedVersions: string[] = []
   for (const source of BINARY_SOURCES) {
     const url = `${source.url}/${binaryName}`
     const ok = await downloadFromUrl(url, destPath, source.timeoutMs)
-    if (ok) return true
+    if (!ok) continue
+
+    const actualVersion = await readBinaryVersion(destPath)
+    if (actualVersion === expectedVersion) {
+      return { downloaded: true, observedVersions }
+    }
+    if (actualVersion) observedVersions.push(actualVersion)
   }
-  return false
+  await fs.remove(destPath)
+  return { downloaded: false, observedVersions }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -342,7 +391,7 @@ async function installPromptFiles(ctx: InstallContext): Promise<void> {
     return
   }
 
-  for (const model of ['codex', 'gemini', 'claude', 'antigravity']) {
+  for (const model of ['codex', 'gemini', 'claude', 'antigravity', 'grok']) {
     try {
       const installed = await copyMdTemplates(
         ctx,
@@ -578,6 +627,7 @@ export async function installCodexMode(): Promise<{ success: boolean, message: s
       // (antigravity/codex) when no config, so placeholders never leak.
       let content = await fs.readFile(agentsMdSrc, 'utf-8')
       content = injectConfigVariables(content, injectOpts)
+      content = replaceHomePathsInTemplate(content, join(homedir(), '.claude'))
       await fs.writeFile(join(codexHome, 'AGENTS.md'), content, 'utf-8')
     }
 
@@ -612,9 +662,12 @@ export async function installCodexMode(): Promise<{ success: boolean, message: s
       await fs.writeFile(join(codexHome, 'hooks.json'), content, 'utf-8')
     }
 
+    // Write version marker so external tools can check which CCG version installed Codex mode
+    await fs.writeFile(join(codexHome, '.ccg-version'), packageVersion, 'utf-8')
+
     return {
       success: true,
-      message: `Codex mode installed:\n  ~/.codex/AGENTS.md\n  ~/.codex/config.toml\n  ~/.codex/hooks.json\n  ~/.codex/hooks/ccg-workflow.py\n  ~/.codex/agents/ccg-implement.toml\n  ~/.codex/agents/ccg-review.toml\n  ~/.codex/agents/ccg-research.toml`,
+      message: `Codex mode installed:\n  ~/.codex/AGENTS.md\n  ~/.codex/config.toml\n  ~/.codex/hooks.json\n  ~/.codex/hooks/ccg-workflow.py\n  ~/.codex/agents/ccg-implement.toml\n  ~/.codex/agents/ccg-review.toml\n  ~/.codex/agents/ccg-research.toml\n  ~/.codex/.ccg-version (${packageVersion})`,
     }
   }
   catch (error) {
@@ -637,6 +690,7 @@ export async function uninstallCodexMode(): Promise<{ success: boolean, removed:
     join(codexHome, 'agents', 'ccg-research.toml'),
     join(codexHome, 'hooks', 'ccg-workflow.py'),
     join(codexHome, 'hooks.json'),
+    join(codexHome, '.ccg-version'),
   ]
 
   // AGENTS.md — only remove if it contains CCG marker
@@ -756,14 +810,7 @@ export async function verifyBinary(installDir: string): Promise<boolean> {
 
   if (!(await fs.pathExists(wrapperPath))) return false
 
-  try {
-    const { execSync } = await import('node:child_process')
-    execSync(`"${wrapperPath}" --version`, { stdio: 'pipe' })
-    return true
-  }
-  catch {
-    return false
-  }
+  return (await readBinaryVersion(wrapperPath)) !== null
 }
 
 /**
@@ -775,15 +822,7 @@ export async function verifyBinaryVersion(installDir: string): Promise<boolean> 
   const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
   const wrapperPath = join(binDir, wrapperName)
 
-  try {
-    const { execSync } = await import('node:child_process')
-    const output = execSync(`"${wrapperPath}" --version`, { stdio: 'pipe' }).toString().trim()
-    const version = output.replace(/^.*version\s*/, '')
-    return version === EXPECTED_BINARY_VERSION
-  }
-  catch {
-    return false
-  }
+  return (await readBinaryVersion(wrapperPath)) === EXPECTED_BINARY_VERSION
 }
 
 /**
@@ -837,6 +876,7 @@ export function showBinaryDownloadWarning(binDir: string): void {
  * Skips download if binary already exists and passes `--version` check.
  */
 async function installBinaryFile(ctx: InstallContext): Promise<void> {
+  let candidateBinary: string | null = null
   try {
     const binDir = join(ctx.installDir, 'bin')
     await fs.ensureDir(binDir)
@@ -848,49 +888,59 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
       return
     }
 
-    const destBinary = join(binDir, process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper')
+    const binaryExt = process.platform === 'win32' ? '.exe' : ''
+    const destBinary = join(binDir, `codeagent-wrapper${binaryExt}`)
 
     // Check if binary exists, is functional, AND version matches
     if (await fs.pathExists(destBinary)) {
-      try {
-        const { execSync } = await import('node:child_process')
-        const versionOutput = execSync(`"${destBinary}" --version`, { stdio: 'pipe' }).toString().trim()
-        const installedVersion = versionOutput.replace(/^.*version\s*/, '')
-
-        // Compare with expected version from package
-        const expectedVersion = EXPECTED_BINARY_VERSION
-        if (installedVersion === expectedVersion) {
-          // Binary exists, works, and version matches — skip download
-          ctx.result.binPath = binDir
-          ctx.result.binInstalled = true
-          return
-        }
-        // Version mismatch — fall through to re-download
-      }
-      catch {
-        // Binary exists but broken — fall through to re-download
-      }
-    }
-
-    const installed = await downloadBinaryFromRelease(binaryName, destBinary)
-
-    if (installed) {
-      try {
-        const { execSync } = await import('node:child_process')
-        execSync(`"${destBinary}" --version`, { stdio: 'pipe' })
+      const installedVersion = await readBinaryVersion(destBinary)
+      if (installedVersion === EXPECTED_BINARY_VERSION) {
+        // Binary exists, works, and version matches — skip download
         ctx.result.binPath = binDir
         ctx.result.binInstalled = true
+        return
+      }
+      // Version mismatch or broken binary — fall through to a validated download.
+    }
+
+    candidateBinary = join(binDir, `.codeagent-wrapper-download-${process.pid}-${Date.now()}${binaryExt}`)
+    const download = await downloadBinaryFromRelease(binaryName, candidateBinary, EXPECTED_BINARY_VERSION)
+
+    if (download.downloaded) {
+      try {
+        const promotion = await promoteBinaryCandidate(candidateBinary, destBinary, EXPECTED_BINARY_VERSION)
+        if (promotion.promoted) {
+          ctx.result.binPath = binDir
+          ctx.result.binInstalled = true
+        }
+        else {
+          ctx.result.errors.push(
+            `Binary version mismatch: expected ${EXPECTED_BINARY_VERSION}, got ${promotion.actualVersion ?? 'unknown'}. Existing binary was preserved.`,
+          )
+        }
       }
       catch (verifyError) {
         ctx.result.errors.push(`Binary verification failed (non-blocking): ${verifyError}`)
+        await fs.remove(candidateBinary)
       }
     }
     else {
-      ctx.result.errors.push(`Failed to download binary: ${binaryName} from GitHub Release (after 3 attempts). Check network or visit https://github.com/${GITHUB_REPO}/releases/tag/${RELEASE_TAG}`)
+      const observed = [...new Set(download.observedVersions)]
+      if (observed.length > 0) {
+        ctx.result.errors.push(
+          `Binary version mismatch: expected ${EXPECTED_BINARY_VERSION}, downloaded ${observed.join(', ')}. Existing binary was preserved.`,
+        )
+      }
+      else {
+        ctx.result.errors.push(`Failed to download binary: ${binaryName} from GitHub Release (after 3 attempts). Check network or visit https://github.com/${GITHUB_REPO}/releases/tag/${RELEASE_TAG}`)
+      }
     }
   }
   catch (error) {
     ctx.result.errors.push(`Failed to install codeagent-wrapper (non-blocking): ${error}`)
+  }
+  finally {
+    if (candidateBinary) await fs.remove(candidateBinary).catch(() => {})
   }
 }
 
@@ -948,6 +998,12 @@ async function installEngineFiles(ctx: InstallContext): Promise<void> {
     const toolsDest = join(engineDestDir, 'tools')
     if (await fs.pathExists(toolsSrc)) {
       await copyTemplateTree(ctx, toolsSrc, toolsDest, { injectMd: true })
+      if (process.platform !== 'win32') {
+        for (const entry of ['command.mjs', 'manage.mjs']) {
+          const executable = join(toolsDest, 'grok-intelligence', entry)
+          if (await fs.pathExists(executable)) await fs.chmod(executable, 0o700)
+        }
+      }
     }
   }
   catch (error) {
@@ -1065,6 +1121,8 @@ export async function installWorkflows(
     liteMode?: boolean
     mcpProvider?: string
     skipImpeccable?: boolean
+    /** Skip wrapper installation for callers that only need workflow assets (for example, isolated tests). */
+    skipBinary?: boolean
   },
 ): Promise<InstallResult> {
   const ctx: InstallContext = {
@@ -1120,7 +1178,7 @@ export async function installWorkflows(
   await installSkillFiles(ctx)
   await installSkillGeneratedCommands(ctx)
   await installRuleFiles(ctx)
-  await installBinaryFile(ctx)
+  if (!config?.skipBinary) await installBinaryFile(ctx)
 
   // ── Post-flight: validate installation produced results ──
   // Catch the case where all sub-steps silently returned empty
@@ -1210,7 +1268,7 @@ export async function uninstallWorkflows(installDir: string, options?: { preserv
   // Remove CCG rules files
   if (await fs.pathExists(rulesDir)) {
     try {
-      for (const ruleFile of ['ccg-skills.md', 'ccg-grok-search.md', 'ccg-skill-routing.md']) {
+      for (const ruleFile of ['ccg-skills.md', 'ccg-grok-search.md', 'ccg-skill-routing.md', 'ccg-codegraph.md']) {
         const rulePath = join(rulesDir, ruleFile)
         if (await fs.pathExists(rulePath)) {
           await fs.remove(rulePath)

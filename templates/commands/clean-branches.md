@@ -2,6 +2,8 @@
 description: '清理 Git 分支：安全清理已合并或过期分支，默认 dry-run 模式'
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # Clean-Branches - 清理 Git 分支
 
 安全识别并清理已合并或长期未更新的分支。

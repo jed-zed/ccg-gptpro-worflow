@@ -48,6 +48,8 @@ const CORE_CONFIGS: WorkflowConfig[] = [
   cmd('gptpro-plan', 12, 'development', 'GPT Pro Plan', 'GPT Pro Plan', 'Manual GPT Pro planning evidence', 'Manual GPT Pro fourth-model planning evidence'),
   cmd('gptpro-review', 13, 'development', 'GPT Pro Review', 'GPT Pro Review', 'Manual GPT Pro review evidence', 'Manual GPT Pro fourth-model review evidence'),
   cmd('gptpro-exc', 14, 'development', 'GPT Pro Execution Route Review', 'GPT Pro Execution Route Review', 'Manual GPT Pro execution route review', 'Manual GPT Pro fourth-model execution route review'),
+  cmd('grok-intel', 15, 'development', 'Grok 外部情报', 'Grok External Intelligence', '通过官方 Grok CLI 收集可审计 Web/X 证据', 'Collect auditable Web/X evidence through the official Grok CLI'),
+  cmd('grok-verify', 16, 'development', 'Grok 外部事实核验', 'Grok External Verification', '将计划、diff 与依赖摘要绑定到最新外部证据', 'Bind plan, diff, and dependency digests to current external evidence'),
 
   // ── Git ──────────────────────────────────────────────
   cmd('commit', 20, 'git', 'Git 提交', 'Git Commit', '智能生成 conventional commit 信息', 'Smart conventional commit message generation'),

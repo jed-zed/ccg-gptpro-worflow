@@ -13,6 +13,12 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Gather review input: plan, diff, touched files, test summary, or user-provided target.
+- Before ordinary review or any Gemini, Claude, or GPT Pro handoff, write the bounded subject and run
+  `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`.
+  Let the current orchestrator inherit or re-evaluate whether external verification is required. When required, bind it to
+  the exact plan, diff, dependency locks, and test summary; require its canonical artifact, manifest,
+  hashes, and active-task pointer. Exit `2`, `3`, or `4` stops the workflow, and raw Grok output is
+  never embedded in the GPT Pro prompt.
 - Run ordinary `/ccg:review` semantics first. Ordinary review must include Claude review evidence
   unless the user explicitly says Claude must not be used. First try the automatic
   `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` route. If it fails or returns empty
@@ -34,11 +40,11 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only after Codex fixes blocker findings.
-- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence`.
+- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
 - After response is saved, classify Critical/Major/Minor findings, false positives, required tests,
   and Codex/Claude actions.
-- Report in Chinese and synthesize ordinary review evidence, Gemini gate evidence, and GPT Pro
-  findings.
+- Report in Chinese and synthesize validated Grok external intelligence, ordinary review evidence,
+  Gemini gate evidence, and GPT Pro findings.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.

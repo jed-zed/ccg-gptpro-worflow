@@ -2,15 +2,62 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-06-01 (v3.1.3)
+**Last Updated**: 2026-07-22 (v3.3.0)
 
-> ⚠ 本文档主体仍停留在 v2.1.16 架构描述（v3.0 引擎重构后未全量同步）。下方变更记录保留 v3.x 修复轨迹，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.3.0 的版本、分发计数和 Grok 外部情报边界；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-07-22 (v3.3.0)
+- ✨ **Grok 外部情报层**：新增显式同意、自动路由、官方 Grok CLI ACP 隔离执行、Web/X 证据验证、缓存/保留/导出和 canonical task evidence。
+- ✨ **命令接入**：新增 `/ccg:grok-intel`、`/ccg:grok-verify` 与 GPT Pro plan/review/execute 证据入口；CLI 新增 `ccg grok login|status|logout` 和 Grok 本地/付费 doctor 分层。
+- 🔒 **安全边界**：Grok 情报层固定空 MCP、取消权限请求、禁用终端命令、严格禁止 provider fallback；CI 仅通过环境密钥运行手动 live smoke。
+- 🔄 **分发口径**：17 个 core + 18 个 legacy 命令，Codex 插件暴露 44 个入口；36 个专家提示词；通用 wrapper 升级到 v5.12.2。
+
+### 2026-07-15 (v3.2.2)
+- 🐛 **doctor/status ESM 修复**：改用静态 `node:child_process` import，恢复 binary 与 npm 版本探测。
+- 🐛 **Windows Go 测试修复**：Unix signal 用例按平台跳过，原生 Windows `go test ./...` 可编译运行。
+- 🐛 **插件缓存一致性**：Codex/Claude marketplace 与插件 manifest 对齐 v3.2.2，仓库回收 SSE 实时预览实现。
+- 🔄 **Binary `5.12.0` → `5.12.1`**：同步帮助文本与跨平台测试修复。
+
+### 2026-07-12 (v3.2.0)
+- ✨ **Grok CLI 后端**：Grok (xAI) 成为第五个模型选项，init Step 2 / 菜单可选为前端或后端；型号可选 `grok-4.5`（500k 上下文）或 `grok-composer-2.5-fast`（Cursor 编码模型）。`/ccg:go` Builder 模式可让 Grok 全权写代码，Claude token 消耗极低。
+- ✨ **Grok 专家提示词**：7 角色全套（analyzer/architect/builder/debugger/optimizer/reviewer/tester）→ `~/.claude/.ccg/prompts/grok/`。
+- ✨ **`--grok-model` flag + `{{GROK_MODEL_FLAG}}` 模板变量**：行级感知注入，与 gemini flag 同逻辑。
+- ✨ **`ccg doctor` Grok 检查**：路由用到 grok 时检查 CLI 存在 + 登录态（auth.json 7 天过期）。
+- 🐛 **`--gemini-model` spawn 时被静默丢弃**：单任务模式 executor 重建 cfg 未带模型字段，flag 只出现在显示行、从未到达 gemini 进程。经 TaskSpec 传递修复。
+- 🐛 **parallel 模式裸 `--gemini-model <value>` 硬报错**：值掉进 extras 触发 "only --backend..." 中止。现消费值后警告忽略。
+- 🐛 **`ccg update` 重配路由丢 `geminiModel`**：现与 `grokModel` 一并保留。
+- 🔄 **Binary `5.11.1` → `5.12.0`**：grok 后端（streaming-json 解析 / `-p` 传参 / `-r` 会话恢复 / PATH + `~/.grok/bin` 回退）。
+
+### 2026-07-09 (v3.1.11)
+- ✨ **`ccg doctor` 命令**：一键环境健康检查（Node 版本、配置、命令、Hooks、Binary、Skills、Rules、MCP、Codex 模式），有问题标红。
+- ✨ **`ccg status` 命令**：安装概况（版本+更新检查、模型路由、MCP 列表、活跃任务数）。
+- ✨ **Codecov 集成**：CI 上传覆盖率到 Codecov，README 展示覆盖率 badge。
+- ✨ **项目健康文件**：新增 SECURITY.md、CODE_OF_CONDUCT.md、.node-version，package.json 补全 repository/homepage/bugs/engines。
+- ✨ **Codex 模式版本标记**：`codex-mode install` 写入 `~/.codex/.ccg-version`。
+
+### 2026-07-04 (v3.1.9)
+- ✨ **非交互 CLI 命令**：新增 `ccg codex-mode install`/`uninstall` 和 `ccg uninstall`，支持脚本/CI 无交互调用。
+- 🐛 **质量关卡 rule 用了错误的 skill 名（#148）**：`ccg-skills.md` 指示 AI 调用不带 `ccg:` 前缀的命令名，但实际注册的命令是 `/ccg:verify-security` 等。AI 按 rule 调用失败后跳过质量关卡。修复：所有引用改为带 `/ccg:` 前缀。
+
+### 2026-06-18 (v3.1.6)
+- ✨ **CodeGraph MCP 可选安装（#145）**：init Step 3 新增 `codegraph` 选项，本地代码知识图谱（调用链/影响范围/架构查询）。安装 MCP（`npx @colbymchenry/codegraph serve --mcp`）+ 写入 `ccg-codegraph.md` 使用规则。规则指示 AI 在无 `.codegraph/` 时自动 `codegraph init` 建索引，优先 `codegraph_explore` 查结构、`fast_context_search` 查语义、grep 查精确文本。
+- 🐛 **Codex 模式 AGENTS.md 缺少 `.exe` 路径替换（#147）**：`installCodexMode()` 对 AGENTS.md 只调了 `injectConfigVariables()` 没调 `replaceHomePathsInTemplate()`，Windows 上 `~/.claude/bin/codeagent-wrapper` 未替换为绝对路径 + `.exe`，Codex app 找不到 binary。
+- 🐛 **Antigravity 后端 Windows 静默无输出（#146）**：Windows 上 wrapper 把 antigravity 的 prompt 走 stdin pipe（与 gemini 相同，为避免 cmd.exe 多行截断）。但 `agy` 不读 stdin、只认 `-p` 参数，收到 `-p ""` 后直接 exit 0 无输出。修复：antigravity 在所有平台统一走 `-p` 传参；仅 gemini 在 Windows 保留 stdin pipe。
+
+### 2026-06-10 (v3.1.5)
+- 🐛 **完成的任务被误判为活跃 → 无限注入面包屑**：hooks 只认 `completed`/`archived` 为终态，但任务 `status` 是模型自由文本写入，常漂移成 `done`/`finished` 等近义词。以 `status: "done"` 收尾的任务被判为未完成，`workflow-state.js`（及 Codex 模式 `ccg-workflow.py`）持续注入面包屑。修复：判定端容错——`task-utils.js` 新增 `isTerminalStatus()`、`ccg-workflow.py` 新增 `_is_terminal_status()`，匹配一组近义终态词（completed/complete/done/finished/archived/cancelled/closed/resolved/... 大小写+空格归一）。写入端规范仍用 `completed`，读端宽容。已验证：`done` → 无活跃任务；`in_progress` → 面包屑正常。
+- 🐛 **Claude 审核后端可能卡在工具权限上（#143）**：`codeagent-wrapper` 的 claude 后端只在 `cfg.SkipPermissions` 时才加 `--dangerously-skip-permissions`，但无任何调用方传它（死代码）。gemini 后端永远带 `-y` 自主运行，claude 是唯一异类。鉴于 wrapper 只用于自主编排（审核/分析/实施），claude 后端现改为像 gemini 一样恒定绕过权限，headless 审核读 diff/文件时不再卡在权限门。binary `5.11.0` → `5.11.1`。
+- 🐛 **live output 浏览器抢占前台焦点（#139）**：macOS 用 `open <url>` 打开 SSE Web UI 会把浏览器拉到最前、打断用户当前操作。改用 `open -g` 后台打开、不抢焦点。Linux/Windows 行为不变（无可移植的后台标志）。
+
+### 2026-06-07 (v3.1.4)
+- ✨ **SubAgent 直接上下文注入**：`subagent-context.js` 的 Agent/Team spawn 分支改用 PreToolUse `updatedInput` 改写子 agent 的 `prompt`，将 `<ccg-injected-context>`（spec + task + research）直接注入子 agent。之前用 `additionalContext` 仅注入主控上下文，子 agent 读不到。好处：子 agent 出生即带 spec；角色过滤真正到达正确 agent；主控上下文更干净（减少编排幻觉）。Bash/codeagent-wrapper 分支保留 `additionalContext`（主控构造 HEREDOC，路径本就正确）。
+- ✨ **`outputHook()` 扩展**：`task-utils.js` 的 `outputHook()` 新增可选第三参数 `extra`，合并进 `hookSpecificOutput`，支持传递 `updatedInput`/`permissionDecision`。向后兼容，现有双参数调用行为不变。
 
 ### 2026-06-01 (v3.1.3)
 - 🐛 **卸载残留 hooks 与 settings**：`uninstallWorkflows` 是 v3.0 引擎重构前写的，从未删除 `~/.claude/hooks/ccg/`（5 个脚本）和 `settings.json` 的 CCG hook 注册（`UserPromptSubmit`/`SessionStart`/`PreToolUse`）。现补删 hooks/ccg 目录 + 精确清理 CCG hook 注册（按 `hooks/ccg/` 命令路径识别，保留用户自有 hooks），新增 `removedHooks` 字段，装→卸载闭环测试验证。impeccable skip 经实测正常（v3 模式 `impeccable found: []`），用户本机残留 impeccable 系历次卸载不净累积。
@@ -223,18 +270,19 @@
 
 ## 模块职责
 
-**CCG (Claude + Codex + Gemini)** - 多模型协作系统的核心实现，提供：
+**CCG 多模型协作系统** - 由主编排器协调 Claude、Codex、Gemini、Grok 等模型，提供：
 
 1. **多模型协作编排**：可配置路由 Gemini（前端）+ Codex（后端）+ Claude（编排），v2.1.0+ 支持切换
-2. **29 个斜杠命令**：开发工作流 + Git 工具 + 项目管理 + OPSX + Agent Teams + Codex 执行 + Prompt 增强 + Skill Registry 自动生成
-3. **19 个专家提示词**：Claude 6 个 + Codex 6 个 + Gemini 7 个
+2. **35 个工作流命令**：17 个 core + 18 个可选 legacy；Codex 插件提供 44 个命令入口
+3. **36 个专家提示词**：Claude 6 个 + Codex 7 个 + Gemini 7 个 + Antigravity 8 个 + Grok 8 个
 4. **7 个子智能体**：planner / ui-ux-designer / init-architect / get-current-datetime / team-architect / team-qa / team-reviewer
 5. **Skill Registry**：SKILL.md frontmatter 驱动，user-invocable 技能自动生成 slash commands
 6. **100+ 技能文件**：6 质量关卡 + 10 域知识秘典（61 文件）+ 20 impeccable 工具 + scrapling + override-refusal
 7. **跨平台 CLI 工具**：一键安装（支持 macOS、Linux、Windows）
 8. **MCP 集成**：fast-context（推荐）/ ace-tool / ContextWeaver + context7（自动安装）+ Codex & Gemini MCP 同步
-9. **Agent Teams 并行实施**：Team 系列 5 个命令（含统一工作流），spawn Builder teammates 并行写代码
-10. **8 种输出风格**：默认 + 专业工程师 + 猫娘 + 老王 + 大小姐 + 邪修 + 冷刃简报 + 铁律军令 + 祭仪长卷
+9. **Grok 外部情报层**：在用户明确同意后自动判断是否搜索，通过隔离 ACP 会话收集和验证 Web/X 证据
+10. **Agent Teams 并行实施**：Team 系列 5 个命令（含统一工作流），spawn Builder teammates 并行写代码
+11. **8 种输出风格**：默认 + 专业工程师 + 猫娘 + 老王 + 大小姐 + 邪修 + 冷刃简报 + 铁律军令 + 祭仪长卷
 
 ---
 
@@ -244,7 +292,7 @@
 |--------|------|------|
 | TypeScript CLI 源码 | [src/CLAUDE.md](./src/CLAUDE.md) | CLI 主入口、命令实现、安装器、i18n、工具链 |
 | 模板文件 | [templates/CLAUDE.md](./templates/CLAUDE.md) | 斜杠命令、提示词、子智能体、技能、规则模板 |
-| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.10.0 |
+| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.2 |
 
 ---
 
@@ -269,11 +317,13 @@ npx ccg-workflow menu
   - `menu` - 交互式菜单（`src/commands/menu.ts`）
   - `config` - MCP 配置管理（`src/commands/config-mcp.ts`）
   - `diagnose-mcp` - MCP 诊断（`src/commands/diagnose-mcp.ts`）
+  - `doctor` / `status` - 安装、Grok ACP 与证据生命周期诊断（`src/commands/doctor.ts`）
+  - `grok login|status|logout` - 管理隔离的 Grok 浏览器登录（`src/commands/grok.ts`）
 
 ### codeagent-wrapper 入口
 
 - **主入口**：`codeagent-wrapper/main.go`
-- **当前版本**：v5.10.0
+- **当前版本**：v5.12.2
 - **调用语法**：
   ```bash
   codeagent-wrapper --backend <codex|gemini|claude> - [工作目录] <<'EOF'
@@ -294,8 +344,11 @@ npx ccg-workflow menu
 | `npx ccg-workflow menu` | 交互式菜单 |
 | `npx ccg-workflow update` | 更新到最新版本 |
 | `npx ccg-workflow diagnose-mcp` | 诊断 MCP 配置 |
+| `npx ccg-workflow doctor --grok` | 本地 Grok ACP/登录/证据诊断，不调用模型 |
+| `npx ccg-workflow doctor --grok-live` | 显式运行可能计费的 Web/X live smoke |
+| `npx ccg-workflow grok login` | 使用浏览器登录隔离的 Grok 情报配置 |
 
-### Slash Commands 接口（29 个）
+### Slash Commands 接口（35 个：17 core + 18 legacy）
 
 **开发工作流**：
 | 命令 | 用途 | 模型 |
@@ -314,6 +367,7 @@ npx ccg-workflow menu
 | `/ccg:optimize` | 性能优化 | Codex ∥ Gemini |
 | `/ccg:test` | 测试生成 | 智能路由 |
 | `/ccg:review` | 代码审查（自动 git diff） | Codex ∥ Gemini |
+| `/ccg:go` | 主编排器执行任务并按配置调用多模型 | 智能路由 |
 
 **项目管理**：
 | 命令 | 用途 |
@@ -327,6 +381,15 @@ npx ccg-workflow menu
 | `/ccg:rollback` | 交互式回滚 |
 | `/ccg:clean-branches` | 清理已合并分支 |
 | `/ccg:worktree` | Worktree 管理 |
+
+**外部证据与 GPT Pro**：
+| 命令 | 用途 |
+|------|------|
+| `/ccg:grok-intel` | 按 contract/compatibility/research 等模式收集 Web/X 证据 |
+| `/ccg:grok-verify` | 用当前外部证据验证实现、diff 或计划 |
+| `/ccg:gptpro-plan` | 将 canonical Grok 证据纳入 GPT Pro 规划 |
+| `/ccg:gptpro-review` | 将 canonical Grok 证据纳入 GPT Pro 审查 |
+| `/ccg:gptpro-exc` | 将 canonical Grok 证据纳入 GPT Pro 执行 |
 
 **OpenSpec (OPSX) 封装**：
 | 命令 | 用途 |
@@ -353,11 +416,12 @@ npx ccg-workflow menu
 | 项目 | 默认值 | 可配置 | 说明 |
 |------|--------|--------|------|
 | 语言 | 中文 | ✗ | 所有模板为中文 |
-| 前端模型 | Gemini | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6 |
-| 后端模型 | Codex | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6 |
+| 前端模型 | Antigravity | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6，可选 gemini/codex/grok |
+| 后端模型 | Codex | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6，可选 gemini/antigravity/grok |
 | Gemini 型号 | gemini-3.1-pro-preview | ✓ (v2.1.0+) | 选 gemini 时可配 |
+| Grok 型号 | grok-4.5 | ✓ (v3.2.0+) | 选 grok 时可配，代码任务可选 grok-composer-2.5-fast |
 | 协作模式 | smart | ✗ | 最佳实践 |
-| 命令数量 | 29 个 | ✗ | 全部安装 |
+| 命令数量 | 17 core + 18 legacy | ✓ | core 默认安装；legacy 可选；Codex 插件提供 44 个入口 |
 
 ---
 
@@ -439,7 +503,8 @@ src/
 
 ```
 templates/
-├── commands/                    # 29 个斜杠命令
+├── commands/                    # 17 个 core 命令
+├── commands-legacy/             # 18 个可选 legacy 命令
 │   ├── workflow.md              # 完整 6 阶段工作流
 │   ├── plan.md                  # 多模型协作规划
 │   ├── execute.md               # 多模型协作执行
@@ -477,7 +542,7 @@ templates/
 │       ├── team-architect.md    # 团队架构师（v1.8.3+）
 │       ├── team-qa.md           # QA 工程师（v1.8.3+）
 │       └── team-reviewer.md     # 代码审查员（v1.8.3+）
-├── prompts/                     # 19 个专家提示词
+├── prompts/                     # 36 个专家提示词（Claude/Codex/Gemini/Antigravity/Grok）
 │   ├── claude/                  # 6 个 Claude 提示词
 │   │   ├── analyzer.md
 │   │   ├── architect.md
@@ -564,11 +629,11 @@ graph TD
     User["用户"] --> CLI["npx ccg-workflow"]
     CLI --> Init["一键安装"]
 
-    Init --> Commands["~/.claude/commands/ccg/<br/>29 个命令"]
+    Init --> Commands["~/.claude/commands/ccg/<br/>17 core + 18 legacy"]
     Init --> Agents["~/.claude/agents/ccg/<br/>7 个子智能体"]
     Init --> Skills["~/.claude/skills/ccg/<br/>100+ 技能文件"]
-    Init --> Prompts["~/.claude/.ccg/prompts/<br/>19 个专家提示词"]
-    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.10.0"]
+    Init --> Prompts["~/.claude/.ccg/prompts/<br/>36 个专家提示词"]
+    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.2"]
     Init --> MCP["~/.claude.json<br/>MCP 配置（可选）"]
 
     User2["Claude Code 用户"] --> SlashCmd["/ccg:workflow<br/>/ccg:frontend<br/>..."]

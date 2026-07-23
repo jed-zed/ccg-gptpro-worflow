@@ -1,6 +1,14 @@
 ---
 description: '多模型分析 → 消除歧义 → 零决策可执行计划'
 ---
+
+## Automatic External Intelligence Gate
+
+Before ordinary work, run the shared route once from the controller:
+
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow spec-plan --phase spec-plan --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+
+Bind the proposal as --dependency, the selected artifact as --target, and any available plan/diff so Spec evidence is invalidated by real artifact changes. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
 <!-- CCG:SPEC:PLAN:START -->
 **Core Philosophy**
 - The goal is to eliminate ALL decision points—implementation should be pure mechanical execution.
@@ -33,7 +41,7 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
    **FIRST Bash call ({{BACKEND_PRIMARY}})**:
    ```
    Bash({
-     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nAnalyze change <change_id> from backend perspective:\n- Implementation approach\n- Technical risks\n- Alternative architectures\n- Edge cases and failure modes\nOUTPUT: JSON with analysis\nEOF",
+     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}{{GROK_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nAnalyze change <change_id> from backend perspective:\n- Implementation approach\n- Technical risks\n- Alternative architectures\n- Edge cases and failure modes\nOUTPUT: JSON with analysis\nEOF",
      run_in_background: true,
      timeout: 300000,
      description: "{{BACKEND_PRIMARY}}: backend analysis"
@@ -43,7 +51,7 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
    **SECOND Bash call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
    ```
    Bash({
-     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nAnalyze change <change_id> from frontend/integration perspective:\n- Maintainability assessment\n- Scalability considerations\n- Integration conflicts\nOUTPUT: JSON with analysis\nEOF",
+     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}{{GROK_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nAnalyze change <change_id> from frontend/integration perspective:\n- Maintainability assessment\n- Scalability considerations\n- Integration conflicts\nOUTPUT: JSON with analysis\nEOF",
      run_in_background: true,
      timeout: 300000,
      description: "{{FRONTEND_PRIMARY}}: frontend analysis"

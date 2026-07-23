@@ -35,6 +35,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\docto
 
 The model probe uses Gemini CLI `--skip-trust` so availability diagnostics do not stall on workspace trust prompts.
 
+For Grok intelligence diagnostics:
+
+```powershell
+# Local-only: binary/version/help/models/auth, isolated inspect, ACP handshake, empty MCP, retention report.
+# This never sends a model prompt and never performs a paid Web/X call.
+powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\doctor.ps1" -Grok -Verbose
+
+# Explicit paid smoke only when the user asked for --grok-live.
+powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\doctor.ps1" -GrokLive -Verbose
+
+# Cleanup is separately explicit and never implied by -Grok.
+powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\doctor.ps1" -Grok -GrokCleanup -Verbose
+```
+
+If browser OAuth is missing, tell the user to run `ccg grok login`. Do not read, copy, or print
+`auth.json`. A configured `grok-search` MCP is a warning only: do not remove it and do not accept it
+as official Grok intelligence evidence.
+
 If the user invokes `/ccg:doctor --fix`, first determine whether the current workspace is the `ccg-codex-workflow` source checkout by checking for `plugins/ccg/.codex-plugin/plugin.json` and `scripts/sync-local-plugin-cache.ps1`.
 
 - In the source checkout, run:
@@ -58,4 +76,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\docto
 - With `--fix`, only refresh the local CCG plugin cache from the source checkout. Do not install or remove command bridge files.
 - Do not install or uninstall the command bridge.
 - Do not call Gemini or run a real model request unless the user explicitly asks for `--check-gemini-model` or equivalent model availability diagnostics.
+- Do not send a Grok model prompt unless the user explicitly asks for `--grok-live`; `--grok` is local-only.
+- Do not delete expired evidence or private roots unless the user explicitly asks for `--grok-cleanup`.
 - Do not change repository files while handling `/ccg:doctor`.

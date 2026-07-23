@@ -3,6 +3,8 @@ name: rollback
 description: Plan safe rollback or revert operations. Use when the user invokes /ccg:rollback.
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # CCG Rollback
 
 Plan rollback actions conservatively.

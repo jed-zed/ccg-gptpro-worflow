@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -36,6 +37,9 @@ func TestCurrentWrapperNameDetectsLegacyAliasSymlink(t *testing.T) {
 		t.Fatalf("failed to write fake binary: %v", err)
 	}
 	if err := os.Symlink(execPath, aliasPath); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink privilege unavailable: %v", err)
+		}
 		t.Fatalf("failed to create alias: %v", err)
 	}
 

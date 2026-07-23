@@ -3,7 +3,16 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
-import { getAllCommandIds, getWorkflowById, getWorkflowConfigs, injectConfigVariables, installWorkflows, uninstallWorkflows } from '../installer'
+import {
+  EXPECTED_BINARY_VERSION,
+  getAllCommandIds,
+  getWorkflowById,
+  getWorkflowConfigs,
+  injectConfigVariables,
+  installWorkflows,
+  promoteBinaryCandidate,
+  uninstallWorkflows,
+} from '../installer'
 
 // Helper: find package root
 function findPackageRoot(): string {
@@ -314,6 +323,7 @@ describe('installWorkflows E2E — mcpProvider="contextweaver"', () => {
   it('installs all workflows without errors', async () => {
     const result = await installWorkflows(getAllCommandIds(), tmpDir, true, {
       mcpProvider: 'contextweaver',
+      skipBinary: true,
     })
     expect(result.success).toBe(true)
     expect(result.errors).toEqual([])
@@ -346,6 +356,7 @@ describe('uninstallWorkflows E2E', () => {
     // First install
     const installResult = await installWorkflows(getAllCommandIds(), tmpDir, true, {
       mcpProvider: 'ace-tool',
+      skipBinary: true,
     })
     expect(installResult.success).toBe(true)
 
@@ -380,17 +391,29 @@ describe('installWorkflows — binary installation', () => {
     await fs.remove(tmpDir)
   })
 
-  it('installs codeagent-wrapper binary for current platform', async () => {
-    const result = await installWorkflows(['workflow'], tmpDir, true, {
-      mcpProvider: 'skip',
-    })
+  it('keeps installer and wrapper source versions synchronized without a release-network dependency', () => {
+    const source = readFileSync(join(PACKAGE_ROOT, 'codeagent-wrapper', 'main.go'), 'utf8')
+    const sourceVersion = /\bversion\s*=\s*"([^"]+)"/.exec(source)?.[1]
+    expect(sourceVersion).toBe(EXPECTED_BINARY_VERSION)
+  })
 
-    expect(result.binInstalled).toBe(true)
-    expect(result.binPath).toBeTruthy()
+  it('preserves the installed binary when a downloaded candidate has the wrong version', async () => {
+    const candidateDir = join(tmpDir, 'candidate-version-mismatch')
+    const binaryName = process.platform === 'win32' ? 'candidate.exe' : 'candidate'
+    const candidatePath = join(candidateDir, binaryName)
+    const installedPath = join(candidateDir, 'installed-binary')
 
-    const binaryName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
-    expect(fs.existsSync(join(result.binPath!, binaryName))).toBe(true)
-  }, 30_000)
+    await fs.ensureDir(candidateDir)
+    await fs.copy(process.execPath, candidatePath)
+    await fs.writeFile(installedPath, 'known-good-installed-binary')
+
+    const result = await promoteBinaryCandidate(candidatePath, installedPath, 'definitely-not-the-node-version')
+
+    expect(result.promoted).toBe(false)
+    expect(result.actualVersion).toBe(process.version)
+    expect(await fs.readFile(installedPath, 'utf8')).toBe('known-good-installed-binary')
+    expect(await fs.pathExists(candidatePath)).toBe(false)
+  }, 20_000)
 })
 
 // ─────────────────────────────────────────────────────────────
@@ -406,6 +429,7 @@ describe('installWorkflows — prompts installation', () => {
   it('installs codex, gemini, and claude prompts', async () => {
     const result = await installWorkflows(getAllCommandIds(), tmpDir, true, {
       mcpProvider: 'skip',
+      skipBinary: true,
     })
     expect(result.success).toBe(true)
     expect(result.installedPrompts.length).toBeGreaterThan(0)
@@ -420,6 +444,11 @@ describe('installWorkflows — prompts installation', () => {
     const geminiFiles = readdirSync(join(promptsDir, 'gemini')).filter(f => f.endsWith('.md'))
     expect(codexFiles.length).toBeGreaterThanOrEqual(5)
     expect(geminiFiles.length).toBeGreaterThanOrEqual(5)
+    // Grok prompts (v3.2.0): full role set including builder.md
+    expect(fs.existsSync(join(promptsDir, 'grok'))).toBe(true)
+    const grokFiles = readdirSync(join(promptsDir, 'grok')).filter(f => f.endsWith('.md'))
+    expect(grokFiles.length).toBeGreaterThanOrEqual(7)
+    expect(grokFiles).toContain('builder.md')
   }, 30_000)
 })
 
@@ -433,6 +462,7 @@ describe('installWorkflows - GPT Pro bridge assets', () => {
   it('installs the GPT Pro command family and engine-local bridge files', async () => {
     const result = await installWorkflows(['gptpro-plan', 'gptpro-review', 'gptpro-exc'], tmpDir, true, {
       mcpProvider: 'skip',
+      skipBinary: true,
     })
     expect(result.success).toBe(true)
     expect(result.installedCommands).toContain('gptpro-plan')
@@ -522,6 +552,7 @@ describe('skills namespace isolation', () => {
   it('installs skills under skills/ccg/ namespace', async () => {
     const result = await installWorkflows(['workflow'], tmpDir, true, {
       mcpProvider: 'skip',
+      skipBinary: true,
     })
     expect(result.success).toBe(true)
     expect(result.installedSkills).toBeGreaterThanOrEqual(6)
@@ -572,6 +603,7 @@ describe('skills namespace isolation', () => {
     // Install triggers migration
     const result = await installWorkflows(['workflow'], migrateDir, true, {
       mcpProvider: 'skip',
+      skipBinary: true,
     })
     expect(result.success).toBe(true)
 

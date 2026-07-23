@@ -4,6 +4,8 @@ argument-hint: "--last|--target <commit>|--file <path>|--mode revert|restore|res
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write, WebFetch]
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # CCG Rollback
 
 The user invoked:

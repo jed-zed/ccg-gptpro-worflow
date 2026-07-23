@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.11.0"
+	version               = "5.12.2"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -195,10 +195,10 @@ func run() (exitCode int) {
 		if parallelIndex != -1 {
 			backendName := defaultBackendName
 			fullOutput := false
+			progressFlag := false
+			parallelGeminiModel := strings.TrimSpace(os.Getenv("GEMINI_MODEL"))
+			parallelGrokModel := strings.TrimSpace(os.Getenv("GROK_MODEL"))
 			var extras []string
-
-			// Check for gemini-model in parallel mode
-			geminiModelInParallel := false
 
 			for i := 0; i < len(args); i++ {
 				arg := args[i]
@@ -207,6 +207,12 @@ func run() (exitCode int) {
 					continue
 				case arg == "--full-output":
 					fullOutput = true
+				case arg == "--lite", arg == "-L":
+					// Templates emit {{LITE_MODE_FLAG}}--progress on parallel calls
+					// too — accept them instead of hard-failing the run.
+					liteMode = true
+				case arg == "--progress":
+					progressFlag = true
 				case arg == "--backend":
 					if i+1 >= len(args) {
 						fmt.Fprintln(os.Stderr, "ERROR: --backend flag requires a value")
@@ -221,17 +227,35 @@ func run() (exitCode int) {
 						return 1
 					}
 					backendName = value
-				case arg == "--gemini-model" || strings.HasPrefix(arg, "--gemini-model="):
-					geminiModelInParallel = true
-					continue
+				case arg == "--gemini-model":
+					if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+						fmt.Fprintln(os.Stderr, "ERROR: --gemini-model flag requires a non-empty model name")
+						return 1
+					}
+					parallelGeminiModel = strings.TrimSpace(args[i+1])
+					i++
+				case arg == "--grok-model":
+					if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+						fmt.Fprintln(os.Stderr, "ERROR: --grok-model flag requires a non-empty model name")
+						return 1
+					}
+					parallelGrokModel = strings.TrimSpace(args[i+1])
+					i++
+				case strings.HasPrefix(arg, "--gemini-model="):
+					parallelGeminiModel = strings.TrimSpace(strings.TrimPrefix(arg, "--gemini-model="))
+					if parallelGeminiModel == "" {
+						fmt.Fprintln(os.Stderr, "ERROR: --gemini-model flag requires a non-empty model name")
+						return 1
+					}
+				case strings.HasPrefix(arg, "--grok-model="):
+					parallelGrokModel = strings.TrimSpace(strings.TrimPrefix(arg, "--grok-model="))
+					if parallelGrokModel == "" {
+						fmt.Fprintln(os.Stderr, "ERROR: --grok-model flag requires a non-empty model name")
+						return 1
+					}
 				default:
 					extras = append(extras, arg)
 				}
-			}
-
-			// Warn about unsupported parameter
-			if geminiModelInParallel {
-				logWarn("--gemini-model parameter is not supported in parallel mode")
 			}
 
 			if len(extras) > 0 {
@@ -268,6 +292,9 @@ func run() (exitCode int) {
 				if strings.TrimSpace(cfg.Tasks[i].Backend) == "" {
 					cfg.Tasks[i].Backend = backendName
 				}
+				cfg.Tasks[i].Progress = progressFlag
+				cfg.Tasks[i].GeminiModel = parallelGeminiModel
+				cfg.Tasks[i].GrokModel = parallelGrokModel
 				// Inject ROLE_FILE content if present
 				injectedTask, err := injectRoleFile(cfg.Tasks[i].Task)
 				if err != nil {
@@ -371,6 +398,13 @@ func run() (exitCode int) {
 		logWarn("--gemini-model parameter is only effective with --backend gemini")
 	}
 
+	if cfg.GrokModel != "" && cfg.Backend == "grok" {
+		logInfo(fmt.Sprintf("Using Grok model: %s", cfg.GrokModel))
+	}
+	if cfg.GrokModel != "" && cfg.Backend != "grok" {
+		logWarn("--grok-model parameter is only effective with --backend grok")
+	}
+
 	timeoutSec := resolveTimeout()
 	logInfo(fmt.Sprintf("Timeout: %ds", timeoutSec))
 	cfg.Timeout = timeoutSec
@@ -417,10 +451,11 @@ func run() (exitCode int) {
 	useStdin := cfg.ExplicitStdin || shouldUseStdin(taskText, piped)
 
 	targetArg := taskText
-	// Gemini/Antigravity CLI doesn't support "-" as stdin marker — pass text directly via -p.
-	promptBackend := cfg.Backend == "gemini" || cfg.Backend == "antigravity"
-	promptDirect := useStdin && promptBackend && !isWindows()
-	promptStdinPipe := useStdin && promptBackend && isWindows()
+	// Gemini/Antigravity/Grok CLI doesn't support "-" as stdin marker — pass text directly via -p.
+	// Keep in sync with runCodexTaskWithContext (executor.go): only gemini uses
+	// the Windows stdin pipe; antigravity (#146) and grok take -p everywhere.
+	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
+	promptStdinPipe := useStdin && cfg.Backend == "gemini" && isWindows()
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -473,13 +508,15 @@ func run() (exitCode int) {
 	logInfo(fmt.Sprintf("%s running...", cfg.Backend))
 
 	taskSpec := TaskSpec{
-		Task:      taskText,
-		WorkDir:   cfg.WorkDir,
-		Mode:      cfg.Mode,
-		SessionID: cfg.SessionID,
-		UseStdin:  useStdin,
-		Progress:  cfg.Progress,
-		Backend:   cfg.Backend,
+		Task:        taskText,
+		WorkDir:     cfg.WorkDir,
+		Mode:        cfg.Mode,
+		SessionID:   cfg.SessionID,
+		UseStdin:    useStdin,
+		Progress:    cfg.Progress,
+		Backend:     cfg.Backend,
+		GeminiModel: cfg.GeminiModel,
+		GrokModel:   cfg.GrokModel,
 	}
 
 	result := runTaskFn(taskSpec, false, cfg.Timeout)
@@ -551,7 +588,7 @@ func printHelp() {
 
 Usage:
     %[1]s "task" [workdir]
-    %[1]s --backend claude "task" [workdir]
+    %[1]s --backend grok "task" [workdir]
     %[1]s --lite "task" [workdir]     Lite mode (faster, no Web UI)
     %[1]s - [workdir]              Read task from stdin
     %[1]s resume <session_id> "task" [workdir]
@@ -569,11 +606,15 @@ Parallel mode examples:
 
 Options:
     --lite, -L            Lite mode: disable Web UI, faster response
-    --backend <name>      Select backend (codex, gemini, claude)
+    --backend <name>      Select backend (codex, gemini, claude, antigravity, grok)
     --gemini-model <name> Specify Gemini model (gemini backend only)
                           Can also be set via GEMINI_MODEL environment variable
                           CLI parameter takes precedence over environment variable
                           Examples: gemini-2.5-flash, gemini-1.5-pro
+    --grok-model <name>   Specify Grok model (grok backend only)
+                          Can also be set via GROK_MODEL environment variable
+                          CLI parameter takes precedence over environment variable
+                          Examples: grok-4.5, grok-composer-2.5-fast
     --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:
@@ -582,6 +623,8 @@ Environment Variables:
     CODEX_DISABLE_SKIP_GIT_CHECK  Disable skip-git-repo-check flag (default: false)
     CODEAGENT_ASCII_MODE       Use ASCII symbols instead of Unicode (PASS/WARN/FAIL)
     CODEAGENT_LITE_MODE        Enable lite mode (true/false)
+    GEMINI_MODEL               Default Gemini model
+    GROK_MODEL                 Default Grok model
 
 Exit Codes:
     0    Success

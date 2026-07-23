@@ -3,6 +3,8 @@ name: context
 description: Manage Codex-native CCG context history. Use when the user invokes /ccg:context.
 ---
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 # CCG Context
 
 Manage long-lived CCG context under `.codex/ccg/context/**`.

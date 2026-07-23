@@ -1,5 +1,7 @@
 # Strategy: Git Action — Git 操作
 
+> External intelligence default: this Git-only workflow does not invoke Grok automatically. Use `/ccg:grok-intel` or `/ccg:grok-verify` explicitly when external evidence is actually required.
+
 > 适用于 Git 相关操作。委托给现有的专用命令，不重复实现。
 
 ## 适用条件

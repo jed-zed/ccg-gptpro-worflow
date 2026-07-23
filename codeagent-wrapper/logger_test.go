@@ -28,7 +28,7 @@ func compareCleanupStats(got, want CleanupStats) bool {
 
 func TestLoggerCreatesFileWithPID(t *testing.T) {
 	tempDir := t.TempDir()
-	t.Setenv("TMPDIR", tempDir)
+	setTestTempDir(t, tempDir)
 
 	logger, err := NewLogger()
 	if err != nil {
@@ -463,6 +463,8 @@ func TestLoggerCleanupOldLogsHandlesPermissionDeniedFile(t *testing.T) {
 }
 
 func TestLoggerCleanupOldLogsPerformanceBound(t *testing.T) {
+	skipOnWindows(t, "filesystem timing bound is calibrated for Linux CI")
+
 	tempDir := setTempDirEnv(t, t.TempDir())
 
 	const fileCount = 400
@@ -512,6 +514,8 @@ func TestLoggerCleanupOldLogsCoverageSuite(t *testing.T) {
 // Reuse the existing coverage suite so the focused TestLogger run still exercises
 // the rest of the codebase and keeps coverage high.
 func TestLoggerCoverageSuite(t *testing.T) {
+	skipOnWindows(t, "coverage aggregator includes POSIX-only process fixtures")
+
 	suite := []struct {
 		name string
 		fn   func(*testing.T)
@@ -579,12 +583,6 @@ func TestLoggerCoverageSuite(t *testing.T) {
 
 		{"TestCurrentWrapperNameFallsBackToExecutable", TestCurrentWrapperNameFallsBackToExecutable},
 		{"TestCurrentWrapperNameDetectsLegacyAliasSymlink", TestCurrentWrapperNameDetectsLegacyAliasSymlink},
-
-		{"TestIsProcessRunning", TestIsProcessRunning},
-		{"TestGetProcessStartTimeReadsProcStat", TestGetProcessStartTimeReadsProcStat},
-		{"TestGetProcessStartTimeInvalidData", TestGetProcessStartTimeInvalidData},
-		{"TestGetBootTimeParsesBtime", TestGetBootTimeParsesBtime},
-		{"TestGetBootTimeInvalidData", TestGetBootTimeInvalidData},
 
 		{"TestClaudeBuildArgs_ModesAndPermissions", TestClaudeBuildArgs_ModesAndPermissions},
 		{"TestClaudeBuildArgs_GeminiAndCodexModes", TestClaudeBuildArgs_GeminiAndCodexModes},

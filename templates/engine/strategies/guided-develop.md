@@ -1,5 +1,13 @@
 # Strategy: Guided Develop — 引导式开发
 
+## Automatic External Intelligence Gate
+
+Before ordinary work, run the shared route once from the controller:
+
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow feat --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+
+Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+
 > 适用于中等复杂度的功能开发。可选调用外部模型进行领域分析。
 
 ## 适用条件
@@ -84,7 +92,7 @@ Gate: 实施已完成 ✓
 Backend 模型：
 ```
 Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"$WORKDIR\" <<'CODEAGENT_EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/analyzer.md\n<TASK>\n需求：{增强后的需求}\n上下文：{Phase 2 收集的项目上下文、相关代码摘要}\n</TASK>\nOUTPUT: 技术分析报告（可行性、架构建议、风险评估、实施方案对比）\nCODEAGENT_EOF",
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}{{GROK_MODEL_FLAG}}- \"$WORKDIR\" <<'CODEAGENT_EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/analyzer.md\n<TASK>\n需求：{增强后的需求}\n上下文：{Phase 2 收集的项目上下文、相关代码摘要}\n</TASK>\nOUTPUT: 技术分析报告（可行性、架构建议、风险评估、实施方案对比）\nCODEAGENT_EOF",
   run_in_background: true,
   timeout: 3600000,
   description: "Backend 模型分析"
@@ -94,7 +102,7 @@ Bash({
 Frontend 模型（**必须同时启动，不是"如果是全栈才调"**）：
 ```
 Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"$WORKDIR\" <<'CODEAGENT_EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/analyzer.md\n<TASK>\n需求：{增强后的需求}\n上下文：{Phase 2 收集的项目上下文}\n</TASK>\nOUTPUT: 从不同视角的分析报告（可行性、设计建议、风险评估）\nCODEAGENT_EOF",
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}{{GROK_MODEL_FLAG}}- \"$WORKDIR\" <<'CODEAGENT_EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/analyzer.md\n<TASK>\n需求：{增强后的需求}\n上下文：{Phase 2 收集的项目上下文}\n</TASK>\nOUTPUT: 从不同视角的分析报告（可行性、设计建议、风险评估）\nCODEAGENT_EOF",
   run_in_background: true,
   timeout: 3600000,
   description: "Frontend 模型分析"
@@ -153,9 +161,9 @@ TaskOutput({ task_id: "<id>", block: true, timeout: 600000 })
 
 请审批以上计划，并选择谁来写代码：
 1. **Claude 自己写** — 精细控制，逐步实施
-2. **Codex / Antigravity** — 外部模型写代码，更快，Claude 监控审查
+2. **外部模型写**（{{BACKEND_PRIMARY}}）— 更快、省 Claude 额度，Claude 监控审查
 
-请回复 1 或 2（或直接说"你来写"/"用codex"等）。
+请回复 1 或 2（或直接点名模型，如"用codex"/"用grok"/"用gemini" — 点名时用该模型替换默认 backend）。
 ---
 
 **在用户回复之前，你不可以执行任何文件写入操作。** 违反 = 流程失控。
@@ -178,7 +186,7 @@ TaskOutput({ task_id: "<id>", block: true, timeout: 600000 })
 
 #### 模式 B: 外部模型实施（用户选 [2]）
 
-Claude 作为编排者，调用外部模型（Codex / Antigravity）写代码。
+Claude 作为编排者，调用外部模型写代码。默认用 `{{BACKEND_PRIMARY}}`；用户点名了其他模型（codex / grok / gemini / antigravity）则将下方调用中的 `--backend` 和 ROLE_FILE 路径替换为该模型。
 
 **Step 1**: 从 plan.md 按文件归属拆分子任务：
 - **Layer 1** — 无依赖的任务（底层模块：model/util/store）
@@ -189,7 +197,7 @@ Claude 作为编排者，调用外部模型（Codex / Antigravity）写代码。
 
 ```
 Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --parallel --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"$WORKDIR\" <<'PARALLEL_EOF'\n---TASK---\nid: layer1-{name1}\nworkdir: $WORKDIR\n---CONTENT---\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/builder.md\n<TASK>\n## 文件范围（⛔ 只改这些文件）\n{file1, file2}\n\n## 实施步骤\n{steps from plan.md}\n</TASK>\n---TASK---\nid: layer1-{name2}\nworkdir: $WORKDIR\n---CONTENT---\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/builder.md\n<TASK>\n## 文件范围\n{file3, file4}\n\n## 实施步骤\n{steps}\n</TASK>\n---TASK---\nid: layer2-{name3}\nworkdir: $WORKDIR\ndependencies: layer1-{name1},layer1-{name2}\n---CONTENT---\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/builder.md\n<TASK>\n## 文件范围\n{file5}\n\n## 实施步骤\n{steps}\n</TASK>\nPARALLEL_EOF",
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --parallel --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}{{GROK_MODEL_FLAG}}- \"$WORKDIR\" <<'PARALLEL_EOF'\n---TASK---\nid: layer1-{name1}\nworkdir: $WORKDIR\n---CONTENT---\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/builder.md\n<TASK>\n## 文件范围（⛔ 只改这些文件）\n{file1, file2}\n\n## 实施步骤\n{steps from plan.md}\n</TASK>\n---TASK---\nid: layer1-{name2}\nworkdir: $WORKDIR\n---CONTENT---\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/builder.md\n<TASK>\n## 文件范围\n{file3, file4}\n\n## 实施步骤\n{steps}\n</TASK>\n---TASK---\nid: layer2-{name3}\nworkdir: $WORKDIR\ndependencies: layer1-{name1},layer1-{name2}\n---CONTENT---\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/builder.md\n<TASK>\n## 文件范围\n{file5}\n\n## 实施步骤\n{steps}\n</TASK>\nPARALLEL_EOF",
   run_in_background: true,
   timeout: 3600000,
   description: "Parallel Builder: {task count} 个子任务"

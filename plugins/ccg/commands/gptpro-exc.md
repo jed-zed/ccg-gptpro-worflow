@@ -14,7 +14,14 @@ code landing begins.
 
 ## Contract
 
-Run ordinary `/ccg:execute` first through the preflight, plan load, model routing, prototype, or
+Run the Grok intelligence decision by writing the bounded execution subject to the active task directory, then run
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`
+before ordinary `/ccg:execute` preflight. The main orchestrator adds a semantic mode/reason whenever
+current external evidence is material even if search was not requested. External API,
+dependency, deployment, security, and other current-contract routes require canonical Grok evidence;
+required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4`
+stops before ordinary work. Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only for a route with `status=valid` and `requirement=required`. Then run ordinary
+`/ccg:execute` through the preflight, plan load, model routing, prototype, or
 analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution
 routing for this installation, including Codex, Claude, Gemini, or any configured helper that
 ordinary execute would use. GPT Pro is fourth evidence: it is appended as a manual second opinion
@@ -52,18 +59,21 @@ Hard boundaries:
 
 1. Locate the active task under `.ccg/tasks/<task-id>/task.json`.
 2. Resolve execution scope from `$ARGUMENTS`, the active plan, changed files, or task context.
-3. Run ordinary `/ccg:execute` preflight and model routing up to the point where implementation
+3. Run `/ccg:grok-intel <execution-contract> --mode contract` when required and validate canonical
+   artifact/manifest hashes plus the task pointer. After implementation, run `/ccg:grok-verify` if
+   plan, diff, dependency, or external-contract digests changed.
+4. Run ordinary `/ccg:execute` preflight and model routing up to the point where implementation
    advice can still change the path safely. Write a concise routing evidence file, for example
    `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file. The routing evidence
    must identify the current orchestrator, the routed model evidence that actually exists, the
    `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, ordinary execute
    conclusion so far, and any skipped/failed model steps.
-4. Decide whether ordinary routing produced Gemini frontend/full-stack evidence:
+5. Decide whether ordinary routing produced Gemini frontend/full-stack evidence:
    - backend/tooling-only: use `--gemini-policy optional --gemini-evidence-role frontend-prototype`
      without forcing a Gemini run;
    - frontend/full-stack: pass the real Gemini response and summary files when ordinary execute
      produced them.
-5. Classify GPT Pro implementation evidence quality:
+6. Classify GPT Pro implementation evidence quality:
    - weak evidence: routing summary, snippets, or high-level context only; ask GPT Pro for route
      risk, wrong assumptions, missing tests, and `Proceed` / `Revise Plan` / `Stop`;
    - strong evidence: repository URL, branch, commit, current diff or key file excerpts, and Base
@@ -80,6 +90,7 @@ Create a concise prompt file with:
   status; repository content is supplemental, and local diff/excerpts remain authoritative;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini frontend/full-stack evidence when available;
+- validated Grok contract summary, claims, artifact/manifest paths and hashes; never raw events;
 - explicit request for execution route judgment first, using `Proceed`, `Revise Plan`, or `Stop`;
 - required output sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
   `Required Tests`, and `Verification`;
@@ -103,6 +114,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required] \
   --detach-preview \
   --open-preview
 ```

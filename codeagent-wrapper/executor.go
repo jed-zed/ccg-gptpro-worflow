@@ -821,12 +821,14 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	logger := injectedLogger
 
 	cfg := &Config{
-		Mode:      taskSpec.Mode,
-		Task:      taskSpec.Task,
-		SessionID: taskSpec.SessionID,
-		WorkDir:   taskSpec.WorkDir,
-		Backend:   defaultBackendName,
-		Progress:  taskSpec.Progress,
+		Mode:        taskSpec.Mode,
+		Task:        taskSpec.Task,
+		SessionID:   taskSpec.SessionID,
+		WorkDir:     taskSpec.WorkDir,
+		Backend:     defaultBackendName,
+		Progress:    taskSpec.Progress,
+		GeminiModel: taskSpec.GeminiModel,
+		GrokModel:   taskSpec.GrokModel,
 	}
 
 	commandName := codexCommand
@@ -862,8 +864,12 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// multi-line args in argv). On Windows: npm's .cmd wrapper routes through
 	// cmd.exe which truncates multi-line args at the first newline (Issue #129).
 	// Use stdin pipe instead and omit -p so the CLI reads from piped stdin.
-	promptDirect := useStdin && (cfg.Backend == "gemini" || cfg.Backend == "antigravity") && !isWindows()
-	promptStdinPipe := useStdin && (cfg.Backend == "gemini" || cfg.Backend == "antigravity") && isWindows()
+	// Antigravity (agy) does NOT read stdin at all — it requires -p on every
+	// platform, including Windows (#146). The cmd.exe truncation risk is
+	// accepted because a truncated prompt is better than a silent no-op.
+	// Grok is a native binary (no .cmd shim), so -p is safe on every platform.
+	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
+	promptStdinPipe := useStdin && cfg.Backend == "gemini" && isWindows()
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -984,10 +990,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
-	env := loadMinimalEnvSettings()
-	if env == nil {
-		env = make(map[string]string)
-	}
+	env := buildBackendEnv(commandName)
 	cmd.SetEnv(env) // SetEnv 会自动合并 os.Environ() (executor.go:122-161)
 
 	// Set working directory for backends that don't support -C flag.
@@ -1055,6 +1058,17 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	messageSeen := make(chan struct{}, 1)
 	completeSeen := make(chan struct{}, 1)
 	parseCh := make(chan parseResult, 1)
+	waitGate := make(chan struct{})
+	var waitGateOnce sync.Once
+	allowWait := func() {
+		waitGateOnce.Do(func() { close(waitGate) })
+	}
+	var sessionWaitGateOnce sync.Once
+	allowWaitAfterSessionGrace := func() {
+		sessionWaitGateOnce.Do(func() {
+			time.AfterFunc(stdoutDrainTimeout, allowWait)
+		})
+	}
 
 	// Create onContent callback for streaming to WebServer
 	var onContentCallback func(content, contentType string)
@@ -1079,15 +1093,16 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// in stdout would never be printed).
 	// Skip in silent mode (parallel tasks) to avoid polluting stderr.
 	var sessionIDEmitted bool
-	var onSessionStartedCallback func(string)
-	if !silent {
-		onSessionStartedCallback = func(id string) {
-			if sessionIDEmitted || id == "" {
-				return
-			}
-			sessionIDEmitted = true
-			fmt.Fprintf(os.Stderr, "  Session-ID: %s\n", id)
+	onSessionStartedCallback := func(id string) {
+		// A process may emit only session.started and then exit while a child
+		// keeps stdout open. Preserve a short parsing grace period, then let Wait
+		// and the existing drain timeout complete that no-message path.
+		allowWaitAfterSessionGrace()
+		if silent || sessionIDEmitted || id == "" {
+			return
 		}
+		sessionIDEmitted = true
+		fmt.Fprintf(os.Stderr, "  Session-ID: %s\n", id)
 	}
 
 	// Antigravity CLI outputs plain text (no JSON streaming).
@@ -1095,6 +1110,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	isPlainTextBackend := cfg.Backend == "antigravity"
 
 	go func() {
+		defer allowWait()
 		if isPlainTextBackend {
 			scanner := bufio.NewScanner(stdoutReader)
 			scanner.Buffer(make([]byte, 0, 256*1024), 10*1024*1024)
@@ -1133,11 +1149,15 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		}
 
 		msg, tid := parseJSONStreamInternalWithContent(stdoutReader, logWarnFn, logInfoFn, func() {
+			// os/exec.Wait closes StdoutPipe after the process exits. Do not let a
+			// fast process win that race before the parser has captured its message.
+			allowWait()
 			select {
 			case messageSeen <- struct{}{}:
 			default:
 			}
 		}, func() {
+			allowWait()
 			select {
 			case completeSeen <- struct{}{}:
 			default:
@@ -1156,6 +1176,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	logInfoFn(fmt.Sprintf("Starting %s with args: %s %s...", commandName, commandName, strings.Join(codexArgs[:min(5, len(codexArgs))], " ")))
 
+	contextDoneBeforeStart := ctx.Err() != nil
 	if err := cmd.Start(); err != nil {
 		if strings.Contains(err.Error(), "executable file not found") {
 			msg := fmt.Sprintf("%s command not found in PATH", commandName)
@@ -1185,18 +1206,19 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	}
 
 	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
+	go func() {
+		<-waitGate
+		waitCh <- cmd.Wait()
+	}()
 
 	var (
-		waitErr              error
-		forceKillTimer       *forceKillTimer
-		ctxCancelled         bool
-		messageTimer         *time.Timer
-		messageTimerCh       <-chan time.Time
-		forcedAfterComplete  bool
-		terminated           bool
-		messageSeenObserved  bool
-		completeSeenObserved bool
+		waitErr             error
+		forceKillTimer      *forceKillTimer
+		ctxCancelled        bool
+		messageTimer        *time.Timer
+		messageTimerCh      <-chan time.Time
+		forcedAfterComplete bool
+		terminated          bool
 		// Fallback exit timer: ensures loop exits even if waitCh never returns
 		// This handles Windows edge case where child processes hold stdout handles
 		fallbackExitTimer   *time.Timer
@@ -1205,12 +1227,10 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 waitLoop:
 	for {
-		select {
-		case waitErr = <-waitCh:
-			break waitLoop
-		case <-ctx.Done():
+		if contextDoneBeforeStart {
 			ctxCancelled = true
 			logErrorFn(cancelReason(commandName, ctx))
+			allowWait()
 			if !terminated {
 				if timer := terminateCommandFn(cmd); timer != nil {
 					forceKillTimer = timer
@@ -1218,6 +1238,42 @@ waitLoop:
 				}
 			}
 			waitErr = <-waitCh
+			break waitLoop
+		}
+		select {
+		case waitErr = <-waitCh:
+			break waitLoop
+		case <-ctx.Done():
+			allowWait()
+			// The process may have completed just before the deadline while the
+			// parser is still draining buffered stdout. Give Wait a bounded chance
+			// to report that completion before classifying the run as cancelled.
+			waitObserved := false
+			if !contextDoneBeforeStart {
+				exitGrace := time.NewTimer(stdoutDrainTimeout)
+				select {
+				case waitErr = <-waitCh:
+					waitObserved = true
+					if !exitGrace.Stop() {
+						<-exitGrace.C
+					}
+					if waitErr == nil {
+						break waitLoop
+					}
+				case <-exitGrace.C:
+				}
+			}
+			ctxCancelled = true
+			logErrorFn(cancelReason(commandName, ctx))
+			if !waitObserved && !terminated {
+				if timer := terminateCommandFn(cmd); timer != nil {
+					forceKillTimer = timer
+					terminated = true
+				}
+			}
+			if !waitObserved {
+				waitErr = <-waitCh
+			}
 			break waitLoop
 		case <-messageTimerCh:
 			forcedAfterComplete = true
@@ -1250,14 +1306,12 @@ waitLoop:
 			forcedAfterComplete = true
 			break waitLoop
 		case <-completeSeen:
-			completeSeenObserved = true
 			if messageTimer != nil {
 				continue
 			}
 			messageTimer = time.NewTimer(resolvePostMessageDelay())
 			messageTimerCh = messageTimer.C
 		case <-messageSeen:
-			messageSeenObserved = true
 		}
 	}
 
@@ -1289,9 +1343,6 @@ waitLoop:
 	case ctxCancelled:
 		closeWithReason(stdout, stdoutCloseReasonCtx)
 		parsed = <-parseCh
-	case messageSeenObserved || completeSeenObserved:
-		closeWithReason(stdout, stdoutCloseReasonWait)
-		parsed = <-parseCh
 	default:
 		drainTimer := time.NewTimer(stdoutDrainTimeout)
 		defer drainTimer.Stop()
@@ -1299,21 +1350,17 @@ waitLoop:
 		select {
 		case parsed = <-parseCh:
 			closeWithReason(stdout, stdoutCloseReasonWait)
-		case <-messageSeen:
-			messageSeenObserved = true
-			closeWithReason(stdout, stdoutCloseReasonWait)
-			parsed = <-parseCh
-		case <-completeSeen:
-			completeSeenObserved = true
-			closeWithReason(stdout, stdoutCloseReasonWait)
-			parsed = <-parseCh
 		case <-drainTimer.C:
 			closeWithReason(stdout, stdoutCloseReasonDrain)
 			parsed = <-parseCh
 		}
 	}
 
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	// A deadline that expires while stdout is being drained must not reclassify a
+	// process that already exited successfully. ctxCancelled is set only when the
+	// wait loop actually selected ctx.Done() before observing process completion.
+	if ctxCancelled {
+		ctxErr := ctx.Err()
 		if errors.Is(ctxErr, context.DeadlineExceeded) {
 			result.ExitCode = 124
 			result.Error = attachStderr(fmt.Sprintf("%s execution timeout", commandName))

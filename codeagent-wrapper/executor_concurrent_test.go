@@ -61,6 +61,17 @@ type reasonReadCloser struct {
 	closedC chan struct{}
 }
 
+type delayedReadCloser struct {
+	reader io.Reader
+	delay  time.Duration
+}
+
+func (r *delayedReadCloser) Read(p []byte) (int, error) {
+	time.Sleep(r.delay)
+	return r.reader.Read(p)
+}
+func (r *delayedReadCloser) Close() error { return nil }
+
 func newReasonReadCloser(data string) *reasonReadCloser {
 	return &reasonReadCloser{r: strings.NewReader(data), closedC: make(chan struct{}, 1)}
 }
@@ -152,6 +163,8 @@ func (f *execFakeRunner) Process() processHandle {
 }
 
 func TestExecutorHelperCoverage(t *testing.T) {
+	skipOnWindows(t, "includes POSIX command process coverage")
+
 	t.Run("realCmdAndProcess", func(t *testing.T) {
 		rc := &realCmd{}
 		if err := rc.Start(); err == nil {
@@ -357,6 +370,8 @@ func TestExecutorHelperCoverage(t *testing.T) {
 }
 
 func TestExecutorRunCodexTaskWithContext(t *testing.T) {
+	skipOnWindows(t, "includes POSIX exit and signal semantics")
+
 	origRunner := newCommandRunner
 	defer func() { newCommandRunner = origRunner }()
 
@@ -580,6 +595,24 @@ func TestExecutorRunCodexTaskWithContext(t *testing.T) {
 		}
 		if !strings.Contains(string(data), "task-context") {
 			t.Fatalf("task log missing task id, content: %s", string(data))
+		}
+	})
+
+	t.Run("completedProcessWinsOverLaterContextDeadline", func(t *testing.T) {
+		newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+			return &execFakeRunner{
+				stdout: &delayedReadCloser{
+					reader: strings.NewReader(`{"type":"item.completed","item":{"type":"agent_message","text":"completed"}}`),
+					delay:  40 * time.Millisecond,
+				},
+				process: &execFakeProcess{pid: 15},
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		defer cancel()
+		res := runCodexTaskWithContext(ctx, TaskSpec{Task: "payload", WorkDir: "."}, nil, nil, false, true, 1)
+		if res.ExitCode != 0 || res.Message != "completed" {
+			t.Fatalf("completed process should not be reclassified by a later deadline: %+v", res)
 		}
 	})
 
@@ -963,6 +996,8 @@ func TestExecutorTaskLoggerContext(t *testing.T) {
 }
 
 func TestExecutorExecuteConcurrentWithContextBranches(t *testing.T) {
+	skipOnWindows(t, "includes Unix permission-based logger failures")
+
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatalf("failed to open %s: %v", os.DevNull, err)
@@ -1226,6 +1261,8 @@ func TestExecutorExecuteConcurrentWithContextBranches(t *testing.T) {
 }
 
 func TestExecutorSignalAndTermination(t *testing.T) {
+	skipOnWindows(t, "Unix signal semantics test")
+
 	forceKillDelay.Store(0)
 	defer forceKillDelay.Store(5)
 

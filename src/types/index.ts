@@ -2,13 +2,39 @@
 export type SupportedLang = 'zh-CN' | 'en'
 
 // 模型类型
-export type ModelType = 'codex' | 'gemini' | 'claude' | 'antigravity'
+export type ModelType = 'codex' | 'gemini' | 'claude' | 'antigravity' | 'grok'
 
 // 协作模式
 export type CollaborationMode = 'parallel' | 'smart' | 'sequential'
 
 // 路由策略
 export type RoutingStrategy = 'parallel' | 'fallback' | 'round-robin'
+
+// 外部情报层配置
+export type XSearchPolicy = 'required' | 'preferred' | 'disabled'
+export type IntelligenceAuthMode = 'browser_oauth' | 'api_key'
+
+export interface IntelligenceConfig {
+  enabled: boolean
+  auto_route: boolean
+  provider: 'grok-cli'
+  transport: 'acp'
+  auth_mode: IntelligenceAuthMode
+  legacy_search_provider: 'grok-search-mcp'
+  allow_provider_fallback: false
+  default_model: string
+  deep_research_model: string
+  deep_research_enabled: boolean
+  live_checks_on_init: boolean
+  artifact_root: string
+  max_retries: number
+  max_bundle_bytes: number
+  retention_days: number
+  exported_retention_days: number
+  cleanup_credential_artifacts: boolean
+  require_web_search: boolean
+  x_search_policy: XSearchPolicy
+}
 
 // 模型路由配置
 export interface ModelRouting {
@@ -28,6 +54,7 @@ export interface ModelRouting {
   }
   mode: CollaborationMode
   geminiModel?: string // Gemini 具体型号（默认 gemini-3.1-pro-preview）
+  grokModel?: string // Grok 具体型号（默认 grok-4.5，代码任务可选 grok-composer-2.5-fast）
 }
 
 // CCG 配置
@@ -50,6 +77,7 @@ export interface CcgConfig {
     provider: string
     setup_url: string
   }
+  intelligence: IntelligenceConfig
   performance?: {
     liteMode?: boolean // 轻量模式：禁用 Web UI，更快响应
     skipImpeccable?: boolean // 跳过 Impeccable 前端设计命令安装
@@ -81,6 +109,7 @@ export interface InitOptions {
   mode?: CollaborationMode
   workflows?: string
   installDir?: string
+  intelligence?: boolean
 }
 
 // 安装结果

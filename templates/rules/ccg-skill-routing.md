@@ -78,6 +78,12 @@ When the user is working with a specific programming language, read the correspo
 | liquid glass | `~/.claude/skills/ccg/domains/frontend-design/liquid-glass/SKILL.md` |
 | neubrutalism | `~/.claude/skills/ccg/domains/frontend-design/neubrutalism/SKILL.md` |
 
+## SEO Domain (`domains/seo/`)
+
+| Trigger Keywords | Skill File |
+|------------------|-----------|
+| SEO, CTR, impressions, GSC, Search Console, keywords, seoTitle, meta description, internal linking, content strategy, blog translation, watermark removal SEO, 曝光, 点击率, 踩词, 优化标题, 搜索排名 | `~/.claude/skills/ccg/domains/seo/seo-growth.md` |
+
 ## Routing Rules
 
 1. **Keyword match is fuzzy** — match on intent, not exact string. "How to do SQL injection testing" triggers `pentest.md`.

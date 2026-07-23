@@ -14,7 +14,13 @@ diffs, findings, and tests let it focus on missed risks instead of inventing imp
 
 ## Contract
 
-Run ordinary `/ccg:review` first. Preserve the current CCG orchestrator semantics and the normal
+Run `/ccg:grok-verify` through the shared automatic route: write the bounded review subject to the active task directory, then run
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`
+over the exact plan, applied diff, dependency locks, and relevant tests before
+ordinary `/ccg:review`. Required exit 2/3/4 stops GPT Pro bridge creation unless the user runs
+`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work. Add
+`--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the inherited/re-evaluated route has `status=valid` and `requirement=required`.
+Then run ordinary `/ccg:review`. Preserve the current CCG orchestrator semantics and the normal
 cross-review/model routing for this installation, including Codex, Claude, Gemini, or any configured
 helper that ordinary review would use. GPT Pro is fourth evidence: it is appended as a manual review
 second opinion after ordinary routing evidence exists. In this command GPT Pro is a high-value
@@ -42,12 +48,14 @@ Hard boundaries:
 
 1. Locate the active task under `.ccg/tasks/<task-id>/task.json`.
 2. Resolve review scope from `$ARGUMENTS`, `git diff HEAD`, the active plan, or changed files.
-3. Run or verify the ordinary `/ccg:review` route first and write a concise routing evidence file,
+3. Run `/ccg:grok-verify` with the exact plan, diff, and every changed dependency/lock input.
+   Validate the canonical Grok artifact and manifest hashes plus the task pointer. Never pass raw JSONL.
+4. Run or verify the ordinary `/ccg:review` route first and write a concise routing evidence file,
    for example `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
    actually exists, `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, the
    ordinary reviewer conclusion, and any skipped/failed model steps.
-4. Validate required Gemini review/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
+5. Validate required Gemini review/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
 
@@ -75,6 +83,7 @@ Create a concise prompt file with:
   status; pasted diffs and local evidence override repository contents when they differ;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini evidence summary and artifact path;
+- validated Grok diff-bound summary, claims, evidence/manifest paths and hashes; never raw events;
 - explicit request for hidden bugs, security risks, compatibility risks, edge cases, test gaps,
   likely false positives, and missed findings in ordinary model evidence;
 - required output sections: `Critical`, `Major`, `Minor`, `False Positives`, and `Required Tests`.
@@ -97,6 +106,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required] \
   --detach-preview \
   --open-preview
 ```

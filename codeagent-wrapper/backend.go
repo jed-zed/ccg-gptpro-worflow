@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -36,7 +37,10 @@ func (ClaudeBackend) BuildArgs(cfg *Config, targetArg string) []string {
 	return buildClaudeArgs(cfg, targetArg)
 }
 
-const maxClaudeSettingsBytes = 1 << 20 // 1MB
+const (
+	maxClaudeSettingsBytes = 1 << 20 // 1MB
+	defaultClaudeModel     = "claude-opus-4-8"
+)
 
 // loadMinimalEnvSettings 从 ~/.claude/settings.json 只提取 env 配置。
 // 只接受字符串类型的值；文件缺失/解析失败/超限都返回空。
@@ -81,14 +85,35 @@ func loadMinimalEnvSettings() map[string]string {
 	return env
 }
 
+func buildBackendEnv(commandName string) map[string]string {
+	env := loadMinimalEnvSettings()
+	if env == nil {
+		env = make(map[string]string)
+	}
+
+	if commandName == "claude" {
+		if _, ok := env["ANTHROPIC_MODEL"]; !ok {
+			if val, exists := os.LookupEnv("ANTHROPIC_MODEL"); !exists || strings.TrimSpace(val) == "" {
+				env["ANTHROPIC_MODEL"] = defaultClaudeModel
+			}
+		}
+	}
+
+	return env
+}
+
 func buildClaudeArgs(cfg *Config, targetArg string) []string {
 	if cfg == nil {
 		return nil
 	}
 	args := []string{"-p"}
-	if cfg.SkipPermissions {
-		args = append(args, "--dangerously-skip-permissions")
-	}
+	// The wrapper is only ever invoked for autonomous orchestration sub-tasks
+	// (review / analysis / implementation), never interactively. Claude must run
+	// non-interactively like the gemini backend's `-y`: without bypassing
+	// permissions, the headless `-p` reviewer blocks on tool-permission gates
+	// while consuming tokens and never returns a result (#143). The old
+	// `cfg.SkipPermissions` gate was effectively dead — no caller set it.
+	args = append(args, "--dangerously-skip-permissions")
 
 	// Prevent infinite recursion: disable all setting sources (user, project, local)
 	// This ensures a clean execution environment without CLAUDE.md or skills that would trigger codeagent
@@ -135,6 +160,64 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 	}
 
 	// -p must come right before the prompt text (last positional arg)
+	args = append(args, "-p", targetArg)
+	return args
+}
+
+type GrokBackend struct{}
+
+func (GrokBackend) Name() string { return "grok" }
+
+// Command resolves the grok binary. The official installer places it at
+// ~/.grok/bin/grok (a symlink into ~/.grok/downloads/) and adds that dir to
+// PATH via shell rc — which may not be sourced in non-interactive shells,
+// so fall back to the well-known install location before giving up.
+func (GrokBackend) Command() string {
+	if _, err := exec.LookPath("grok"); err == nil {
+		return "grok"
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "grok"
+	}
+	fallback := filepath.Join(home, ".grok", "bin", "grok")
+	if isWindows() {
+		fallback += ".exe"
+	}
+	if _, err := os.Stat(fallback); err == nil {
+		return fallback
+	}
+	return "grok"
+}
+
+func (GrokBackend) BuildArgs(cfg *Config, targetArg string) []string {
+	return buildGrokArgs(cfg, targetArg)
+}
+
+func buildGrokArgs(cfg *Config, targetArg string) []string {
+	if cfg == nil {
+		return nil
+	}
+
+	// Grok CLI (native Rust binary, no .cmd shim) takes the prompt via -p on
+	// every platform — multi-line args survive CreateProcess/execve intact.
+	// --always-approve mirrors gemini's -y: the wrapper only ever runs
+	// autonomous orchestration sub-tasks, never interactive sessions.
+	args := []string{"--always-approve", "--output-format", "streaming-json"}
+
+	if model := strings.TrimSpace(cfg.GrokModel); model != "" {
+		args = append(args, "-m", model)
+	}
+
+	if cfg.Mode == "resume" && cfg.SessionID != "" {
+		args = append(args, "-r", cfg.SessionID)
+	}
+
+	// Working directory comes from cmd.Dir (executor.go), same as the claude
+	// backend — do NOT pass --cwd: grok resolves it against its own process
+	// cwd, which IS cmd.Dir already, breaking relative paths.
+
+	// -p carries the prompt text directly (grok has no stdin task mode).
 	args = append(args, "-p", targetArg)
 	return args
 }

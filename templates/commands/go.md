@@ -16,6 +16,28 @@ $ARGUMENTS
 
 ---
 
+## Phase -1: 外部情报自动判定 [required]
+
+即使用户没有说“搜索”，主编排器也必须先判断当前任务是否依赖最新外部事实。把原始请求写入
+活动任务目录下的 bounded UTF-8 文件，然后执行共享路由器；不要把请求文本插入 shell：
+
+Bootstrap contract: 在调用路由器之前，create or reuse 一个只含 `[a-z0-9-]` 的安全 `<task-id>`，
+先创建 `.ccg/tasks/<task-id>/`，再用文件写入工具 write the original user request 到
+`.ccg/tasks/<task-id>/intelligence-request.md`。即使任务稍后被判定为 S 或 git-action，也保留这两个
+有界的审计文件；后续阶段必须复用同一个 `<task-id>`，不得在路由后再生成第二个任务 ID。
+
+```text
+node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow go --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"
+```
+
+确定性触发器由路由器识别；模糊但确实依赖外部能力、近期版本或服务状态时，主编排器追加
+`--semantic-mode contract|incident --semantic-reason <reason>`。传入存在的 plan、diff 和依赖/锁文件，
+并在 final verify 阶段用 `--trigger final_diff_verify` 重新判定。读取 state file 中的 decision/reason；
+exit code `2`, `3`, or `4` 必须停止后续工作，exit `0` 才能进入 Phase 0。Git-only 或本地任务仍会
+得到可审计 skip reason，但不会调用 Grok 模型。
+
+---
+
 ## Phase 0: 逃生舱检测
 
 在开始分析之前，先检查 `$ARGUMENTS` 是否命中逃生舱：
@@ -128,8 +150,8 @@ $ARGUMENTS
 
 如果复杂度 ≥ M **且策略不是 git-action**，**必须先创建任务目录再加载策略**：
 
-**Step 1**: 生成任务名 — 用户请求核心词转 kebab-case（如 `add-oauth2-login`、`fix-api-timeout`）
-**Step 2**: 执行命令创建目录和文件：
+**Step 1**: 复用 Phase -1 已生成的安全 `<task-id>` 作为任务名，不得重新生成目录。
+**Step 2**: 确认同一目录仍然存在：
 
 ```bash
 mkdir -p .ccg/tasks/{task-name}
@@ -158,7 +180,8 @@ mkdir -p .ccg/tasks/{task-name}
 - 第一行写种子示例：`{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}`
 - 如果 `.ccg/spec/` 存在 → 追加 spec 文件条目
 
-**复杂度 S → 跳过任务创建**（保持轻量）。
+**复杂度 S 或 git-action → 跳过 `task.json` / `context.jsonl` 创建**（保持轻量），但不得删除
+Phase -1 已持久化的 `intelligence-request.md` 与 `intelligence-route.json`。
 
 **确认任务已创建后**，输出：
 ```

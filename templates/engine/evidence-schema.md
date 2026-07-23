@@ -39,6 +39,7 @@ Recommended providers:
 - `gemini` for automated Gemini helper evidence.
 - `gptpro` for user-mediated ChatGPT Pro evidence.
 - `codex` for local synthesis or verification artifacts when useful.
+- `grok` for validated external-intelligence evidence collected through the isolated ACP runtime.
 
 Recommended roles:
 
@@ -49,14 +50,40 @@ Recommended roles:
   `displayRole: "execution-route-review"`, `semanticRole: "route-review"`, and
   `implementationOwner: false`.
 - `frontend-prototype` for optional frontend/UI helper evidence.
+- `external-intelligence` for current web/X facts, contracts, incidents, and ecosystem evidence.
 
 ## Artifact Rules
 
 - Prefer paths relative to the task directory.
-- `.ccg/...` paths are resolved from the project root.
-- Absolute paths are accepted for legacy compatibility but should not be written by new commands.
+- `.ccg/...` and `.codex/...` paths are resolved from the project root.
+- Every resolved path, including legacy absolute paths, must remain inside the project root; lexical and real-path escapes are rejected.
 - Required evidence must point to a non-empty artifact.
 - When `artifactSha256` is present, consumers must verify it against the exact artifact bytes.
+- When `manifestFile` is present, preserve `manifestFile`/`manifestSha256` and validate the manifest hash independently.
+- Grok bundles remain local-only by default under `.codex/ccg/intelligence/`; exported bundles are separately sanitized.
+
+## External Intelligence Item
+
+```json
+{
+  "id": "grok-external-intelligence-<evidence-id>",
+  "provider": "grok",
+  "role": "external-intelligence",
+  "policy": "required",
+  "available": true,
+  "artifactFile": ".codex/ccg/intelligence/<evidence-id>/evidence.json",
+  "artifactSha256": "<sha256>",
+  "manifestFile": ".codex/ccg/intelligence/<evidence-id>/manifest.json",
+  "manifestSha256": "<sha256>",
+  "localOnly": true,
+  "exported": false,
+  "summary": "Validated current external contract evidence"
+}
+```
+
+`task.json.external_intelligence` is only a compact pointer: requirement, status, evidence ID,
+manifest path/hash, `localOnly`, and `exported`. Full claims, sources, reports, and raw events never
+belong in `task.json`.
 
 ## Legacy Compatibility
 

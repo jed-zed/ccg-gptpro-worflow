@@ -9,6 +9,17 @@ Use `commands/go.md` as the authoritative routing contract for `/ccg:go`.
 
 ## Behavior
 
+Bootstrap contract: before invoking the route, create or reuse a safe `<task-id>`, create
+`.ccg/tasks/<task-id>/`, and write the original user request to
+`.ccg/tasks/<task-id>/intelligence-request.md` with a file-writing tool rather than shell interpolation.
+Reuse this same task id throughout `/ccg:go`, including S and git-action routes.
+
+- Before inspecting or routing ordinary work, write the bounded request to the active task directory
+  and run `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow go --phase intake --task-file <request-file> --state-file <state-file>`.
+  The controller must add `--semantic-mode contract|incident --semantic-reason <reason>` when its own
+  judgment finds a material current-fact dependency even if the user did not ask to search. Supply
+  plan/diff/dependency paths when present, re-run final external verification when their digests change,
+  persist every skip reason, and stop on exit code `2`, `3`, or `4`.
 - Inspect the user's natural-language request, current project context, and git status before choosing a workflow.
 - Route explicit GPT Pro intents to `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or `/ccg:gptpro-exc`.
 - If the user says `gptpro` without a precise subcommand, choose:

@@ -45,6 +45,20 @@ func resetTestHooks() {
 	exitFn = os.Exit
 }
 
+func skipOnWindows(t *testing.T, reason string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip(reason)
+	}
+}
+
+func setTestTempDir(t *testing.T, dir string) {
+	t.Helper()
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(key, dir)
+	}
+}
+
 type capturedStdout struct {
 	buf    bytes.Buffer
 	old    *os.File
@@ -261,6 +275,25 @@ func (d *drainBlockingCmd) SetEnv(env map[string]string) {
 
 func (d *drainBlockingCmd) Process() processHandle {
 	return d.inner.Process()
+}
+
+// waitClosingCmd models os/exec.Cmd.Wait closing StdoutPipe as soon as the
+// process exits. It makes the fast-process parser race deterministic.
+type waitClosingCmd struct {
+	inner *fakeCmd
+}
+
+func (w *waitClosingCmd) Start() error                       { return w.inner.Start() }
+func (w *waitClosingCmd) StdoutPipe() (io.ReadCloser, error) { return w.inner.StdoutPipe() }
+func (w *waitClosingCmd) StdinPipe() (io.WriteCloser, error) { return w.inner.StdinPipe() }
+func (w *waitClosingCmd) SetStderr(out io.Writer)            { w.inner.SetStderr(out) }
+func (w *waitClosingCmd) SetDir(dir string)                  { w.inner.SetDir(dir) }
+func (w *waitClosingCmd) SetEnv(env map[string]string)       { w.inner.SetEnv(env) }
+func (w *waitClosingCmd) Process() processHandle             { return w.inner.Process() }
+func (w *waitClosingCmd) Wait() error {
+	err := w.inner.Wait()
+	_ = w.inner.stdout.CloseWithReason("os-exec-wait")
+	return err
 }
 
 type bufferWriteCloser struct {
@@ -761,8 +794,88 @@ func TestRunCodexTask_WaitBeforeParse(t *testing.T) {
 	if fake.stdout == nil {
 		t.Fatalf("stdout reader not initialized")
 	}
-	if reason := fake.stdout.Reason(); reason != stdoutCloseReasonWait {
-		t.Fatalf("stdout close reason = %q, want %q", reason, stdoutCloseReasonWait)
+	if reason := fake.stdout.Reason(); reason != stdoutCloseReasonDrain {
+		t.Fatalf("stdout close reason = %q, want %q", reason, stdoutCloseReasonDrain)
+	}
+}
+
+func TestRunCodexTask_WaitCannotCloseStdoutBeforeMessage(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{
+			{Data: `{"type":"thread.started","thread_id":"fast-thread"}` + "\n"},
+			{Delay: 25 * time.Millisecond, Data: `{"type":"item.completed","item":{"type":"agent_message","text":"fast-message"}}` + "\n"},
+		},
+	})
+	closing := &waitClosingCmd{inner: fake}
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+		return closing
+	}
+	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	codexCommand = "fast-cmd"
+
+	result := runCodexTask(TaskSpec{Task: "ignored"}, false, 5)
+	if result.ExitCode != 0 || result.Message != "fast-message" || result.SessionID != "fast-thread" {
+		t.Fatalf("unexpected result after wait-close race: %+v", result)
+	}
+}
+
+func TestRunCodexTask_CompletedProcessWinsContextDeadline(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{
+			{Delay: 40 * time.Millisecond, Data: `{"type":"item.completed","item":{"type":"agent_message","text":"completed"}}` + "\n"},
+		},
+	})
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+		return fake
+	}
+	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	codexCommand = "completed-cmd"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	result := runCodexTaskWithContext(ctx, TaskSpec{Task: "ignored"}, nil, nil, false, false, 5)
+	if result.ExitCode != 0 || result.Message != "completed" {
+		t.Fatalf("completed process was reclassified by the later deadline: %+v", result)
+	}
+}
+
+func TestRunCodexTask_PreCancelledContextRemainsCancelled(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{
+			{Data: `{"type":"item.completed","item":{"type":"agent_message","text":"too-late"}}` + "\n"},
+		},
+	})
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner { return fake }
+	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	codexCommand = "cancelled-cmd"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := runCodexTaskWithContext(ctx, TaskSpec{Task: "ignored"}, nil, nil, false, false, 5)
+	if result.ExitCode != 130 {
+		t.Fatalf("pre-cancelled context returned %+v, want exit 130", result)
+	}
+}
+
+func TestRunCodexTask_ContextKilledProcessRemainsTimeout(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{KeepStdoutOpen: true, WaitErr: errors.New("killed after context deadline")})
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner { return fake }
+	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
+	codexCommand = "timeout-cmd"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	result := runCodexTaskWithContext(ctx, TaskSpec{Task: "ignored"}, nil, nil, false, false, 5)
+	if result.ExitCode != 124 {
+		t.Fatalf("context-killed process returned %+v, want exit 124", result)
 	}
 }
 
@@ -836,6 +949,8 @@ func TestRunCodexTask_ParseStall(t *testing.T) {
 }
 
 func TestRunCodexTask_ContextTimeout(t *testing.T) {
+	skipOnWindows(t, "Unix signal semantics test")
+
 	defer resetTestHooks()
 	forceKillDelay.Store(0)
 
@@ -903,6 +1018,7 @@ func TestRunCodexTask_ForcesStopAfterCompletion(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping timing-sensitive integration test in short mode")
 	}
+	skipOnWindows(t, "relies on Unix process termination timing")
 	defer resetTestHooks()
 	forceKillDelay.Store(0)
 
@@ -942,6 +1058,7 @@ func TestRunCodexTask_DoesNotTerminateBeforeThreadCompleted(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping timing-sensitive integration test in short mode")
 	}
+	skipOnWindows(t, "relies on Unix process termination timing")
 	defer resetTestHooks()
 	forceKillDelay.Store(0)
 
@@ -1551,7 +1668,7 @@ func TestBackendBuildArgs_ClaudeBackend(t *testing.T) {
 	backend := ClaudeBackend{}
 	cfg := &Config{Mode: "new", WorkDir: defaultWorkdir}
 	got := backend.BuildArgs(cfg, "todo")
-	want := []string{"-p", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "todo"}
+	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "todo"}
 	if len(got) != len(want) {
 		t.Fatalf("args length=%d, want %d: %v", len(got), len(want), got)
 	}
@@ -1572,7 +1689,7 @@ func TestClaudeBackendBuildArgs_OutputValidation(t *testing.T) {
 	target := "ensure-flags"
 
 	args := backend.BuildArgs(cfg, target)
-	want := []string{"-p", "--setting-sources", "", "--output-format", "stream-json", "--verbose", target}
+	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", target}
 	if len(args) != len(want) {
 		t.Fatalf("args length=%d, want %d: %v", len(args), len(want), args)
 	}
@@ -2175,7 +2292,16 @@ func TestBackendPrintHelp(t *testing.T) {
 	io.Copy(&buf, r)
 	output := buf.String()
 
-	expected := []string{"codeagent-wrapper", "Usage:", "resume", "CODEX_TIMEOUT", "Exit Codes:"}
+	expected := []string{
+		"codeagent-wrapper",
+		"Usage:",
+		"resume",
+		"antigravity",
+		"grok",
+		"--grok-model",
+		"CODEX_TIMEOUT",
+		"Exit Codes:",
+	}
 	for _, phrase := range expected {
 		if !strings.Contains(output, phrase) {
 			t.Errorf("printHelp() missing phrase %q", phrase)
@@ -2252,6 +2378,8 @@ func TestRunCodexTask_CommandNotFound(t *testing.T) {
 }
 
 func TestRunCodexTask_StartError(t *testing.T) {
+	skipOnWindows(t, "Unix process start error semantics test")
+
 	defer resetTestHooks()
 	tmpFile, err := os.CreateTemp("", "start-error")
 	if err != nil {
@@ -2269,6 +2397,8 @@ func TestRunCodexTask_StartError(t *testing.T) {
 }
 
 func TestRunCodexTask_WithEcho(t *testing.T) {
+	skipOnWindows(t, "requires the POSIX echo executable")
+
 	defer resetTestHooks()
 	codexCommand = "echo"
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
@@ -2348,6 +2478,8 @@ func TestRunCodexTaskFn_InvalidBackend(t *testing.T) {
 }
 
 func TestRunCodexTask_LogPathWithActiveLogger(t *testing.T) {
+	skipOnWindows(t, "requires the POSIX echo executable")
+
 	defer resetTestHooks()
 
 	logger, err := NewLoggerWithSuffix("active-logpath")
@@ -2425,6 +2557,8 @@ func TestRunCodexTask_LogPathOnStartError(t *testing.T) {
 }
 
 func TestRunCodexTask_NoMessage(t *testing.T) {
+	skipOnWindows(t, "requires the POSIX echo executable")
+
 	defer resetTestHooks()
 	codexCommand = "echo"
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
@@ -2436,6 +2570,8 @@ func TestRunCodexTask_NoMessage(t *testing.T) {
 }
 
 func TestRunCodexTask_WithStdin(t *testing.T) {
+	skipOnWindows(t, "requires the POSIX cat executable")
+
 	defer resetTestHooks()
 	codexCommand = "cat"
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{} }
@@ -2447,6 +2583,8 @@ func TestRunCodexTask_WithStdin(t *testing.T) {
 }
 
 func TestRunCodexProcess_WithStdin(t *testing.T) {
+	skipOnWindows(t, "requires the POSIX cat executable")
+
 	defer resetTestHooks()
 	codexCommand = "cat"
 	jsonOutput := `{"type":"thread.started","thread_id":"proc"}`
@@ -2501,6 +2639,8 @@ func TestRunCodexTask_StdoutPipeError(t *testing.T) {
 }
 
 func TestRunCodexTask_Timeout(t *testing.T) {
+	skipOnWindows(t, "requires the POSIX sleep executable")
+
 	defer resetTestHooks()
 	codexCommand = "sleep"
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{"2"} }
@@ -2511,6 +2651,10 @@ func TestRunCodexTask_Timeout(t *testing.T) {
 }
 
 func TestRunCodexTask_SignalHandling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix signal delivery test")
+	}
+
 	defer resetTestHooks()
 	codexCommand = "sleep"
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{"5"} }
@@ -2519,7 +2663,13 @@ func TestRunCodexTask_SignalHandling(t *testing.T) {
 	go func() { resultCh <- runCodexTask(TaskSpec{Task: "ignored"}, false, 5) }()
 
 	time.Sleep(200 * time.Millisecond)
-	syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	proc, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("find current process: %v", err)
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal current process: %v", err)
+	}
 
 	res := <-resultCh
 	signal.Reset(syscall.SIGINT, syscall.SIGTERM)
@@ -2560,6 +2710,8 @@ func TestCancelReason(t *testing.T) {
 }
 
 func TestRunCodexProcess(t *testing.T) {
+	skipOnWindows(t, "requires POSIX process fixtures")
+
 	defer resetTestHooks()
 	script := createFakeCodexScript(t, "proc-thread", "proc-msg")
 	codexCommand = script
@@ -2577,6 +2729,8 @@ func TestRunCodexProcess(t *testing.T) {
 }
 
 func TestRunSilentMode(t *testing.T) {
+	skipOnWindows(t, "requires POSIX process fixtures")
+
 	defer resetTestHooks()
 	jsonOutput := `{"type":"thread.started","thread_id":"silent-session"}
 {"type":"item.completed","item":{"type":"agent_message","text":"quiet"}}`
@@ -2932,6 +3086,42 @@ do two`)
 	}
 }
 
+func TestParallelGrokModelPropagation(t *testing.T) {
+	defer resetTestHooks()
+	cleanupLogsFn = func() (CleanupStats, error) { return CleanupStats{}, nil }
+
+	var mu sync.Mutex
+	var seen TaskSpec
+	runCodexTaskFn = func(task TaskSpec, timeout int) TaskResult {
+		mu.Lock()
+		seen = task
+		mu.Unlock()
+		return TaskResult{TaskID: task.ID, ExitCode: 0, Message: "ok"}
+	}
+
+	stdinReader = strings.NewReader(`---TASK---
+id: grok-task
+---CONTENT---
+do one`)
+	os.Args = []string{
+		"codeagent-wrapper",
+		"--parallel",
+		"--backend", "grok",
+		"--grok-model", "grok-composer-2.5-fast",
+	}
+
+	if code := run(); code != 0 {
+		t.Fatalf("run exit = %d, want 0", code)
+	}
+
+	mu.Lock()
+	got := seen
+	mu.Unlock()
+	if got.GrokModel != "grok-composer-2.5-fast" {
+		t.Fatalf("parallel task GrokModel = %q, want grok-composer-2.5-fast", got.GrokModel)
+	}
+}
+
 func TestParallelFlag(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
@@ -3052,7 +3242,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.10.0\n"
+	want := "codeagent-wrapper version 5.12.2\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3068,7 +3258,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.10.0\n"
+	want := "codeagent-wrapper version 5.12.2\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3084,7 +3274,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.10.0\n"
+	want := "codex-wrapper version 5.12.2\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3546,6 +3736,8 @@ func TestRun_ExplicitStdinEmpty(t *testing.T) {
 }
 
 func TestRun_ExplicitStdinReadError(t *testing.T) {
+	skipOnWindows(t, "requires POSIX logger/process fixtures")
+
 	defer resetTestHooks()
 	tempDir := t.TempDir()
 	t.Setenv("TMPDIR", tempDir)
@@ -3600,6 +3792,8 @@ func TestRun_InvalidBackend(t *testing.T) {
 }
 
 func TestRun_SuccessfulExecution(t *testing.T) {
+	skipOnWindows(t, "uses an executable shell-script fixture")
+
 	defer resetTestHooks()
 	stdout := captureStdoutPipe()
 
@@ -3622,6 +3816,8 @@ func TestRun_SuccessfulExecution(t *testing.T) {
 }
 
 func TestRun_ExplicitStdinSuccess(t *testing.T) {
+	skipOnWindows(t, "uses an executable shell-script fixture")
+
 	defer resetTestHooks()
 	stdout := captureStdoutPipe()
 
@@ -3643,6 +3839,8 @@ func TestRun_ExplicitStdinSuccess(t *testing.T) {
 }
 
 func TestRun_PipedTaskReadError(t *testing.T) {
+	skipOnWindows(t, "requires POSIX logger/process fixtures")
+
 	defer resetTestHooks()
 	tempDir := t.TempDir()
 	t.Setenv("TMPDIR", tempDir)
@@ -3676,6 +3874,8 @@ func TestRun_PipedTaskReadError(t *testing.T) {
 }
 
 func TestRun_PipedTaskSuccess(t *testing.T) {
+	skipOnWindows(t, "uses an executable shell-script fixture")
+
 	defer resetTestHooks()
 	stdout := captureStdoutPipe()
 
@@ -3697,6 +3897,8 @@ func TestRun_PipedTaskSuccess(t *testing.T) {
 }
 
 func TestRun_LoggerLifecycle(t *testing.T) {
+	skipOnWindows(t, "uses an executable shell-script fixture")
+
 	defer resetTestHooks()
 	tempDir := t.TempDir()
 	t.Setenv("TMPDIR", tempDir)
@@ -3732,6 +3934,10 @@ func TestRun_LoggerLifecycle(t *testing.T) {
 }
 
 func TestRun_LoggerRemovedOnSignal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix shell and signal delivery test")
+	}
+
 	// Skip in CI due to unreliable signal delivery in containerized environments
 	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
 		t.Skip("Skipping signal test in CI environment")
@@ -3773,7 +3979,13 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"l
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+	proc, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("find current process: %v", err)
+	}
+	if err := proc.Signal(syscall.SIGINT); err != nil {
+		t.Fatalf("signal current process: %v", err)
+	}
 
 	var exitCode int
 	select {
@@ -3792,6 +4004,8 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"l
 }
 
 func TestRun_CleanupHookAlwaysCalled(t *testing.T) {
+	skipOnWindows(t, "requires the POSIX echo executable")
+
 	defer resetTestHooks()
 	called := false
 	cleanupHook = func() { called = true }
@@ -3838,6 +4052,8 @@ func TestBackendStartupCleanupErrorLogged(t *testing.T) {
 }
 
 func TestRun_CleanupFailureDoesNotBlock(t *testing.T) {
+	skipOnWindows(t, "uses an executable shell-script fixture")
+
 	defer resetTestHooks()
 	stdout := captureStdoutPipe()
 	defer restoreStdoutPipe(stdout)
@@ -4059,6 +4275,8 @@ func TestRunForwardSignals(t *testing.T) {
 
 // Backend-focused coverage suite to ensure run() paths stay exercised under the focused pattern.
 func TestBackendRunCoverage(t *testing.T) {
+	skipOnWindows(t, "aggregates POSIX process-fixture tests")
+
 	suite := []struct {
 		name string
 		fn   func(*testing.T)
@@ -4091,6 +4309,8 @@ func TestBackendRunCoverage(t *testing.T) {
 }
 
 func TestParallelLogPathInSerialMode(t *testing.T) {
+	skipOnWindows(t, "requires POSIX process fixtures")
+
 	defer resetTestHooks()
 
 	tempDir := t.TempDir()
@@ -4234,6 +4454,8 @@ func TestRealCmdProcess(t *testing.T) {
 }
 
 func TestRun_CLI_Success(t *testing.T) {
+	skipOnWindows(t, "requires POSIX process fixtures")
+
 	defer resetTestHooks()
 	os.Args = []string{"codeagent-wrapper", "do-things"}
 	stdinReader = strings.NewReader("")

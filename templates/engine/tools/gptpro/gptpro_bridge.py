@@ -40,6 +40,8 @@ BOUNDARIES = (
 )
 GEMINI_POLICIES = ("required", "optional", "none")
 GEMINI_EVIDENCE_ROLES = ("gate", "frontend-prototype", "frontend-review")
+EXTERNAL_INTELLIGENCE_PROVIDER = "grok"
+EXTERNAL_INTELLIGENCE_ROLE = "external-intelligence"
 CLAUDE_EVIDENCE_STATUSES = ("automatic", "manual_handoff", "skipped_by_user", "blocked")
 CLAUDE_EVIDENCE_REQUIRED_STATUSES = {"automatic", "manual_handoff"}
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
@@ -57,10 +59,26 @@ def slugify(value: str) -> str:
     return slug or "gptpro-bridge"
 
 
+def resolve_workdir(value: str) -> Path:
+    if CONTROL_CHAR_PATTERN.search(value):
+        raise ValueError("--workdir contains control characters")
+    try:
+        resolved = Path(value).expanduser().resolve(strict=True)
+    except OSError as error:
+        raise ValueError(f"--workdir does not exist or cannot be resolved: {value}") from error
+    if not resolved.is_dir():
+        raise ValueError(f"--workdir must be a directory: {resolved}")
+    return resolved
+
+
 def resolve_output_root(workdir: Path, output_root: Path) -> Path:
-    if output_root.is_absolute():
-        return output_root
-    return workdir / output_root
+    candidate = output_root.expanduser()
+    resolved = (candidate if candidate.is_absolute() else workdir / candidate).resolve()
+    try:
+        resolved.relative_to(workdir.resolve())
+    except ValueError:
+        raise ValueError(f"--output-root must stay inside --workdir: {resolved}") from None
+    return resolved
 
 
 def find_active_task_dir(workdir: Path) -> Path | None:
@@ -93,6 +111,9 @@ def resolve_task_dir(workdir: Path, task_dir: str = "", task_id: str = "") -> Pa
         candidate = find_active_task_dir(workdir)
     if candidate is None:
         return None
+    tasks_root = (workdir / ".ccg" / "tasks").resolve()
+    if candidate.parent != tasks_root:
+        raise ValueError(f"CCG task directory must be a direct child of {tasks_root}: {candidate}")
     if not (candidate / "task.json").exists():
         raise ValueError(f"CCG task directory is missing task.json: {candidate}")
     return candidate
@@ -111,7 +132,10 @@ def default_evidence_file(task_dir: Path | None, evidence_file: str = "") -> Pat
         path = Path(evidence_file).expanduser()
         if not path.is_absolute() and task_dir is not None:
             path = task_dir / path
-        return path.resolve()
+        resolved = path.resolve()
+        if task_dir is not None:
+            ensure_within_dir(resolved, task_dir, "Canonical evidence file")
+        return resolved
     if task_dir is None:
         return None
     return (task_dir / "evidence.json").resolve()
@@ -130,13 +154,121 @@ def task_project_root(task_dir: Path) -> Path:
 
 def resolve_evidence_artifact(task_dir: Path, artifact_file: str) -> Path:
     if not artifact_file:
-        raise ValueError("Canonical Gemini gate evidence is missing artifactFile.")
+        raise ValueError("Canonical evidence is missing an artifact path.")
     candidate = Path(artifact_file).expanduser()
     if candidate.is_absolute():
-        return candidate.resolve()
-    if artifact_file.replace("\\", "/").startswith(".ccg/"):
-        return (task_project_root(task_dir) / candidate).resolve()
-    return (task_dir / candidate).resolve()
+        resolved = candidate.resolve()
+    elif artifact_file.replace("\\", "/").startswith((".ccg/", ".codex/")):
+        resolved = (task_project_root(task_dir) / candidate).resolve()
+    else:
+        resolved = (task_dir / candidate).resolve()
+    ensure_within_dir(resolved, task_project_root(task_dir), "Canonical evidence artifact")
+    return resolved
+
+
+def read_canonical_evidence(evidence_file: Path) -> dict[str, Any]:
+    if not evidence_file.exists():
+        raise ValueError(f"Canonical evidence file not found: {evidence_file}")
+    try:
+        evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Canonical evidence file is malformed: {evidence_file}") from error
+    if not isinstance(evidence.get("items"), list):
+        raise ValueError(f"Canonical evidence file has no items array: {evidence_file}")
+    return evidence
+
+
+def concise_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def concise_string_list(value: Any, *, limit: int = 12, item_chars: int = 240) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [concise_text(item, item_chars) for item in value[:limit] if concise_text(item, item_chars)]
+
+
+def validate_canonical_evidence_item(
+    *,
+    task_dir: Path,
+    evidence_file: Path,
+    provider: str,
+    role: str,
+    policy: str,
+    expected_artifact: Path | None = None,
+    require_manifest: bool = False,
+    artifact_scope: Path | None = None,
+) -> dict[str, Any]:
+    evidence = read_canonical_evidence(evidence_file)
+    candidates = [
+        item for item in evidence.get("items") or []
+        if item.get("provider") == provider
+        and item.get("role") == role
+        and item.get("policy") == policy
+        and item.get("available") is True
+    ]
+    if not candidates:
+        raise ValueError(f"Canonical evidence.json is missing required {provider}/{role} evidence.")
+
+    failures: list[str] = []
+    for item in candidates:
+        item_id = str(item.get("id") or "<unknown>")
+        try:
+            artifact_path = resolve_evidence_artifact(task_dir, str(item.get("artifactFile") or ""))
+            if artifact_scope is not None:
+                ensure_within_dir(artifact_path, artifact_scope, f"{provider}/{role} evidence artifact")
+            if expected_artifact is not None and artifact_path != expected_artifact.resolve():
+                raise ValueError(f"candidate {item_id} points to {artifact_path}, not {expected_artifact.resolve()}")
+            if not artifact_path.exists():
+                raise ValueError(f"Canonical evidence artifact not found: {artifact_path}")
+            artifact_bytes = artifact_path.read_bytes()
+            if not artifact_bytes:
+                raise ValueError(f"Canonical evidence artifact is empty: {artifact_path}")
+            artifact_hash = hashlib.sha256(artifact_bytes).hexdigest()
+            expected_hash = str(item.get("artifactSha256") or "")
+            if not expected_hash or artifact_hash != expected_hash:
+                raise ValueError(f"Canonical evidence hash mismatch for {artifact_path}")
+
+            manifest_value = str(item.get("manifestFile") or "")
+            manifest_hash = str(item.get("manifestSha256") or "")
+            manifest_path: Path | None = None
+            manifest: dict[str, Any] | None = None
+            if require_manifest or manifest_value or manifest_hash:
+                if not manifest_value or not manifest_hash:
+                    raise ValueError(f"Canonical evidence item {item_id} is missing manifest provenance")
+                manifest_path = resolve_evidence_artifact(task_dir, manifest_value)
+                if not manifest_path.exists():
+                    raise ValueError(f"Canonical evidence manifest not found: {manifest_path}")
+                manifest_bytes = manifest_path.read_bytes()
+                if hashlib.sha256(manifest_bytes).hexdigest() != manifest_hash:
+                    raise ValueError(f"Canonical evidence manifest hash mismatch for {manifest_path}")
+                try:
+                    manifest = json.loads(manifest_bytes)
+                except json.JSONDecodeError as error:
+                    raise ValueError(f"Canonical evidence manifest is malformed: {manifest_path}") from error
+                manifest_artifact = (manifest.get("files") or {}).get(artifact_path.name) or {}
+                manifest_mismatch = (
+                    manifest_artifact.get("sha256") != artifact_hash
+                    or manifest_artifact.get("bytes") != len(artifact_bytes)
+                )
+                if manifest_mismatch:
+                    raise ValueError("Canonical evidence manifest does not bind the artifact bytes")
+            return {
+                "item": dict(item),
+                "artifact_path": artifact_path,
+                "artifact_bytes": artifact_bytes,
+                "artifact_sha256": artifact_hash,
+                "manifest_path": manifest_path,
+                "manifest": manifest,
+                "manifest_sha256": manifest_hash,
+            }
+        except (ValueError, OSError) as error:
+            failures.append(str(error))
+    detail = "; ".join(failures[:3]) if failures else "no candidate validated"
+    raise ValueError(f"Canonical {provider}/{role} evidence did not validate: {detail}")
 
 
 def validate_required_gemini_gate(
@@ -150,11 +282,6 @@ def validate_required_gemini_gate(
     evidence_file = evidence_file.resolve()
     if not evidence_file.exists():
         raise ValueError(f"Canonical Gemini gate evidence file not found: {evidence_file}")
-    try:
-        evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise ValueError(f"Canonical Gemini gate evidence file is malformed: {evidence_file}") from error
-
     response_path = response_file.resolve()
     ensure_within_dir(response_path, task_dir, "Gemini gate response artifact")
     if not response_path.exists():
@@ -162,53 +289,302 @@ def validate_required_gemini_gate(
     response_bytes = response_path.read_bytes()
     if not response_bytes:
         raise ValueError(f"Gemini gate response artifact is empty: {response_path}")
-    response_hash = hashlib.sha256(response_bytes).hexdigest()
+    validated = validate_canonical_evidence_item(
+        task_dir=task_dir,
+        evidence_file=evidence_file,
+        provider="gemini",
+        role="gate",
+        policy="required",
+        expected_artifact=response_path,
+        artifact_scope=task_dir,
+    )
+    if validated["artifact_sha256"] != hashlib.sha256(response_bytes).hexdigest():
+        raise ValueError("Gemini gate response file does not match canonical evidence hash.")
+    return dict(validated["item"])
 
-    candidates = []
-    for item in evidence.get("items") or []:
-        if (
-            item.get("provider") == "gemini"
-            and item.get("role") == "gate"
-            and item.get("policy") == "required"
-            and item.get("available") is True
-        ):
-            candidates.append(item)
-    if not candidates:
-        raise ValueError("Canonical evidence.json is missing required gemini/gate evidence.")
 
-    failures: list[str] = []
-    for item in candidates:
+def _parse_exact_utc(value: Any, label: str) -> datetime:
+    text = str(value or "")
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"Canonical Grok {label} is not an ISO timestamp") from error
+    if parsed.tzinfo is None:
+        raise ValueError(f"Canonical Grok {label} must include a UTC offset")
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_grok_bindings(project_root: Path, bindings: Any) -> list[dict[str, Any]]:
+    if not isinstance(bindings, list):
+        raise ValueError("Canonical Grok manifest bindings must be an array")
+    validated: list[dict[str, Any]] = []
+    for binding in bindings:
+        if not isinstance(binding, dict):
+            raise ValueError("Canonical Grok binding is malformed")
+        relative_path = str(binding.get("path") or "")
+        expected_hash = str(binding.get("sha256") or "")
+        if not relative_path or not re.fullmatch(r"[a-f0-9]{64}", expected_hash):
+            raise ValueError("Canonical Grok binding path or sha256 is malformed")
+        bound_path = (project_root / relative_path).resolve()
+        ensure_within_dir(bound_path, project_root, "Grok bound input")
         try:
-            artifact_path = resolve_evidence_artifact(task_dir, str(item.get("artifactFile") or ""))
-            ensure_within_dir(artifact_path, task_dir, "Gemini gate evidence artifact")
-        except ValueError as error:
-            failures.append(str(error))
-            continue
-        if artifact_path != response_path:
-            failures.append(f"candidate {item.get('id') or '<unknown>'} points to {artifact_path}, not {response_path}")
-            continue
-        if not artifact_path.exists():
-            failures.append(f"Gemini gate evidence artifact not found: {artifact_path}")
-            continue
-        artifact_bytes = artifact_path.read_bytes()
-        if not artifact_bytes:
-            failures.append(f"Gemini gate evidence artifact is empty: {artifact_path}")
-            continue
-        artifact_hash = hashlib.sha256(artifact_bytes).hexdigest()
-        expected_hash = str(item.get("artifactSha256") or "")
-        if not expected_hash:
-            failures.append(f"Gemini gate evidence item {item.get('id') or '<unknown>'} is missing artifactSha256.")
-            continue
-        if artifact_hash != expected_hash:
-            failures.append(f"Gemini gate evidence hash mismatch for {artifact_path}.")
-            continue
-        if artifact_hash != response_hash:
-            failures.append("Gemini gate response file does not match canonical evidence hash.")
-            continue
-        return dict(item)
+            bound_bytes = bound_path.read_bytes()
+        except OSError as error:
+            raise ValueError(f"Canonical Grok binding is unavailable: {relative_path}") from error
+        if hashlib.sha256(bound_bytes).hexdigest() != expected_hash:
+            raise ValueError(f"Canonical Grok binding digest drift: {relative_path}")
+        if binding.get("bytes") != len(bound_bytes):
+            raise ValueError(f"Canonical Grok binding byte count drift: {relative_path}")
+        validated.append(dict(binding))
+    return validated
 
-    detail = "; ".join(failures[:3]) if failures else "no candidate matched the response file"
-    raise ValueError(f"Canonical Gemini gate evidence did not validate: {detail}")
+
+def validate_required_external_intelligence(
+    *,
+    task_dir: Path,
+    evidence_file: Path | None,
+    expected_action: str = "intel",
+    expected_mode: str,
+    expected_depth: str,
+) -> dict[str, Any]:
+    evidence_path = (evidence_file or (task_dir / "evidence.json")).resolve()
+    validated = validate_canonical_evidence_item(
+        task_dir=task_dir,
+        evidence_file=evidence_path,
+        provider=EXTERNAL_INTELLIGENCE_PROVIDER,
+        role=EXTERNAL_INTELLIGENCE_ROLE,
+        policy="required",
+        require_manifest=True,
+        artifact_scope=task_project_root(task_dir),
+    )
+    try:
+        artifact = json.loads(validated["artifact_bytes"])
+    except json.JSONDecodeError as error:
+        raise ValueError("Canonical Grok evidence artifact is malformed") from error
+    decision = artifact.get("decision") or {}
+    if decision.get("requirement") != "required" or decision.get("status") not in {"valid", "waived"}:
+        raise ValueError("Canonical Grok evidence decision is not a valid required gate")
+    action = str(decision.get("action") or "")
+    if action != expected_action:
+        raise ValueError(f"Canonical Grok evidence action does not match the {expected_action} handoff")
+    mode = str(decision.get("investigation_mode") or decision.get("mode") or "")
+    if mode not in {"discover", "contract", "incident", "landscape"} or decision.get("mode") != mode:
+        raise ValueError("Canonical Grok evidence decision has an invalid investigation mode")
+    if mode != expected_mode:
+        raise ValueError(f"Canonical Grok evidence investigation mode does not match the {expected_mode} handoff")
+    depth = str(decision.get("depth") or "")
+    if depth not in {"normal", "deep"}:
+        raise ValueError("Canonical Grok evidence decision has an invalid depth")
+    if depth != expected_depth:
+        raise ValueError(f"Canonical Grok evidence depth does not match the {expected_depth} handoff")
+    waiver = decision.get("waiver")
+    if decision.get("status") == "waived":
+        if (
+            not isinstance(waiver, dict)
+            or waiver.get("actor") != "user"
+            or not str(waiver.get("reason") or "").strip()
+            or not str(waiver.get("created_at") or "").strip()
+        ):
+            raise ValueError("Waived Grok evidence requires explicit user waiver metadata")
+    elif waiver is not None:
+        raise ValueError("Valid Grok evidence must not carry waiver metadata")
+
+    manifest = validated.get("manifest") or {}
+    evidence_id = str(manifest.get("evidenceId") or "")
+    if not evidence_id:
+        raise ValueError("Canonical Grok manifest is missing evidenceId")
+    item = validated["item"]
+    for key, expected in {
+        "action": action,
+        "investigationMode": mode,
+        "depth": depth,
+        "packageStatus": decision.get("package_status"),
+        "verificationOutcome": decision.get("verification_outcome"),
+    }.items():
+        if item.get(key) != expected:
+            label = "verification outcome" if key == "verificationOutcome" else key
+            raise ValueError(f"Canonical Grok evidence item {label} drift")
+    if item.get("localOnly") is not True or item.get("exported") is not False:
+        raise ValueError("Canonical Grok evidence must remain local-only and unexported")
+    if manifest.get("localOnly") is not True or manifest.get("exported") is not False:
+        raise ValueError("Canonical Grok manifest must remain local-only and unexported")
+    expected_policy = "disabled" if manifest.get("effective_x_policy") == "disabled" else manifest.get("effective_x_policy")
+    for key, expected in {
+        "action": action,
+        "investigation_mode": mode,
+        "depth": depth,
+        "requirement": "required",
+        "package_status": decision.get("package_status"),
+        "verification_outcome": decision.get("verification_outcome"),
+        "validation_outcome": decision.get("verification_outcome"),
+    }.items():
+        if manifest.get(key) != expected:
+            raise ValueError(f"Canonical Grok manifest {key} does not match the evidence decision")
+    if expected_policy not in {"required", "preferred", "disabled"}:
+        raise ValueError("Canonical Grok manifest has an invalid effective X policy")
+    for key in ("cli_version", "model"):
+        if not str(manifest.get(key) or "").strip():
+            raise ValueError(f"Canonical Grok manifest is missing {key}")
+    for key in ("prompt_sha256", "dirty_digest", "cache_fingerprint"):
+        if not re.fullmatch(r"[a-f0-9]{64}", str(manifest.get(key) or "")):
+            raise ValueError(f"Canonical Grok manifest has an invalid {key}")
+    if not str(manifest.get("git_head") or "").strip():
+        raise ValueError("Canonical Grok manifest is missing git_head")
+    if not isinstance(manifest.get("official_domains"), list):
+        raise ValueError("Canonical Grok manifest official_domains must be an array")
+    search_counts = manifest.get("search_counts")
+    if not isinstance(search_counts, dict) or any(not isinstance(search_counts.get(key), int) or search_counts[key] < 0 for key in ("web", "x")):
+        raise ValueError("Canonical Grok manifest search_counts are malformed")
+    if not isinstance(manifest.get("attempts"), int) or manifest["attempts"] < 1:
+        raise ValueError("Canonical Grok manifest attempts are malformed")
+    if not isinstance(manifest.get("cache_contract_versions"), dict) or not manifest["cache_contract_versions"]:
+        raise ValueError("Canonical Grok manifest cache contract versions are missing")
+    created_at = _parse_exact_utc(manifest.get("createdAt"), "manifest freshness timestamp")
+    decision_created_at = _parse_exact_utc(decision.get("created_at"), "decision timestamp")
+    if created_at != decision_created_at:
+        raise ValueError("Canonical Grok manifest and decision freshness timestamps drift")
+    ttl_seconds = 2 * 60 * 60 if action == "verify" else 30 * 60 if mode == "incident" else 72 * 60 * 60 if mode == "contract" else 7 * 24 * 60 * 60
+    age_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
+    if age_seconds < -5 * 60 or age_seconds > ttl_seconds:
+        raise ValueError("Canonical Grok evidence is stale or outside its freshness window")
+    artifact_path = validated["artifact_path"]
+    manifest_path = validated["manifest_path"]
+    bundle_mismatch = (
+        manifest_path is None
+        or artifact_path.parent != manifest_path.parent
+        or manifest_path.parent.name != evidence_id
+    )
+    if bundle_mismatch:
+        raise ValueError("Canonical Grok artifact and manifest do not share the evidenceId bundle directory")
+    task_file = task_dir / "task.json"
+    try:
+        task = json.loads(task_file.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as error:
+        raise ValueError("Active task.json is missing or malformed for Grok pointer validation") from error
+    pointer = task.get("intelligence") or task.get("external_intelligence") or {}
+    expected_pointer = {
+        "requirement": "required",
+        "status": decision.get("status"),
+        "action": action,
+        "investigation_mode": mode,
+        "depth": depth,
+        "package_status": decision.get("package_status"),
+        "verification_outcome": decision.get("verification_outcome"),
+        "evidence_id": evidence_id,
+        "manifest_file": str(item.get("manifestFile") or ""),
+        "manifest_sha256": validated["manifest_sha256"],
+        "localOnly": True,
+        "exported": False,
+    }
+    pointer_drift = [key for key, value in expected_pointer.items() if pointer.get(key) != value]
+    if pointer_drift:
+        raise ValueError(f"Canonical Grok task pointer drift: {', '.join(pointer_drift)}")
+    expected_item_id = f"grok-external-intelligence-{evidence_id}"
+    if item.get("id") != expected_item_id:
+        raise ValueError("Canonical Grok evidence item ID does not bind the active manifest evidenceId")
+
+    evidence_payload = artifact.get("evidence") or {}
+    if evidence_payload.get("action") != action or evidence_payload.get("investigation_mode") != mode or evidence_payload.get("depth") != depth:
+        raise ValueError("Canonical Grok evidence action, mode, or depth provenance drift")
+    if evidence_payload.get("effective_x_policy") != manifest.get("effective_x_policy"):
+        raise ValueError("Canonical Grok evidence X policy provenance drift")
+    if (evidence_payload.get("model") or {}).get("actual") != manifest.get("model"):
+        raise ValueError("Canonical Grok evidence model provenance drift")
+    manifest_bindings = _validate_grok_bindings(task_project_root(task_dir), manifest.get("bindings"))
+    if expected_action == "verify" and not any(
+        binding.get("kind") == "diff" and isinstance(binding.get("bytes"), int) and binding["bytes"] > 0
+        for binding in manifest_bindings
+    ):
+        raise ValueError("Canonical Grok verification evidence must bind a non-empty current diff")
+    if evidence_payload.get("bindings") != manifest_bindings:
+        raise ValueError("Canonical Grok evidence binding metadata drift")
+    registry_sources = {
+        str(source.get("id") or ""): source
+        for source in list((evidence_payload.get("registry") or {}).get("sources") or [])
+        if isinstance(source, dict)
+    }
+    qualifying_claim_ids: list[str] = []
+    all_claims_fully_verified = True
+    for claim in list(evidence_payload.get("claims") or []):
+        if not isinstance(claim, dict):
+            all_claims_fully_verified = False
+            continue
+        status = str(claim.get("status") or "")
+        reputable = any(
+            str(registry_sources.get(str(source_id), {}).get("source_tier") or "") in {"A", "B"}
+            for source_id in list(claim.get("source_ids") or [])
+        )
+        applicable = claim.get("observed_applicability") is True or bool(concise_string_list(claim.get("applies_to")))
+        qualifies = status in {"verified", "partially_verified"} and reputable and applicable
+        if qualifies:
+            qualifying_claim_ids.append(str(claim.get("id") or ""))
+        if status != "verified" or not qualifies:
+            all_claims_fully_verified = False
+    recomputed_outcome = "verified" if qualifying_claim_ids and all_claims_fully_verified else "partially_verified" if qualifying_claim_ids else "contradicted" if any(isinstance(claim, dict) and claim.get("status") == "contradicted" for claim in list(evidence_payload.get("claims") or [])) else "unresolved"
+    if decision.get("status") == "valid":
+        if decision.get("package_status") != "valid":
+            raise ValueError("Canonical Grok evidence package status is not valid")
+        if recomputed_outcome not in {"verified", "partially_verified"} or not qualifying_claim_ids:
+            raise ValueError("Canonical Grok evidence has no qualifying verification outcome")
+        if decision.get("verification_outcome") != recomputed_outcome:
+            raise ValueError("Canonical Grok verification outcome does not match independently evaluated claims")
+    claims = []
+    for claim in list(evidence_payload.get("claims") or [])[:12]:
+        if not isinstance(claim, dict):
+            continue
+        concise_claim = {}
+        for key, limit in {
+            "id": 160, "claim": 800, "status": 80, "severity": 80, "source_tier": 40,
+            "published_at": 80, "effective_at": 80, "retrieved_at": 80, "required_action": 600,
+        }.items():
+            value = concise_text(claim.get(key), limit)
+            if value:
+                concise_claim[key] = value
+        for key in ("source_ids", "sources", "applies_to", "repo_impact"):
+            values = concise_string_list(claim.get(key))
+            if values:
+                concise_claim[key] = values
+        if isinstance(claim.get("cross_verified"), bool):
+            concise_claim["cross_verified"] = claim["cross_verified"]
+        claims.append(concise_claim)
+    sources = []
+    registry = evidence_payload.get("registry") or {}
+    for source in list(registry.get("sources") or [])[:20]:
+        if not isinstance(source, dict):
+            continue
+        concise_source = {}
+        for key, limit in {
+            "id": 160, "canonical_url": 600, "title": 300, "publisher": 200, "tool": 80,
+            "source_tier": 40, "retrieved_at": 80, "published_at": 80, "evidence_note": 500,
+        }.items():
+            value = concise_text(source.get(key), limit)
+            if value:
+                concise_source[key] = value
+        if isinstance(source.get("official"), bool):
+            concise_source["official"] = source["official"]
+        sources.append(concise_source)
+    return {
+        "required": True,
+        "available": True,
+        "provider": EXTERNAL_INTELLIGENCE_PROVIDER,
+        "role": EXTERNAL_INTELLIGENCE_ROLE,
+        "evidence_id": evidence_id,
+        "mode": mode,
+        "action": action,
+        "depth": depth,
+        "package_status": decision.get("package_status"),
+        "verification_outcome": decision.get("verification_outcome"),
+        "requirement": "required",
+        "status": decision.get("status"),
+        "summary": concise_text(item.get("summary") or "Validated current external intelligence evidence.", 2000),
+        "claims": claims,
+        "sources": sources,
+        "artifact_file": str(item.get("artifactFile") or ""),
+        "artifact_sha256": validated["artifact_sha256"],
+        "manifest_file": str(item.get("manifestFile") or ""),
+        "manifest_sha256": validated["manifest_sha256"],
+        "waiver": waiver if decision.get("status") == "waived" else None,
+    }
 
 
 def header_hostname(value: str) -> str:
@@ -494,6 +870,39 @@ def compose_gemini_evidence(gemini_gate: dict[str, Any]) -> str:
     )
 
 
+def compose_external_intelligence(external_intelligence: dict[str, Any] | None) -> str:
+    evidence = external_intelligence or {}
+    if not evidence.get("available"):
+        return ""
+    waiver = evidence.get("waiver") or {}
+    waiver_lines = []
+    if evidence.get("status") == "waived":
+        waiver_lines = [
+            "",
+            "WARNING: The required Grok external-intelligence gate was explicitly waived by the user.",
+            f"Waiver reason: {waiver.get('reason') or ''}",
+            "Do not describe this gate as externally verified.",
+        ]
+    claims = json.dumps(evidence.get("claims") or [], ensure_ascii=False, separators=(",", ":"))
+    sources = json.dumps(evidence.get("sources") or [], ensure_ascii=False, separators=(",", ":"))
+    return "\n".join([
+        "## Validated Grok External Intelligence",
+        "",
+        f"Decision: {evidence.get('requirement') or ''}/{evidence.get('status') or ''}",
+        f"Mode: {evidence.get('mode') or ''}",
+        f"Evidence ID: {evidence.get('evidence_id') or ''}",
+        f"Evidence artifact: {evidence.get('artifact_file') or ''}",
+        f"Evidence SHA-256: {evidence.get('artifact_sha256') or ''}",
+        f"Manifest: {evidence.get('manifest_file') or ''}",
+        f"Manifest SHA-256: {evidence.get('manifest_sha256') or ''}",
+        "",
+        f"Validated summary: {evidence.get('summary') or ''}",
+        f"Validated claims: {claims}",
+        f"Validated source provenance: {sources}",
+        *waiver_lines,
+    ])
+
+
 def empty_routing_evidence(required: bool = False) -> dict[str, Any]:
     return {
         "required": bool(required),
@@ -714,6 +1123,7 @@ def compose_prompt(
     followup_reason: str | None,
     gemini_gate: dict[str, Any],
     routing_evidence: dict[str, Any],
+    external_intelligence: dict[str, Any] | None,
     project_context: dict[str, Any],
 ) -> str:
     sections = [read_template("base")]
@@ -729,6 +1139,9 @@ def compose_prompt(
     gemini_section = compose_gemini_evidence(gemini_gate)
     if gemini_section:
         sections.append(gemini_section)
+    intelligence_section = compose_external_intelligence(external_intelligence)
+    if intelligence_section:
+        sections.append(intelligence_section)
     sections.append("## CCG Input\n\n" + raw_prompt.strip())
     return "\n\n".join(section for section in sections if section).strip() + "\n"
 
@@ -896,6 +1309,8 @@ def create_session(
     routing_evidence: dict[str, Any] | None = None,
     require_routing_evidence: bool = False,
     require_claude_evidence: bool = False,
+    external_intelligence: dict[str, Any] | None = None,
+    require_external_intelligence: bool = False,
     project_context: dict[str, Any] | None = None,
 ) -> BridgeSession:
     if round_number > MANUAL_QUESTIONS_MAX:
@@ -940,6 +1355,9 @@ def create_session(
             if inherited_routing_evidence:
                 routing_evidence = dict(inherited_routing_evidence)
                 routing_evidence["inherited_from_round"] = 1
+        if external_intelligence is None and status.get("external_intelligence"):
+            external_intelligence = dict(status["external_intelligence"])
+            external_intelligence["inherited_from_round"] = 1
     else:
         slug_value = slugify(slug or prompt[:60])
         session_dir = ensure_unique_session_dir(output_root_path, mode, slug_value).resolve()
@@ -981,6 +1399,8 @@ def create_session(
                 "session creation."
             )
         validate_required_claude_evidence(routing_evidence)
+    if require_external_intelligence and not external_intelligence:
+        raise ValueError("Required Grok external intelligence must validate before GPT Pro bridge session creation.")
 
     round_name = f"round-{round_number}"
     round_dir = session_dir / round_name
@@ -993,7 +1413,16 @@ def create_session(
     for key in ("evidence_file", "summary_file"):
         prompt_routing_evidence[key] = display_file_value(str(prompt_routing_evidence.get(key) or ""), workdir_path)
     prompt_file.write_text(
-        compose_prompt(mode, prompt, round_number, followup_reason, prompt_gate, prompt_routing_evidence, project_context),
+        compose_prompt(
+            mode,
+            prompt,
+            round_number,
+            followup_reason,
+            prompt_gate,
+            prompt_routing_evidence,
+            external_intelligence,
+            project_context,
+        ),
         encoding="utf-8",
     )
     if not response_file.exists():
@@ -1043,6 +1472,7 @@ def create_session(
             "evidence_file": display_file_value(str(routing_evidence.get("evidence_file") or ""), workdir_path),
             "summary_file": display_file_value(str(routing_evidence.get("summary_file") or ""), workdir_path),
         },
+        "external_intelligence": external_intelligence or {},
     }
     if gemini_evidence.get("role") == "gate" and gemini_evidence.get("available"):
         new_status["gemini_gate"] = {
@@ -1141,7 +1571,9 @@ def append_gptpro_evidence(session: BridgeSession, status: dict[str, Any], respo
         if (existing.get("provider"), existing.get("sessionId"), existing.get("round")) != dedupe_key
     ]
     items.append(item)
-    items.sort(key=lambda entry: (str(entry.get("provider", "")), str(entry.get("role", "")), str(entry.get("id", ""))))
+    items.sort(key=lambda entry: (
+        str(entry.get("provider", "")), str(entry.get("role", "")), str(entry.get("id", "")),
+    ))
     evidence_file.write_text(
         json.dumps({"schemaVersion": 1, "items": items}, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -1410,6 +1842,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--routing-summary-file", default="")
     parser.add_argument("--require-routing-evidence", action="store_true")
     parser.add_argument("--require-claude-evidence", action="store_true")
+    parser.add_argument("--require-external-intelligence", action="store_true")
+    parser.add_argument("--expected-intelligence-mode", choices=["discover", "contract", "incident", "landscape"], default="")
+    parser.add_argument("--expected-intelligence-depth", choices=["normal", "deep"], default="")
     parser.add_argument("--repo-url", default="")
     parser.add_argument("--wait-response", action="store_true")
     parser.add_argument("--hold-seconds", type=int, default=0)
@@ -1535,7 +1970,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         raw_prompt = read_prompt(args.prompt, args.prompt_file)
-        workdir_path = Path(args.workdir).resolve()
+        workdir_path = resolve_workdir(args.workdir)
         task_dir = resolve_task_dir(workdir_path, args.task_dir, args.task_id)
         evidence_file = default_evidence_file(task_dir, args.evidence_file)
         output_root = default_output_root(workdir_path, task_dir, args.output_root)
@@ -1564,6 +1999,19 @@ def main(argv: list[str] | None = None) -> int:
                 args.routing_summary_file,
                 required=args.require_routing_evidence,
             )
+        external_intelligence = None
+        if args.require_external_intelligence:
+            if task_dir is None:
+                raise ValueError("Required Grok external intelligence needs an active CCG task directory.")
+            if not args.expected_intelligence_mode or not args.expected_intelligence_depth:
+                raise ValueError("Required Grok external intelligence needs explicit expected mode and depth.")
+            external_intelligence = validate_required_external_intelligence(
+                task_dir=task_dir,
+                evidence_file=evidence_file,
+                expected_action="verify" if args.mode == "review" else "intel",
+                expected_mode=args.expected_intelligence_mode,
+                expected_depth=args.expected_intelligence_depth,
+            )
         project_context = detect_project_context(args.workdir, args.repo_url)
         session = create_session(
             mode=args.mode,
@@ -1584,6 +2032,8 @@ def main(argv: list[str] | None = None) -> int:
             routing_evidence=routing_evidence,
             require_routing_evidence=args.require_routing_evidence,
             require_claude_evidence=args.require_claude_evidence,
+            external_intelligence=external_intelligence,
+            require_external_intelligence=args.require_external_intelligence,
             project_context=project_context,
         )
     except Exception as error:
