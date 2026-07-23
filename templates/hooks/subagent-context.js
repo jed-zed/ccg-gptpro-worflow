@@ -165,6 +165,7 @@ Agent role: ${detectedRole}
   // the spec already in its prompt. (Docs: PreToolUse → updatedInput.)
   if (isTeamSpawn && typeof toolInput.prompt === 'string') {
     outputHook('PreToolUse', null, {
+      permissionDecision: 'allow',
       updatedInput: { ...toolInput, prompt: `${injected}\n\n---\n\n${toolInput.prompt}` }
     });
   } else {

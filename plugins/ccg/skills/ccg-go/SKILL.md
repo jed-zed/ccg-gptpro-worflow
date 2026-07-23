@@ -9,6 +9,11 @@ Use `commands/go.md` as the authoritative routing contract for `/ccg:go`.
 
 ## Behavior
 
+Bootstrap contract: before invoking the route, create or reuse a safe `<task-id>`, create
+`.ccg/tasks/<task-id>/`, and write the original user request to
+`.ccg/tasks/<task-id>/intelligence-request.md` with a file-writing tool rather than shell interpolation.
+Reuse this same task id throughout `/ccg:go`, including S and git-action routes.
+
 - Before inspecting or routing ordinary work, write the bounded request to the active task directory
   and run `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow go --phase intake --task-file <request-file> --state-file <state-file>`.
   The controller must add `--semantic-mode contract|incident --semantic-reason <reason>` when its own

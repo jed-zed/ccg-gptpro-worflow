@@ -3086,6 +3086,42 @@ do two`)
 	}
 }
 
+func TestParallelGrokModelPropagation(t *testing.T) {
+	defer resetTestHooks()
+	cleanupLogsFn = func() (CleanupStats, error) { return CleanupStats{}, nil }
+
+	var mu sync.Mutex
+	var seen TaskSpec
+	runCodexTaskFn = func(task TaskSpec, timeout int) TaskResult {
+		mu.Lock()
+		seen = task
+		mu.Unlock()
+		return TaskResult{TaskID: task.ID, ExitCode: 0, Message: "ok"}
+	}
+
+	stdinReader = strings.NewReader(`---TASK---
+id: grok-task
+---CONTENT---
+do one`)
+	os.Args = []string{
+		"codeagent-wrapper",
+		"--parallel",
+		"--backend", "grok",
+		"--grok-model", "grok-composer-2.5-fast",
+	}
+
+	if code := run(); code != 0 {
+		t.Fatalf("run exit = %d, want 0", code)
+	}
+
+	mu.Lock()
+	got := seen
+	mu.Unlock()
+	if got.GrokModel != "grok-composer-2.5-fast" {
+		t.Fatalf("parallel task GrokModel = %q, want grok-composer-2.5-fast", got.GrokModel)
+	}
+}
+
 func TestParallelFlag(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()

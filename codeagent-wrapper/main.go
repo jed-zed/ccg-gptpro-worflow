@@ -196,10 +196,9 @@ func run() (exitCode int) {
 			backendName := defaultBackendName
 			fullOutput := false
 			progressFlag := false
+			parallelGeminiModel := strings.TrimSpace(os.Getenv("GEMINI_MODEL"))
+			parallelGrokModel := strings.TrimSpace(os.Getenv("GROK_MODEL"))
 			var extras []string
-
-			// Check for gemini-model in parallel mode
-			geminiModelInParallel := false
 
 			for i := 0; i < len(args); i++ {
 				arg := args[i]
@@ -228,25 +227,35 @@ func run() (exitCode int) {
 						return 1
 					}
 					backendName = value
-				case arg == "--gemini-model", arg == "--grok-model":
-					// Bare form carries its value in the next arg — consume it too,
-					// otherwise the value lands in extras and hard-fails the run.
-					geminiModelInParallel = true
-					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-						i++
+				case arg == "--gemini-model":
+					if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+						fmt.Fprintln(os.Stderr, "ERROR: --gemini-model flag requires a non-empty model name")
+						return 1
 					}
-					continue
-				case strings.HasPrefix(arg, "--gemini-model="), strings.HasPrefix(arg, "--grok-model="):
-					geminiModelInParallel = true
-					continue
+					parallelGeminiModel = strings.TrimSpace(args[i+1])
+					i++
+				case arg == "--grok-model":
+					if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+						fmt.Fprintln(os.Stderr, "ERROR: --grok-model flag requires a non-empty model name")
+						return 1
+					}
+					parallelGrokModel = strings.TrimSpace(args[i+1])
+					i++
+				case strings.HasPrefix(arg, "--gemini-model="):
+					parallelGeminiModel = strings.TrimSpace(strings.TrimPrefix(arg, "--gemini-model="))
+					if parallelGeminiModel == "" {
+						fmt.Fprintln(os.Stderr, "ERROR: --gemini-model flag requires a non-empty model name")
+						return 1
+					}
+				case strings.HasPrefix(arg, "--grok-model="):
+					parallelGrokModel = strings.TrimSpace(strings.TrimPrefix(arg, "--grok-model="))
+					if parallelGrokModel == "" {
+						fmt.Fprintln(os.Stderr, "ERROR: --grok-model flag requires a non-empty model name")
+						return 1
+					}
 				default:
 					extras = append(extras, arg)
 				}
-			}
-
-			// Warn about unsupported parameter
-			if geminiModelInParallel {
-				logWarn("--gemini-model/--grok-model parameters are not supported in parallel mode")
 			}
 
 			if len(extras) > 0 {
@@ -284,6 +293,8 @@ func run() (exitCode int) {
 					cfg.Tasks[i].Backend = backendName
 				}
 				cfg.Tasks[i].Progress = progressFlag
+				cfg.Tasks[i].GeminiModel = parallelGeminiModel
+				cfg.Tasks[i].GrokModel = parallelGrokModel
 				// Inject ROLE_FILE content if present
 				injectedTask, err := injectRoleFile(cfg.Tasks[i].Task)
 				if err != nil {

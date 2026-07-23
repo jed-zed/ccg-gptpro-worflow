@@ -359,6 +359,24 @@ describe('Grok workflow routing behavior', () => {
     }
   })
 
+  it('bootstraps the bounded /ccg:go request before invoking its external intelligence gate', () => {
+    const surfaces = [
+      'templates/commands/go.md',
+      'plugins/ccg/commands/go.md',
+      'plugins/ccg/skills/ccg-go/SKILL.md',
+    ]
+    for (const relativePath of surfaces) {
+      const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
+      const bootstrapIndex = content.indexOf('Bootstrap contract:')
+      const routeIndex = content.indexOf(routeCommand)
+      expect(bootstrapIndex, relativePath).toBeGreaterThanOrEqual(0)
+      expect(bootstrapIndex, relativePath).toBeLessThan(routeIndex)
+      expect(content.slice(bootstrapIndex, routeIndex), relativePath).toMatch(
+        /create or reuse[\s\S]*\.ccg\/tasks\/<task-id>\/[\s\S]*write the original user request[\s\S]*intelligence-request\.md/i,
+      )
+    }
+  })
+
   it('derives X policy by mode and lets landscape succeed without X evidence', () => {
     expect(resolveEffectiveXPolicy('preferred', 'incident')).toBe('required')
     expect(resolveEffectiveXPolicy('preferred', 'landscape')).toBe('preferred')

@@ -21,6 +21,11 @@ $ARGUMENTS
 即使用户没有说“搜索”，主编排器也必须先判断当前任务是否依赖最新外部事实。把原始请求写入
 活动任务目录下的 bounded UTF-8 文件，然后执行共享路由器；不要把请求文本插入 shell：
 
+Bootstrap contract: 在调用路由器之前，create or reuse 一个只含 `[a-z0-9-]` 的安全 `<task-id>`，
+先创建 `.ccg/tasks/<task-id>/`，再用文件写入工具 write the original user request 到
+`.ccg/tasks/<task-id>/intelligence-request.md`。即使任务稍后被判定为 S 或 git-action，也保留这两个
+有界的审计文件；后续阶段必须复用同一个 `<task-id>`，不得在路由后再生成第二个任务 ID。
+
 ```text
 node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow go --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"
 ```
@@ -145,8 +150,8 @@ exit code `2`, `3`, or `4` 必须停止后续工作，exit `0` 才能进入 Phas
 
 如果复杂度 ≥ M **且策略不是 git-action**，**必须先创建任务目录再加载策略**：
 
-**Step 1**: 生成任务名 — 用户请求核心词转 kebab-case（如 `add-oauth2-login`、`fix-api-timeout`）
-**Step 2**: 执行命令创建目录和文件：
+**Step 1**: 复用 Phase -1 已生成的安全 `<task-id>` 作为任务名，不得重新生成目录。
+**Step 2**: 确认同一目录仍然存在：
 
 ```bash
 mkdir -p .ccg/tasks/{task-name}
@@ -175,7 +180,8 @@ mkdir -p .ccg/tasks/{task-name}
 - 第一行写种子示例：`{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}`
 - 如果 `.ccg/spec/` 存在 → 追加 spec 文件条目
 
-**复杂度 S → 跳过任务创建**（保持轻量）。
+**复杂度 S 或 git-action → 跳过 `task.json` / `context.jsonl` 创建**（保持轻量），但不得删除
+Phase -1 已持久化的 `intelligence-request.md` 与 `intelligence-route.json`。
 
 **确认任务已创建后**，输出：
 ```
