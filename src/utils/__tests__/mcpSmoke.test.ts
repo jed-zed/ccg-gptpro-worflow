@@ -1,8 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createSecretBackedMcpConfig } from '../mcp-secrets'
 import { smokeMcpServer } from '../mcp-smoke'
 
 const successServer = String.raw`
@@ -148,12 +147,17 @@ describe('bounded opt-in MCP smoke', () => {
 
   it('redacts launcher-backed secrets loaded from the private specification', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'ccg launcher smoke '))
-    const previousHome = process.env.HOME
-    const previousProfile = process.env.USERPROFILE
     const secret = 'launcher-private-secret-value'
     try {
-      const config = await createSecretBackedMcpConfig({
-        homeDir,
+      const secretsDir = join(homeDir, '.claude', '.ccg', 'secrets')
+      const launcherDir = join(homeDir, '.claude', '.ccg', 'engine', 'tools')
+      const launcherPath = join(launcherDir, 'mcp-secret-launcher.mjs')
+      const secretPath = join(secretsDir, 'launcher-smoke.json')
+      await mkdir(secretsDir, { recursive: true, mode: 0o700 })
+      await mkdir(launcherDir, { recursive: true, mode: 0o700 })
+      await writeFile(launcherPath, '// smoke fixture\n', { mode: 0o700 })
+      await writeFile(secretPath, `${JSON.stringify({
+        schemaVersion: 1,
         serverId: 'launcher-smoke',
         command: process.execPath,
         args: [
@@ -161,13 +165,15 @@ describe('bounded opt-in MCP smoke', () => {
           'process.stderr.write(process.env.LAUNCHER_PRIVATE_KEY); process.exit(2)',
         ],
         env: { LAUNCHER_PRIVATE_KEY: secret },
-      })
-      process.env.HOME = homeDir
-      process.env.USERPROFILE = homeDir
+      }, null, 2)}\n`, { mode: 0o600 })
 
       const report = await smokeMcpServer(
         'launcher-backed',
-        config,
+        {
+          type: 'stdio',
+          command: 'node',
+          args: [launcherPath, secretPath],
+        },
         { timeoutMs: 8_000, secretHomeDir: homeDir },
       )
 
@@ -176,13 +182,9 @@ describe('bounded opt-in MCP smoke', () => {
       expect(report.error).toContain('[REDACTED]')
     }
     finally {
-      if (previousHome === undefined) delete process.env.HOME
-      else process.env.HOME = previousHome
-      if (previousProfile === undefined) delete process.env.USERPROFILE
-      else process.env.USERPROFILE = previousProfile
       await rm(homeDir, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 15_000)
 
   it('skips non-stdio transports without making a network request', async () => {
     const report = await smokeMcpServer('remote', {
