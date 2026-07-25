@@ -1,4 +1,8 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { createSecretBackedMcpConfig } from '../mcp-secrets'
 import { smokeMcpServer } from '../mcp-smoke'
 
 const successServer = String.raw`
@@ -115,6 +119,70 @@ describe('bounded opt-in MCP smoke', () => {
     expect(report.error).not.toContain(secret)
     expect(report.error).toContain('[REDACTED]')
   }, 15_000)
+
+  it('does not pass unrelated parent credentials to an MCP child', async () => {
+    const key = `CCG_UNRELATED_SECRET_${Date.now()}`
+    const secret = 'unrelated-parent-secret-value'
+    process.env[key] = secret
+    try {
+      const report = await smokeMcpServer(
+        'environment-isolation',
+        {
+          type: 'stdio',
+          command: process.execPath,
+          args: [
+            '-e',
+            `if (process.env.${key}) { process.stderr.write(process.env.${key}); process.exit(2) }\n${successServer}`,
+          ],
+        },
+        { timeoutMs: 8_000 },
+      )
+
+      expect(report.status).toBe('passed')
+      expect(JSON.stringify(report)).not.toContain(secret)
+    }
+    finally {
+      delete process.env[key]
+    }
+  }, 15_000)
+
+  it('redacts launcher-backed secrets loaded from the private specification', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'ccg launcher smoke '))
+    const previousHome = process.env.HOME
+    const previousProfile = process.env.USERPROFILE
+    const secret = 'launcher-private-secret-value'
+    try {
+      const config = await createSecretBackedMcpConfig({
+        homeDir,
+        serverId: 'launcher-smoke',
+        command: process.execPath,
+        args: [
+          '-e',
+          'process.stderr.write(process.env.LAUNCHER_PRIVATE_KEY); process.exit(2)',
+        ],
+        env: { LAUNCHER_PRIVATE_KEY: secret },
+      })
+      process.env.HOME = homeDir
+      process.env.USERPROFILE = homeDir
+
+      const report = await smokeMcpServer(
+        'launcher-backed',
+        config,
+        { timeoutMs: 8_000, secretHomeDir: homeDir },
+      )
+
+      expect(report.status).toBe('failed')
+      expect(report.error).not.toContain(secret)
+      expect(report.error).toContain('[REDACTED]')
+    }
+    finally {
+      if (previousHome === undefined) delete process.env.HOME
+      else process.env.HOME = previousHome
+      if (previousProfile === undefined) delete process.env.USERPROFILE
+      else process.env.USERPROFILE = previousProfile
+      await rm(homeDir, { recursive: true, force: true })
+    }
+  }, 30_000)
 
   it('skips non-stdio transports without making a network request', async () => {
     const report = await smokeMcpServer('remote', {
