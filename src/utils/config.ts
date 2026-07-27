@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { parse, stringify } from 'smol-toml'
 import { version as packageVersion } from '../../package.json'
+import { createDefaultRoleRouting, normalizeModelRouting } from './model-routing'
 
 // v1.4.0: 配置目录统一到 ~/.claude/.ccg/
 const CCG_DIR = join(homedir(), '.claude', '.ccg')
@@ -32,6 +33,7 @@ export async function readCcgConfigAt(configFile: string): Promise<CcgConfig | n
   const parsed = parse(content) as unknown as CcgConfig
   return {
     ...parsed,
+    routing: normalizeModelRouting(parsed.routing),
     intelligence: normalizeIntelligenceConfig(parsed.intelligence, { existingInstall: true }),
     product_manager: normalizeProductManagerConfig(parsed.product_manager, { existingInstall: true }),
   }
@@ -39,7 +41,10 @@ export async function readCcgConfigAt(configFile: string): Promise<CcgConfig | n
 
 export async function writeCcgConfig(config: CcgConfig): Promise<void> {
   await ensureCcgDir()
-  const content = stringify(config as any)
+  const content = stringify({
+    ...config,
+    routing: normalizeModelRouting(config.routing),
+  } as any)
   await fs.writeFile(CONFIG_FILE, content, 'utf-8')
 }
 
@@ -258,21 +263,5 @@ export function createDefaultConfig(options: {
 }
 
 export function createDefaultRouting(): ModelRouting {
-  return {
-    frontend: {
-      models: ['gemini'],
-      primary: 'gemini',
-      strategy: 'parallel',
-    },
-    backend: {
-      models: ['codex'],
-      primary: 'codex',
-      strategy: 'parallel',
-    },
-    review: {
-      models: ['codex', 'gemini'],
-      strategy: 'parallel',
-    },
-    mode: 'smart',
-  }
+  return createDefaultRoleRouting()
 }

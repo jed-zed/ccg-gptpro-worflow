@@ -831,24 +831,29 @@ export async function installCodexModeAt(
       planned.set(normalizedRelative(join('hooks', name)), bytes)
     }
     const configTemplate = await fs.readFile(join(templateDir, 'ccg-config.toml'))
-    if (options.productManagerProvider) {
-      const parsed = parse(configTemplate.toString('utf8')) as Record<string, any>
-      parsed.product_manager = {
-        ...parsed.product_manager,
-        enabled: options.productManagerProvider !== 'disabled',
-        provider: options.productManagerProvider === 'disabled'
-          ? ''
-          : options.productManagerProvider,
-      }
-      planned.set('ccg/config.toml', Buffer.from(stringify(parsed), 'utf8'))
-    }
-    else if (config?.product_manager) {
-      const parsed = parse(configTemplate.toString('utf8')) as Record<string, any>
-      parsed.product_manager = config.product_manager
-      planned.set('ccg/config.toml', Buffer.from(stringify(parsed), 'utf8'))
+    if (!config && !options.productManagerProvider) {
+      planned.set('ccg/config.toml', configTemplate)
     }
     else {
-      planned.set('ccg/config.toml', configTemplate)
+      const parsed = config
+        ? {
+            ...config,
+            general: {
+              ...config.general,
+              version: packageVersion,
+            },
+          } as Record<string, any>
+        : parse(configTemplate.toString('utf8')) as Record<string, any>
+      if (options.productManagerProvider) {
+        parsed.product_manager = {
+          ...parsed.product_manager,
+          enabled: options.productManagerProvider !== 'disabled',
+          provider: options.productManagerProvider === 'disabled'
+            ? ''
+            : options.productManagerProvider,
+        }
+      }
+      planned.set('ccg/config.toml', Buffer.from(stringify(parsed), 'utf8'))
     }
     planned.set('.ccg-version', Buffer.from(packageVersion, 'utf8'))
 
@@ -874,7 +879,8 @@ export async function installCodexModeAt(
       const prior = previousFiles.get(relativePath)
       let original = prior?.original
       if (prior) {
-        if (!current || sha256(current) !== prior.installedSha256)
+        const userEditableCcgConfig = relativePath === 'ccg/config.toml'
+        if (!userEditableCcgConfig && (!current || sha256(current) !== prior.installedSha256))
           throw new Error(`${relativePath} was modified after installation; refusing to overwrite it.`)
       }
       else if (current) {
