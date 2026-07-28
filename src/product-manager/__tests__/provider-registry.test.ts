@@ -69,6 +69,10 @@ describe('product-manager provider policy', () => {
     expect(claude.args).toContain('--disable-slash-commands')
     expect(claude.args.slice(claude.args.indexOf('--tools'), claude.args.indexOf('--tools') + 2)).toEqual(['--tools', ''])
     expect(claude.args).toContain('--strict-mcp-config')
+    expect(claude.args.slice(
+      claude.args.indexOf('--mcp-config'),
+      claude.args.indexOf('--mcp-config') + 2,
+    )).toEqual(['--mcp-config', '{"mcpServers":{}}'])
     expect(claude.args).toContain('--no-session-persistence')
     expect(claude.args).toContain('--json-schema')
     expect(claude.args.slice(

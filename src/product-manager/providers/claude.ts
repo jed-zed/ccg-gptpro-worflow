@@ -15,7 +15,7 @@ export function createClaudeProductManagerExecution(executable: string, options:
       '',
       '--strict-mcp-config',
       '--mcp-config',
-      '{}',
+      '{"mcpServers":{}}',
       '--setting-sources',
       '',
       '--settings',
