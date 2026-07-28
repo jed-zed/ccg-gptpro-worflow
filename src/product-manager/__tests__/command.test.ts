@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -214,6 +214,25 @@ describe('product-manager command', () => {
       })
       expect(result.verdict).toBe('unavailable')
       expect(result.provider_identity.provider).toBe('codex')
+      const auditFile = join(
+        value.taskDir,
+        '.ccg-evidence',
+        'product-manager',
+        'calls',
+        createInvocationKey(value.input),
+        'audit.ndjson',
+      )
+      const attempts = (await readFile(auditFile, 'utf8'))
+        .trim()
+        .split('\n')
+        .map(line => JSON.parse(line))
+        .filter(entry => entry.status === 'attempt_failed')
+      expect(attempts).toHaveLength(2)
+      expect(attempts.map(entry => [entry.attempt, entry.max_attempts, entry.provider])).toEqual([
+        [1, 2, 'codex'],
+        [2, 2, 'codex'],
+      ])
+      expect(attempts.every(entry => typeof entry.error === 'string' && entry.error.length > 0)).toBe(true)
     }
     finally {
       await rm(value.root, { recursive: true, force: true })
@@ -224,6 +243,7 @@ describe('product-manager command', () => {
     const value = await fixture()
     try {
       let calls = 0
+      const failures: Array<{ attempt: number, maxAttempts: number, error: unknown }> = []
       const result = await invokeValidatedProductManagerProvider({
         input: value.input,
         invocationKey: createInvocationKey(value.input),
@@ -233,8 +253,14 @@ describe('product-manager command', () => {
           calls++
           return calls === 1 ? { malformed: true } : outputFor(value.input)
         },
+        onAttemptFailure: (failure) => {
+          failures.push(failure)
+        },
       })
       expect(calls).toBe(2)
+      expect(failures).toHaveLength(1)
+      expect(failures[0]).toMatchObject({ attempt: 1, maxAttempts: 2 })
+      expect(failures[0].error).toBeInstanceOf(Error)
       expect(result.verdict).toBe('accepted')
     }
     finally {
@@ -246,6 +272,7 @@ describe('product-manager command', () => {
     const value = await fixture()
     try {
       let calls = 0
+      const failures: Array<{ attempt: number, maxAttempts: number }> = []
       const result = await invokeValidatedProductManagerProvider({
         input: value.input,
         invocationKey: createInvocationKey(value.input),
@@ -255,8 +282,15 @@ describe('product-manager command', () => {
           calls++
           return { malformed: true }
         },
+        onAttemptFailure: ({ attempt, maxAttempts }) => {
+          failures.push({ attempt, maxAttempts })
+        },
       })
       expect(calls).toBe(2)
+      expect(failures).toEqual([
+        { attempt: 1, maxAttempts: 2 },
+        { attempt: 2, maxAttempts: 2 },
+      ])
       expect(result.verdict).toBe('unavailable')
     }
     finally {

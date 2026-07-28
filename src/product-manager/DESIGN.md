@@ -38,6 +38,11 @@ disallowed unified selection fails closed without changing the role protocol.
   `.ccg-evidence/product-manager/`.
 - Provider payloads and persisted evidence pass through the same secret
   redaction boundary.
+- Machine-readable commands emit exactly one JSON document on stdout; CCG
+  initialization and the minimal provider child environment both disable
+  support notices, and other diagnostics are kept off stdout.
+- Each failed same-provider attempt appends a bounded, redacted diagnostic to
+  the invocation audit before the final `unavailable` verdict.
 - Absolute executable/entrypoint validation, no shell, no tools, no subagents,
   and no workspace writes constrain provider capability.
 - Atomic `input.json`, `provider-request.json`, `response.raw`, `result.json`,
@@ -85,3 +90,10 @@ Moved product-manager Provider selection into the existing CCG routing
 registry as the fourth formal role. Legacy `[product_manager].provider` is
 migrated once and removed; route switches do not change Trellis or Harness
 snapshot state.
+
+### 2026-07-28 - Machine stdout and retry diagnostics
+
+Suppressed i18next support notices in both the CCG process and Provider child
+environment so machine commands emit one JSON document. Added bounded,
+redacted per-attempt audit diagnostics without changing same-provider retry,
+single-flight, or no-fallback semantics.

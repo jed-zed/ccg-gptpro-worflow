@@ -122,17 +122,21 @@ describe('Codex-native CCG route CLI', () => {
     ].join('\n'))
 
     const tsxImport = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+    const cliEnvironment: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      NO_COLOR: '1',
+      NODE_ENV: 'production',
+    }
+    delete cliEnvironment.I18NEXT_NO_SUPPORT_NOTICE
+    delete cliEnvironment.CI
     const run = (args: string[]) => spawnSync(
       process.execPath,
       ['--import', tsxImport, join(process.cwd(), 'src', 'cli.ts'), ...args],
       {
         encoding: 'utf8',
-        env: {
-          ...process.env,
-          HOME: home,
-          USERPROFILE: home,
-          NO_COLOR: '1',
-        },
+        env: cliEnvironment,
         timeout: 30_000,
         windowsHide: true,
       },

@@ -19,10 +19,12 @@ const BASE_ENV_ALLOWLIST = [
 ] as const
 
 const TERMINATION_GRACE_MS = 5_000
+const STDERR_DIAGNOSTIC_LIMIT_BYTES = 4_096
 
 export function buildProductManagerProviderEnvironment(execution: ProviderExecution): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     CCG_PRODUCT_MANAGER_READ_ONLY: '1',
+    I18NEXT_NO_SUPPORT_NOTICE: '1',
     NO_COLOR: '1',
   }
   for (const key of [...BASE_ENV_ALLOWLIST, ...(execution.environmentKeys ?? [])]) {
@@ -79,12 +81,26 @@ export async function executeReadOnlyProvider(options: {
       windowsHide: true,
     })
     const stdout: Buffer[] = []
+    const stderrDiagnostic: Buffer[] = []
     let stdoutBytes = 0
     let stderrBytes = 0
+    let stderrDiagnosticBytes = 0
+    let stderrDiagnosticTruncated = false
     let settled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     let terminationTimer: ReturnType<typeof setTimeout> | undefined
     let terminationError: Error | undefined
+    const providerError = (message: string) => {
+      const diagnostic = Buffer.concat(stderrDiagnostic)
+        .toString('utf8')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (!diagnostic)
+        return new Error(message)
+      return new Error(
+        `${message}; stderr: ${diagnostic}${stderrDiagnosticTruncated ? ' [truncated]' : ''}`,
+      )
+    }
     const finish = (error?: Error, value?: string) => {
       if (settled)
         return
@@ -122,20 +138,28 @@ export async function executeReadOnlyProvider(options: {
     })
     child.stderr.on('data', (chunk: Buffer) => {
       stderrBytes += chunk.length
+      const remaining = STDERR_DIAGNOSTIC_LIMIT_BYTES - stderrDiagnosticBytes
+      if (remaining > 0) {
+        const captured = chunk.subarray(0, remaining)
+        stderrDiagnostic.push(captured)
+        stderrDiagnosticBytes += captured.length
+      }
+      if (chunk.length > remaining)
+        stderrDiagnosticTruncated = true
       if (stderrBytes > options.maxOutputBytes)
-        terminate(new Error('product-manager provider output exceeded the configured limit'))
+        terminate(providerError('product-manager provider output exceeded the configured limit'))
     })
-    child.on('error', error => finish(new Error(`product-manager provider failed to start: ${error.message}`)))
+    child.on('error', error => finish(providerError(`product-manager provider failed to start: ${error.message}`)))
     child.on('close', (code) => {
       if (terminationError)
         finish(terminationError)
       else if (code !== 0)
-        finish(new Error(`product-manager provider exited with code ${code}`))
+        finish(providerError(`product-manager provider exited with code ${code}`))
       else
         finish(undefined, Buffer.concat(stdout).toString('utf8').trim())
     })
     timer = setTimeout(() => {
-      terminate(new Error('product-manager provider timed out'))
+      terminate(providerError('product-manager provider timed out'))
     }, options.timeoutMs)
     child.stdin.on('error', () => {
       // A provider terminated during input delivery is reported by error/close.

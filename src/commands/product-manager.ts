@@ -211,7 +211,13 @@ export async function invokeValidatedProductManagerProvider(options: {
   provider: ProductManagerProvider
   maxRetries: number
   invoke: () => Promise<unknown>
+  onAttemptFailure?: (failure: {
+    attempt: number
+    maxAttempts: number
+    error: unknown
+  }) => Promise<void> | void
 }): Promise<ProductManagerOutput> {
+  const maxAttempts = options.maxRetries + 1
   for (let attempt = 0; attempt <= options.maxRetries; attempt++) {
     try {
       const output = validateProductManagerOutput(
@@ -222,7 +228,12 @@ export async function invokeValidatedProductManagerProvider(options: {
         throw new Error('stale product-manager response: provider identity mismatch')
       return output
     }
-    catch {
+    catch (error) {
+      await options.onAttemptFailure?.({
+        attempt: attempt + 1,
+        maxAttempts,
+        error,
+      })
       // The same provider and invocation key are retried; no fallback is allowed.
     }
   }
@@ -495,6 +506,19 @@ export async function reviewProductManager(options: ProductManagerCommandOptions
               input,
               config: config.behavior,
             }),
+            onAttemptFailure: async ({ attempt, maxAttempts, error }) => {
+              await appendInvocationAudit({
+                taskDir,
+                invocationKey,
+                entry: {
+                  status: 'attempt_failed',
+                  provider: effective.provider,
+                  attempt,
+                  max_attempts: maxAttempts,
+                  error: error instanceof Error ? error.message : String(error),
+                },
+              })
+            },
           })
         }
         await writeInvocationRawResponse({

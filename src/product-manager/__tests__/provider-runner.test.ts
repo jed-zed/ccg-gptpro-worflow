@@ -42,6 +42,65 @@ afterEach(() => {
 })
 
 describe('product-manager provider runner', () => {
+  it('suppresses provider support notices so stdout remains machine-readable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-provider-runner-'))
+    const provider = [
+      'if (process.env.I18NEXT_NO_SUPPORT_NOTICE !== "1") process.stdout.write("support notice\\n");',
+      'process.stdout.write(JSON.stringify({ verdict: "unavailable" }));',
+    ].join('')
+
+    try {
+      const output = await executeReadOnlyProvider({
+        execution: {
+          executable: process.execPath,
+          args: ['-e', provider],
+          readOnly: true,
+          shell: false,
+        },
+        cwd: root,
+        input: '',
+        timeoutMs: 5_000,
+        maxOutputBytes: 1_024,
+      })
+      expect(JSON.parse(output)).toEqual({ verdict: 'unavailable' })
+      expect(output).not.toContain('support notice')
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('includes a bounded stderr diagnostic when the provider exits unsuccessfully', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-provider-runner-'))
+    const diagnostic = `provider rejected model ${'x'.repeat(6_000)}`
+
+    try {
+      await expect(executeReadOnlyProvider({
+        execution: {
+          executable: process.execPath,
+          args: ['-e', `process.stderr.write(${JSON.stringify(diagnostic)}); process.exit(7)`],
+          readOnly: true,
+          shell: false,
+        },
+        cwd: root,
+        input: '',
+        timeoutMs: 5_000,
+        maxOutputBytes: 8_192,
+      })).rejects.toSatisfy((error: unknown) => {
+        expect(error).toBeInstanceOf(Error)
+        const message = (error as Error).message
+        expect(message).toContain('exited with code 7')
+        expect(message).toContain('provider rejected model')
+        expect(message).toContain('[truncated]')
+        expect(Buffer.byteLength(message, 'utf8')).toBeLessThan(4_300)
+        return true
+      })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('terminates the provider process tree when the call times out', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ccg-provider-runner-'))
     const descendantPidFile = join(root, 'descendant.pid')

@@ -15,6 +15,9 @@ becoming a task or workspace authority.
 - Run only an explicitly selected, implemented Codex, Gemini, or Claude adapter through
   a no-tool, read-only boundary.
 - Redact provider payloads and task-local runtime evidence.
+- Keep machine-readable stdout to exactly one JSON document by suppressing
+  support notices in both CCG and provider children, and record bounded,
+  redacted diagnostics for every failed same-provider attempt.
 - Enforce same-key single-flight, live-owner-safe stale-lock recovery, result
   reuse, complete `calls/<invocation-key>/` evidence, and append-only NDJSON
   audit.
