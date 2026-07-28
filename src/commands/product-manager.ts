@@ -8,6 +8,7 @@ import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import {
   PRODUCT_MANAGER_CONTRACT_VERSION,
   PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
+  createBoundProductManagerOutputJsonSchema,
   validateProductManagerInput,
   validateProductManagerOutput,
 } from '../product-manager/contracts'
@@ -135,7 +136,7 @@ export function createProductManagerProviderPrompt(input: unknown, identity?: {
   provider: ProductManagerProvider
   model: string
   cliVersion: string
-}): string {
+}, schema: Record<string, unknown> = PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA): string {
   return [
     'You are the read-only product-manager reviewer.',
     'Do not use tools, execute commands, modify files, or control subagents.',
@@ -148,7 +149,7 @@ export function createProductManagerProviderPrompt(input: unknown, identity?: {
         cli_version: identity.cliVersion,
       })}.`
       : null,
-    `Output JSON Schema:\n${JSON.stringify(PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA)}`,
+    `Output JSON Schema:\n${JSON.stringify(schema)}`,
     JSON.stringify(redactProductManagerValue(input)),
   ].filter(value => value !== null).join('\n\n')
 }
@@ -251,10 +252,29 @@ export async function invokeValidatedProductManagerProvider(options: {
 
 async function invokeProvider(options: {
   provider: ProductManagerProvider
-  input: unknown
+  input: ReturnType<typeof validateProductManagerInput>
   config: ProductManagerConfig
 }): Promise<unknown> {
   const workspace = await mkdtemp(join(tmpdir(), 'ccg-product-manager-'))
+  const invocationKey = createInvocationKey(options.input)
+  const bindContract = (identity: {
+    provider: ProductManagerProvider
+    model: string
+    cliVersion: string
+  }) => {
+    const schema = createBoundProductManagerOutputJsonSchema({
+      ...options.input,
+      invocation_key: invocationKey,
+    }, {
+      provider: identity.provider,
+      model: identity.model,
+      cli_version: identity.cliVersion,
+    })
+    return {
+      schema,
+      prompt: createProductManagerProviderPrompt(options.input, identity, schema),
+    }
+  }
   try {
     if (options.provider === 'codex') {
       const executable = process.env.CCG_PRODUCT_MANAGER_CODEX_EXECUTABLE
@@ -262,7 +282,7 @@ async function invokeProvider(options: {
       if (!executable)
         throw new Error('Codex product-manager executable is unavailable')
       const model = process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL || 'gpt-5.6-sol'
-      const prompt = createProductManagerProviderPrompt(options.input, {
+      const contract = bindContract({
         provider: 'codex',
         model,
         cliVersion: readProviderCliVersion(executable),
@@ -270,7 +290,7 @@ async function invokeProvider(options: {
       const schemaFile = join(workspace, 'output.schema.json')
       await writeFile(
         schemaFile,
-        `${JSON.stringify(PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA)}\n`,
+        `${JSON.stringify(contract.schema)}\n`,
         { encoding: 'utf8', mode: 0o600 },
       )
       const raw = await executeReadOnlyProvider({
@@ -280,7 +300,7 @@ async function invokeProvider(options: {
           schemaFile,
         }),
         cwd: workspace,
-        input: prompt,
+        input: contract.prompt,
         timeoutMs: options.config.timeout_ms,
         maxOutputBytes: options.config.max_output_bytes,
       })
@@ -291,7 +311,7 @@ async function invokeProvider(options: {
       if (!executable)
         throw new Error('Claude product-manager native executable is unavailable')
       const model = resolveClaudeProductManagerModel()
-      const prompt = createProductManagerProviderPrompt(options.input, {
+      const contract = bindContract({
         provider: 'claude',
         model,
         cliVersion: readProviderCliVersion(executable),
@@ -299,10 +319,10 @@ async function invokeProvider(options: {
       const raw = await executeReadOnlyProvider({
         execution: createClaudeProductManagerExecution(executable, {
           model,
-          schema: PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
+          schema: contract.schema,
         }),
         cwd: workspace,
-        input: prompt,
+        input: contract.prompt,
         timeoutMs: options.config.timeout_ms,
         maxOutputBytes: options.config.max_output_bytes,
       })
@@ -312,7 +332,7 @@ async function invokeProvider(options: {
     if (!entrypoint)
       throw new Error('Gemini product-manager Node entrypoint is unavailable')
     const model = process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL || 'gemini-3.1-pro-preview'
-    const prompt = createProductManagerProviderPrompt(options.input, {
+    const contract = bindContract({
       provider: 'gemini',
       model,
       cliVersion: 'unknown',
@@ -341,7 +361,7 @@ async function invokeProvider(options: {
         policyFile,
       }),
       cwd: workspace,
-      input: prompt,
+      input: contract.prompt,
       timeoutMs: options.config.timeout_ms,
       maxOutputBytes: options.config.max_output_bytes,
     })

@@ -1,10 +1,9 @@
 import type { ProviderExecution } from '../provider-registry'
-import type { PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA } from '../contracts'
 import { validateProviderExecution } from '../provider-registry'
 
 export function createClaudeProductManagerExecution(executable: string, options: {
   model: string
-  schema: typeof PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA
+  schema: Record<string, unknown>
 }): ProviderExecution {
   return validateProviderExecution({
     executable,
