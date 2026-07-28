@@ -62,7 +62,7 @@ describe('product-manager provider policy', () => {
     expect(gemini.args.join(' ')).toContain('from stdin')
 
     const claude = createClaudeProductManagerExecution('C:\\tools\\claude.exe', {
-      model: 'sonnet',
+      model: 'opus',
       schema: PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
     })
     expect(claude.args).toContain('--safe-mode')
@@ -71,6 +71,10 @@ describe('product-manager provider policy', () => {
     expect(claude.args).toContain('--strict-mcp-config')
     expect(claude.args).toContain('--no-session-persistence')
     expect(claude.args).toContain('--json-schema')
+    expect(claude.args.slice(
+      claude.args.indexOf('--model'),
+      claude.args.indexOf('--model') + 2,
+    )).toEqual(['--model', 'opus'])
     expect(claude.args).not.toContain('--fallback-model')
   })
 

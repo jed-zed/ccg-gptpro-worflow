@@ -50,6 +50,15 @@ export interface ProductManagerRuntimeConfig {
   selectedProvider: ModelType
 }
 
+export const DEFAULT_CLAUDE_PRODUCT_MANAGER_MODEL = 'opus'
+
+export function resolveClaudeProductManagerModel(
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  return environment.CCG_PRODUCT_MANAGER_CLAUDE_MODEL
+    || DEFAULT_CLAUDE_PRODUCT_MANAGER_MODEL
+}
+
 export async function readCodexProductManagerConfig(configPath?: string): Promise<ProductManagerRuntimeConfig> {
   const file = resolveCodexProductManagerConfigPath(configPath)
   const parsed = existsSync(file) ? await readCcgConfigAt(file) : null
@@ -198,7 +207,7 @@ function unavailableOutput(options: {
         ? process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL || 'gpt-5.6-sol'
         : options.provider === 'gemini'
           ? process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL || 'gemini-3.1-pro-preview'
-          : process.env.CCG_PRODUCT_MANAGER_CLAUDE_MODEL || 'sonnet',
+          : resolveClaudeProductManagerModel(),
       cli_version: 'unavailable',
     },
     generated_at: new Date().toISOString(),
@@ -281,7 +290,7 @@ async function invokeProvider(options: {
       const executable = resolveClaudeExecutable()
       if (!executable)
         throw new Error('Claude product-manager native executable is unavailable')
-      const model = process.env.CCG_PRODUCT_MANAGER_CLAUDE_MODEL || 'sonnet'
+      const model = resolveClaudeProductManagerModel()
       const prompt = createProductManagerProviderPrompt(options.input, {
         provider: 'claude',
         model,

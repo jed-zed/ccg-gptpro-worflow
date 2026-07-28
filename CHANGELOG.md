@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Provider boundaries** — Claude remains disabled for ordinary implementation
   and delegation. Selecting it as product manager does not create a second task
   authority and never transfers Codex workspace ownership.
+- **Claude product-manager model default** — Pass `--model opus` explicitly
+  when `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` is unset; the environment variable
+  remains the deliberate exact-model override.
 
 ## [3.4.1] - 2026-07-27
 

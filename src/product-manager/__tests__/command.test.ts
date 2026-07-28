@@ -8,6 +8,7 @@ import {
   invokeValidatedProductManagerProvider,
   productManagerStatus,
   reviewProductManager,
+  resolveClaudeProductManagerModel,
   unwrapProviderOutput,
 } from '../../commands/product-manager'
 import { canonicalJson } from '../canonical-json'
@@ -94,6 +95,14 @@ afterEach(() => {
 })
 
 describe('product-manager command', () => {
+  it('defaults Claude product-manager calls to the explicit opus model alias', () => {
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_MODEL', '')
+    expect(resolveClaudeProductManagerModel()).toBe('opus')
+
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_MODEL', 'claude-opus-5')
+    expect(resolveClaudeProductManagerModel()).toBe('claude-opus-5')
+  })
+
   it('reports the provider resolved from unified routing', async () => {
     const value = await fixture()
     try {

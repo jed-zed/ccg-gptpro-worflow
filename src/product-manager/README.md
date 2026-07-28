@@ -54,4 +54,6 @@ resolved exclusively from unified routing.
 
 Claude execution reuses an already installed and authenticated native Claude
 CLI. CCG does not install Claude, log it in, create project `.claude` state, or
-enable it for ordinary delegation.
+enable it for ordinary delegation. The adapter always passes `--model`; its
+default is the native `opus` alias, while
+`CCG_PRODUCT_MANAGER_CLAUDE_MODEL` can explicitly override that value.

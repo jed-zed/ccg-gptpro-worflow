@@ -21,7 +21,9 @@ sent on stdin to avoid command-line length limits. Claude runs from its trusted
 native executable in safe mode with tools, MCP, slash commands, settings
 sources, browser integration, and session persistence disabled. All providers
 run with `shell:false`, a provider-scoped minimal environment, timeouts, and
-output caps. The same selected provider is retried; invalid or unavailable
+output caps. Claude always receives an explicit `--model`; the default is the
+native `opus` alias and `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` remains an explicit
+override. The same selected provider is retried; invalid or unavailable
 responses become an explicit `unavailable` verdict and never trigger fallback.
 
 The versioned role contract accepts a bounded vendor-neutral provider ID.
@@ -97,3 +99,9 @@ Suppressed i18next support notices in both the CCG process and Provider child
 environment so machine commands emit one JSON document. Added bounded,
 redacted per-attempt audit diagnostics without changing same-provider retry,
 single-flight, or no-fallback semantics.
+
+### 2026-07-28 - Explicit Claude Opus default
+
+Changed the Claude product-manager adapter default from the native `sonnet`
+alias to `opus`. The adapter still passes `--model` explicitly and retains the
+environment override for an intentionally selected exact model name.
