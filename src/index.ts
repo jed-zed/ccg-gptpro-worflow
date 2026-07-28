@@ -28,6 +28,13 @@ export * from './product-manager/providers/codex'
 export * from './product-manager/providers/gemini'
 export * from './product-manager/providers/claude'
 export {
+  createDefaultRoleRouting,
+  isRegisteredModel,
+  isRoutingRole,
+  normalizeModelRouting,
+  setRoleProvider,
+} from './utils/model-routing'
+export {
   getWorkflowConfigs,
   getWorkflowById,
   installWorkflows,

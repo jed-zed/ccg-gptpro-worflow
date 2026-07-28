@@ -12,7 +12,9 @@
   require the user's explicit approval before a Harness or project initializer
   installs them.
 - External-intelligence routing uses `ccg route`; it is disabled by default.
-- Gemini may provide bounded read-only evidence. Claude is disabled for
+- Registered provider CLIs may supply bounded drafts or review evidence for
+  their configured roles. Provider assignment is configurable, not permanent.
+  Claude is disabled for
   ordinary Codex-mode delegation; the only exception is when unified routing
   selects Claude for the no-tool, no-write `product-manager` contract.
 - When `.trellis/` exists, Trellis owns task identity, lifecycle,

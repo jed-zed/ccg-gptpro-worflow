@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Security
+
+- **Loopback-only preview server** — Bind the local Web UI to
+  `127.0.0.1` instead of every network interface, preventing LAN/public
+  exposure and avoiding repeated Windows Firewall prompts from inbound
+  listeners.
+- **Verified wrapper distribution** — Bump the wrapper to `5.12.3`, remove VCS
+  and host paths from release binaries, and refresh all six installer digests
+  from two byte-identical Go 1.21.13 builds.
+
 ## [3.4.2] - 2026-07-28
 
 ### Added
@@ -65,6 +77,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   policy in plan mode.
 - **Lease-safe concurrency** — Product-manager locks use nonce ownership and
   heartbeat refresh so a stale owner cannot delete a replacement lock.
+
+## [3.4.0] - 2026-07-27
+
+### Added
+
+- **Independent role routing** — Add three separately configurable top-level
+  Codex roles: `frontend`, `backend`, and `search`. Analysis, planning, and
+  review are phases inside each applicable role.
+- **Local switching** — Add `ccg routing list|get|set` and a role-first
+  interactive menu that changes one role without changing the others.
+
+### Changed
+
+- **Provider-neutral Codex Skills** — Resolve generic workflow providers from
+  role configuration instead of permanently assigning frontend, backend,
+  planning, or review to a model.
+- **GPT Pro bridge routing** — Require ordinary three-role routing evidence for
+  plan and review bridges; Gemini evidence is optional and validated only when
+  the selected role actually used Gemini.
+- **Compatibility** — Normalize legacy frontend/backend/review configuration,
+  reuse the existing Go backend registry, and keep named Gemini, Grok, and GPT
+  Pro commands explicit.
 
 ## [3.3.3] - 2026-07-26
 

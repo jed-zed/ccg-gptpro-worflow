@@ -17,6 +17,7 @@ describe('createDefaultRouting', () => {
   it('returns grok for search and claude for product-manager', () => {
     const routing = createDefaultRouting()
     expect(routing.search.primary).toBe('grok')
+    expect(routing.search.models).toEqual(['grok'])
     expect(routing['product-manager'].primary).toBe('claude')
   })
 

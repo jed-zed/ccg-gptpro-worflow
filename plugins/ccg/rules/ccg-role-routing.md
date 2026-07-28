@@ -7,10 +7,30 @@ CCG has four formal top-level routing roles:
 - `search`
 - `product-manager`
 
-Use `ccg routing get <role> --json` to inspect one role and
-`ccg routing set <role> <provider>` to change only that role. Analysis,
-planning, implementation, and review are phases inside these roles, not
-additional routing authorities.
+| Role | Used by |
+| --- | --- |
+| `frontend` | Frontend analysis, planning, implementation drafts, and review |
+| `backend` | Backend analysis, planning, implementation drafts, and review |
+| `search` | External lookup planning, evidence gathering, analysis, and review |
+| `product-manager` | Read-only intake, milestone, and final product review evidence |
+
+`analysis`, `planning`, and `review` are workflow phases inside these roles.
+They are not independently configurable provider roles.
+
+Inspect or change exactly one role:
+
+```text
+ccg routing get frontend --json
+ccg routing get backend --json
+ccg routing get search --json
+ccg routing get product-manager --json
+ccg routing set <role> <provider>
+```
+
+The registered providers are `codex`, `gemini`, `claude`, `antigravity`, and
+`grok`. Route only to an existing registered provider. Codex remains the
+orchestrator, sole real-workspace writer, final verifier, and delivery owner
+regardless of the selected role provider.
 
 The product-manager Provider selection exists only at
 `routing.product-manager`. `[product_manager]` stores behavior parameters such

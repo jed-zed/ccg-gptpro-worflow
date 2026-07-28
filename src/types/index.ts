@@ -117,6 +117,7 @@ export interface InitOptions {
   // 非交互模式参数
   frontend?: string
   backend?: string
+  search?: string
   mode?: CollaborationMode
   workflows?: string
   installDir?: string

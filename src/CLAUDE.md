@@ -10,7 +10,7 @@
 
 ### 2026-07-22 (v3.3.0)
 - 新增 `commands/grok.ts`、Grok doctor 分层和 `external_intelligence` opt-in 配置迁移。
-- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 由 codeagent-wrapper v5.12.2 处理。
+- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 由 codeagent-wrapper v5.12.3 处理。
 - Grok 情报登录默认走浏览器 OAuth；无头 CI 可显式提供 `XAI_API_KEY`，live smoke 仅手动触发。
 
 ### 2026-07-24（v3.3.0 安全复审加固）
@@ -107,7 +107,7 @@ export { getCurrentVersion, checkForUpdates, compareVersions } from './utils/ver
 ```
 Step 0: 语言选择（首次/已保存跳过）
 Step 1/4: API 提供方（官方 / 第三方 / 302.AI）
-Step 2/4: 模型路由（Frontend: Gemini|Codex, Backend: Codex|Gemini, Gemini 型号）
+Step 2/4: 模型路由（选择职责，再选择已注册 Provider）
 Step 3/4: MCP 工具多选（ace-tool ✓, context7 ✓, fast-context, grok-search, contextweaver）
 Step 4/4: 性能模式（standard|lite）+ Impeccable 可选安装
 → 安装摘要确认 → installWorkflows() → MCP 安装 → permissions.allow → context7 → MCP 三端同步
@@ -165,7 +165,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.2'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.3'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [
@@ -272,7 +272,7 @@ export async function changeLanguage(lang: SupportedLang): Promise<void>
 | `ModelType` | `'codex' \| 'gemini' \| 'claude'` |
 | `CollaborationMode` | `'parallel' \| 'smart' \| 'sequential'` |
 | `RoutingStrategy` | `'parallel' \| 'fallback' \| 'round-robin'` |
-| `ModelRouting` | 前端/后端/review 的模型列表 + 策略 + Gemini 型号 |
+| `ModelRouting` | frontend/backend/search 三大角色的独立 Provider + 策略 |
 | `CcgConfig` | 完整配置结构（general + routing + workflows + paths + mcp + performance）|
 | `WorkflowConfig` | 单个工作流定义（id, name, commands[], category, order）|
 | `InitOptions` | `init()` 函数参数（lang, skipPrompt, skipMcp, force, frontend, backend, ...）|
@@ -288,8 +288,8 @@ export async function changeLanguage(lang: SupportedLang): Promise<void>
 
 | 占位符 | 替换为 | 说明 |
 |--------|--------|------|
-| `{{FRONTEND_PRIMARY}}` | `gemini` / `codex` | 前端主模型 |
-| `{{BACKEND_PRIMARY}}` | `codex` / `gemini` | 后端主模型 |
+| `{{FRONTEND_PRIMARY}}` | 已注册 Provider | 前端职责 Provider |
+| `{{BACKEND_PRIMARY}}` | 已注册 Provider | 后端职责 Provider |
 | `{{FRONTEND_MODELS}}` | JSON 数组 | 前端模型列表 |
 | `{{BACKEND_MODELS}}` | JSON 数组 | 后端模型列表 |
 | `{{REVIEW_MODELS}}` | JSON 数组 | 审查模型列表 |

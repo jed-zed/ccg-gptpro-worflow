@@ -20,7 +20,12 @@ async function makeCodexHome(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+  await Promise.all(roots.splice(0).map(root => rm(root, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  })))
 })
 
 async function hardTerminateCodexMode(
@@ -166,6 +171,27 @@ describe('Codex mode ownership and reversibility', () => {
     expect(hooks.hooks.UserPromptSubmit).toHaveLength(1)
   })
 
+  it('preserves customized role routing across Codex mode updates', async () => {
+    const codexHome = await makeCodexHome()
+    expect((await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+
+    const configPath = join(codexHome, 'ccg', 'config.toml')
+    const installed = await readFile(configPath, 'utf8')
+    const configured = installed.replace(
+      /(\[routing\.search\]\r?\n)models = \["grok"\](\r?\n)primary = "grok"/,
+      '$1models = ["claude"]$2primary = "claude"',
+    )
+    expect(configured).not.toBe(installed)
+    await writeFile(configPath, configured)
+
+    const updated = await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })
+
+    expect(updated.success).toBe(true)
+    const persisted = await readFile(configPath, 'utf8')
+    expect(persisted).toContain('models = [ "claude" ]')
+    expect(persisted).toContain('primary = "claude"')
+  })
+
   it('installs a Claude-clean Codex runtime without creating or referencing .claude', async () => {
     const codexHome = await makeCodexHome()
     const claudeHome = join(codexHome, '..', '.claude')
@@ -188,6 +214,7 @@ describe('Codex mode ownership and reversibility', () => {
       expect(await readFile(path, 'utf8'), path).not.toContain('.claude')
     const hook = await readFile(join(codexHome, 'hooks', 'ccg-workflow.py'), 'utf8')
     expect(hook).not.toContain('--backend claude')
+    expect(hook).toContain('applicable frontend/backend/search providers')
     expect(hook).toContain('Claude may run only through an explicitly selected read-only product-manager contract')
     const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
     expect(config).not.toContain('[mcp_servers')
@@ -228,7 +255,7 @@ describe('Codex mode ownership and reversibility', () => {
         '\n',
       )
       .replace(
-        '[product_manager]\n',
+        /\[product_manager\]\r?\n/u,
         '[product_manager]\nprovider = "gemini"\n',
       )
       .replace(
@@ -236,6 +263,7 @@ describe('Codex mode ownership and reversibility', () => {
         'enabled = true\nauto_route = true',
       )
     expect(legacyConfig).not.toContain('[routing.product-manager]')
+    expect(legacyConfig).toContain('provider = "gemini"')
     await writeFile(configPath, legacyConfig)
 
     const ownership = await fs.readJSON(ownershipPath)

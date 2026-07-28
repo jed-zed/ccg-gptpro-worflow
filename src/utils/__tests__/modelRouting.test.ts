@@ -22,7 +22,7 @@ describe('model routing', () => {
     const routing = normalizeModelRouting({
       frontend: { models: ['antigravity'], primary: 'antigravity', strategy: 'fallback' },
       backend: { models: ['grok'], primary: 'grok', strategy: 'fallback' },
-      review: { models: ['gemini', 'codex'], strategy: 'parallel' },
+      review: { models: ['gemini', 'codex'], strategy: 'parallel' } as any,
       mode: 'smart',
     } as any)
 
@@ -30,6 +30,8 @@ describe('model routing', () => {
     expect(routing.backend.primary).toBe('grok')
     expect(routing.search.primary).toBe('grok')
     expect(routing['product-manager'].primary).toBe('claude')
+    expect(routing).not.toHaveProperty('analysis')
+    expect(routing).not.toHaveProperty('planning')
     expect(routing).not.toHaveProperty('review')
   })
 
@@ -44,7 +46,7 @@ describe('model routing', () => {
     }
   })
 
-  it('allows every role to select every registered provider', () => {
+  it('allows every standard role to select every registered provider', () => {
     for (const role of STANDARD_ROUTING_ROLES) {
       for (const provider of REGISTERED_MODEL_TYPES) {
         const before = createDefaultRoleRouting()
@@ -59,7 +61,7 @@ describe('model routing', () => {
     }
   })
 
-  it('rejects providers that are not registered', () => {
+  it('rejects providers that are not registered by the wrapper', () => {
     expect(() => setRoleProvider(createDefaultRoleRouting(), 'product-manager', 'unknown' as any))
       .toThrow('must be a registered provider')
   })
