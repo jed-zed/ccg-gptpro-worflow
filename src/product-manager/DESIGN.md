@@ -5,7 +5,7 @@
 - Produce evidence-bound product judgments without workspace mutation.
 - Keep Trellis as the sole lifecycle authority in Harness projects.
 - Make retries, concurrency, recovery, and stale-result handling deterministic.
-- Preserve provider choice as an installation-level CCG setting.
+- Preserve provider choice only in CCG unified role routing.
 
 ## Chosen design
 
@@ -17,15 +17,19 @@ strict schema match.
 
 Codex runs in a disposable read-only sandbox with tool features disabled.
 Gemini runs in plan mode with a deny-all tool/MCP policy; the bounded prompt is
-sent on stdin to avoid command-line length limits. Both run with `shell:false`,
-minimal environment, timeouts, and output caps. The same selected provider is
-retried; invalid or unavailable responses become an explicit `unavailable`
-verdict and never trigger fallback.
+sent on stdin to avoid command-line length limits. Claude runs from its trusted
+native executable in safe mode with tools, MCP, slash commands, settings
+sources, browser integration, and session persistence disabled. All providers
+run with `shell:false`, a provider-scoped minimal environment, timeouts, and
+output caps. The same selected provider is retried; invalid or unavailable
+responses become an explicit `unavailable` verdict and never trigger fallback.
 
 The versioned role contract accepts a bounded vendor-neutral provider ID.
-Concrete adapters remain an installation-level registry currently limited to
-Codex and Gemini, so extending execution support does not require changing the
-role protocol.
+`product-manager` is the fourth formal role in the same unified routing
+registry as frontend, backend, and search. Concrete product-manager adapters
+are currently limited to Codex, Gemini, and Claude, so an unimplemented or
+disallowed unified selection fails closed without changing the role protocol.
+`[product_manager]` stores behavior only.
 
 ## Security and trust boundaries
 
@@ -67,3 +71,17 @@ role protocol.
 Added the strict contract, provider adapters, canonical identity, evidence
 store, single-flight recovery, configuration migration, and offline tests for
 the Codex-led product-manager role.
+
+### 2026-07-28 - Claude Provider and linked snapshot delivery
+
+Added the isolated Claude Provider and documented that downstream Harness
+delivery couples the packaged source update with the current commit, tree, and
+content fingerprint. That fingerprint identifies the installed snapshot; it
+does not permanently lock future compatible updates.
+
+### 2026-07-28 - Unified fourth role routing
+
+Moved product-manager Provider selection into the existing CCG routing
+registry as the fourth formal role. Legacy `[product_manager].provider` is
+migrated once and removed; route switches do not change Trellis or Harness
+snapshot state.

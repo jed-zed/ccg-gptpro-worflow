@@ -2,7 +2,7 @@ import type { ProviderExecution } from './provider-registry'
 import { spawn } from 'node:child_process'
 import { validateProviderExecution } from './provider-registry'
 
-const ENV_ALLOWLIST = [
+const BASE_ENV_ALLOWLIST = [
   'PATH',
   'Path',
   'SystemRoot',
@@ -13,16 +13,14 @@ const ENV_ALLOWLIST = [
   'USERPROFILE',
   'LOCALAPPDATA',
   'APPDATA',
-  'CODEX_HOME',
-  'GEMINI_CLI_HOME',
 ] as const
 
-function minimalEnvironment(): NodeJS.ProcessEnv {
+export function buildProductManagerProviderEnvironment(execution: ProviderExecution): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     CCG_PRODUCT_MANAGER_READ_ONLY: '1',
     NO_COLOR: '1',
   }
-  for (const key of ENV_ALLOWLIST) {
+  for (const key of [...BASE_ENV_ALLOWLIST, ...(execution.environmentKeys ?? [])]) {
     if (process.env[key])
       environment[key] = process.env[key]
   }
@@ -40,7 +38,7 @@ export async function executeReadOnlyProvider(options: {
   return await new Promise((resolve, reject) => {
     const child = spawn(execution.executable, execution.args, {
       cwd: options.cwd,
-      env: minimalEnvironment(),
+      env: buildProductManagerProviderEnvironment(execution),
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,

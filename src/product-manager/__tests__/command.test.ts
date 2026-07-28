@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createProductManagerProviderPrompt,
   invokeValidatedProductManagerProvider,
+  productManagerStatus,
   reviewProductManager,
+  unwrapProviderOutput,
 } from '../../commands/product-manager'
 import { canonicalJson } from '../canonical-json'
 import { createInvocationKey } from '../invocation'
@@ -18,9 +20,13 @@ async function fixture() {
   await writeFile(join(taskDir, 'task.json'), '{"id":"pm"}\n', 'utf8')
   const config = join(root, 'config.toml')
   await writeFile(config, [
+    '[routing.product-manager]',
+    'models = ["codex"]',
+    'primary = "codex"',
+    'strategy = "fallback"',
+    '',
     '[product_manager]',
     'enabled = true',
-    'provider = "codex"',
     'contract_version = "1"',
     'max_retries = 1',
     'timeout_ms = 5000',
@@ -88,6 +94,70 @@ afterEach(() => {
 })
 
 describe('product-manager command', () => {
+  it('reports the provider resolved from unified routing', async () => {
+    const value = await fixture()
+    try {
+      const status = await productManagerStatus({ config: value.config })
+      expect(status.routing).toEqual({
+        authority: 'unified-ccg-routing',
+        role: 'product-manager',
+        provider: 'codex',
+      })
+      expect(status.configured).not.toHaveProperty('provider')
+      expect(status.effective).toMatchObject({ status: 'ready', provider: 'codex' })
+    }
+    finally {
+      await rm(value.root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when the unified route is not implemented or not allowed', async () => {
+    const value = await fixture()
+    try {
+      await writeFile(value.config, [
+        '[routing.product-manager]',
+        'models = ["antigravity"]',
+        'primary = "antigravity"',
+        'strategy = "fallback"',
+        '',
+        '[product_manager]',
+        'enabled = true',
+        'contract_version = "1"',
+        '',
+      ].join('\n'), 'utf8')
+      const unimplemented = await productManagerStatus({ config: value.config })
+      expect(unimplemented.effective).toEqual({
+        status: 'unavailable',
+        reason: 'selected_provider_not_implemented',
+        selected: 'antigravity',
+      })
+
+      await writeFile(value.config, [
+        '[routing.product-manager]',
+        'models = ["gemini"]',
+        'primary = "gemini"',
+        'strategy = "fallback"',
+        '',
+        '[product_manager]',
+        'enabled = true',
+        'contract_version = "1"',
+        '',
+      ].join('\n'), 'utf8')
+      const disallowed = await productManagerStatus({
+        config: value.config,
+        allowedProviders: 'claude',
+      })
+      expect(disallowed.effective).toEqual({
+        status: 'unavailable',
+        reason: 'selected_provider_not_allowed',
+        selected: 'gemini',
+      })
+    }
+    finally {
+      await rm(value.root, { recursive: true, force: true })
+    }
+  })
+
   it('redacts credentials before constructing the provider payload', () => {
     const prompt = createProductManagerProviderPrompt({
       api_key: 'sk_abcdefghijklmnop',
@@ -98,6 +168,15 @@ describe('product-manager command', () => {
     expect(prompt).not.toContain('sk_abcdefghijklmnop')
     expect(prompt).not.toContain('Bearer abcdefghijklmnop')
     expect(prompt).toContain('[REDACTED]')
+  })
+
+  it('unwraps Claude structured output without accepting envelope commentary', () => {
+    const structured = { provider_identity: { provider: 'claude' } }
+    expect(unwrapProviderOutput(JSON.stringify({
+      type: 'result',
+      result: 'ignored presentation text',
+      structured_output: structured,
+    }), 'claude')).toEqual(structured)
   })
 
   it('reuses the completed result for the same invocation key without another provider call', async () => {

@@ -1,10 +1,10 @@
-import type { ProductManagerConfig } from '../types'
+import type { ModelType, ProductManagerConfig } from '../types'
 import type { ProductManagerOutput, ProductManagerProvider } from '../product-manager/contracts'
 import { existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, isAbsolute, join, resolve } from 'node:path'
-import { parse } from 'smol-toml'
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import {
   PRODUCT_MANAGER_CONTRACT_VERSION,
   PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
@@ -26,8 +26,10 @@ import {
 } from '../product-manager/provider-registry'
 import { executeReadOnlyProvider } from '../product-manager/provider-runner'
 import { createCodexProductManagerExecution } from '../product-manager/providers/codex'
+import { createClaudeProductManagerExecution } from '../product-manager/providers/claude'
 import { createGeminiProductManagerExecution } from '../product-manager/providers/gemini'
-import { normalizeProductManagerConfig } from '../utils/config'
+import { normalizeProductManagerConfig, readCcgConfigAt } from '../utils/config'
+import { normalizeModelRouting } from '../utils/model-routing'
 
 export interface ProductManagerCommandOptions {
   json?: boolean
@@ -43,12 +45,19 @@ function resolveCodexProductManagerConfigPath(explicit?: string): string {
   return resolve(explicit || join(homedir(), '.codex', 'ccg', 'config.toml'))
 }
 
-export async function readCodexProductManagerConfig(configPath?: string): Promise<ProductManagerConfig> {
+export interface ProductManagerRuntimeConfig {
+  behavior: ProductManagerConfig
+  selectedProvider: ModelType
+}
+
+export async function readCodexProductManagerConfig(configPath?: string): Promise<ProductManagerRuntimeConfig> {
   const file = resolveCodexProductManagerConfigPath(configPath)
-  if (!existsSync(file))
-    return normalizeProductManagerConfig(undefined, { existingInstall: true })
-  const parsed = parse(await readFile(file, 'utf8')) as Record<string, any>
-  return normalizeProductManagerConfig(parsed.product_manager, { existingInstall: true })
+  const parsed = existsSync(file) ? await readCcgConfigAt(file) : null
+  const routing = normalizeModelRouting(parsed?.routing)
+  return {
+    behavior: normalizeProductManagerConfig(parsed?.product_manager, { existingInstall: true }),
+    selectedProvider: routing['product-manager'].primary,
+  }
 }
 
 function parseAllowedProviders(value: string | undefined): ProductManagerProvider[] {
@@ -56,7 +65,7 @@ function parseAllowedProviders(value: string | undefined): ProductManagerProvide
     return [...IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS]
   const providers = value.split(',').map(item => item.trim()).filter(Boolean)
   if (providers.some(provider => !IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS.includes(provider as ProductManagerProvider)))
-    throw new TypeError('allowed providers must contain only codex or gemini')
+    throw new TypeError('allowed providers must contain only codex, gemini, or claude')
   return [...new Set(providers)] as ProductManagerProvider[]
 }
 
@@ -83,23 +92,72 @@ function resolveGeminiEntrypoint(): string | null {
   return existsSync(adjacent) ? adjacent : null
 }
 
-export function createProductManagerProviderPrompt(input: unknown): string {
+export function resolveClaudeExecutable(): string | null {
+  const explicit = process.env.CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE
+  if (explicit && isAbsolute(explicit) && existsSync(explicit))
+    return process.platform !== 'win32' || explicit.toLowerCase().endsWith('.exe') ? explicit : null
+  const direct = findExecutable(process.platform === 'win32' ? ['claude.exe'] : ['claude'])
+  if (direct)
+    return direct
+  if (process.platform !== 'win32')
+    return null
+  const shim = findExecutable(['claude.cmd', 'claude.ps1', 'claude'])
+  if (!shim)
+    return null
+  const native = join(dirname(shim), 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
+  return existsSync(native) ? native : null
+}
+
+function readProviderCliVersion(executable: string): string {
+  try {
+    return execFileSync(executable, ['--version'], {
+      encoding: 'utf8',
+      shell: false,
+      timeout: 10_000,
+      windowsHide: true,
+    }).trim() || 'unknown'
+  }
+  catch {
+    return 'unknown'
+  }
+}
+
+export function createProductManagerProviderPrompt(input: unknown, identity?: {
+  provider: ProductManagerProvider
+  model: string
+  cliVersion: string
+}): string {
   return [
     'You are the read-only product-manager reviewer.',
     'Do not use tools, execute commands, modify files, or control subagents.',
     'Return exactly one JSON object matching the supplied contract.',
     'Do not include markdown, hidden reasoning, credentials, or commentary.',
+    identity
+      ? `Set provider_identity exactly to ${JSON.stringify({
+        provider: identity.provider,
+        model: identity.model,
+        cli_version: identity.cliVersion,
+      })}.`
+      : null,
     `Output JSON Schema:\n${JSON.stringify(PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA)}`,
     JSON.stringify(redactProductManagerValue(input)),
-  ].join('\n\n')
+  ].filter(value => value !== null).join('\n\n')
 }
 
-function unwrapProviderOutput(raw: string, provider: ProductManagerProvider): unknown {
+export function unwrapProviderOutput(raw: string, provider: ProductManagerProvider): unknown {
   if (!raw.trim())
     throw new Error('product-manager provider returned empty output')
   const parsed = JSON.parse(raw)
   if (provider === 'gemini' && parsed && typeof parsed === 'object' && typeof parsed.response === 'string')
     return JSON.parse(parsed.response)
+  if (provider === 'claude' && parsed && typeof parsed === 'object') {
+    if (parsed.structured_output && typeof parsed.structured_output === 'object')
+      return parsed.structured_output
+    if (typeof parsed.result === 'string')
+      return JSON.parse(parsed.result)
+    if (parsed.result && typeof parsed.result === 'object')
+      return parsed.result
+  }
   return parsed
 }
 
@@ -138,7 +196,9 @@ function unavailableOutput(options: {
       provider: options.provider,
       model: options.provider === 'codex'
         ? process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL || 'gpt-5.6-sol'
-        : process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL || 'gemini-3.1-pro-preview',
+        : options.provider === 'gemini'
+          ? process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL || 'gemini-3.1-pro-preview'
+          : process.env.CCG_PRODUCT_MANAGER_CLAUDE_MODEL || 'sonnet',
       cli_version: 'unavailable',
     },
     generated_at: new Date().toISOString(),
@@ -176,12 +236,17 @@ async function invokeProvider(options: {
 }): Promise<unknown> {
   const workspace = await mkdtemp(join(tmpdir(), 'ccg-product-manager-'))
   try {
-    const prompt = createProductManagerProviderPrompt(options.input)
     if (options.provider === 'codex') {
       const executable = process.env.CCG_PRODUCT_MANAGER_CODEX_EXECUTABLE
         || findExecutable(process.platform === 'win32' ? ['codex.exe'] : ['codex'])
       if (!executable)
         throw new Error('Codex product-manager executable is unavailable')
+      const model = process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL || 'gpt-5.6-sol'
+      const prompt = createProductManagerProviderPrompt(options.input, {
+        provider: 'codex',
+        model,
+        cliVersion: readProviderCliVersion(executable),
+      })
       const schemaFile = join(workspace, 'output.schema.json')
       await writeFile(
         schemaFile,
@@ -190,9 +255,31 @@ async function invokeProvider(options: {
       )
       const raw = await executeReadOnlyProvider({
         execution: createCodexProductManagerExecution(executable, {
-          model: process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL || 'gpt-5.6-sol',
+          model,
           workspace,
           schemaFile,
+        }),
+        cwd: workspace,
+        input: prompt,
+        timeoutMs: options.config.timeout_ms,
+        maxOutputBytes: options.config.max_output_bytes,
+      })
+      return unwrapProviderOutput(raw, options.provider)
+    }
+    if (options.provider === 'claude') {
+      const executable = resolveClaudeExecutable()
+      if (!executable)
+        throw new Error('Claude product-manager native executable is unavailable')
+      const model = process.env.CCG_PRODUCT_MANAGER_CLAUDE_MODEL || 'sonnet'
+      const prompt = createProductManagerProviderPrompt(options.input, {
+        provider: 'claude',
+        model,
+        cliVersion: readProviderCliVersion(executable),
+      })
+      const raw = await executeReadOnlyProvider({
+        execution: createClaudeProductManagerExecution(executable, {
+          model,
+          schema: PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
         }),
         cwd: workspace,
         input: prompt,
@@ -204,6 +291,12 @@ async function invokeProvider(options: {
     const entrypoint = resolveGeminiEntrypoint()
     if (!entrypoint)
       throw new Error('Gemini product-manager Node entrypoint is unavailable')
+    const model = process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL || 'gemini-3.1-pro-preview'
+    const prompt = createProductManagerProviderPrompt(options.input, {
+      provider: 'gemini',
+      model,
+      cliVersion: 'unknown',
+    })
     const policyFile = join(workspace, 'deny-all-tools.toml')
     await writeFile(policyFile, [
       '[[rule]]',
@@ -224,7 +317,7 @@ async function invokeProvider(options: {
     const raw = await executeReadOnlyProvider({
       execution: createGeminiProductManagerExecution(process.execPath, {
         entrypoint,
-        model: process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL || 'gemini-3.1-pro-preview',
+        model,
         policyFile,
       }),
       cwd: workspace,
@@ -243,8 +336,8 @@ export async function productManagerStatus(options: ProductManagerCommandOptions
   const config = await readCodexProductManagerConfig(options.config)
   const allowed = parseAllowedProviders(options.allowedProviders)
   const effective = resolveEffectiveProductManagerProvider({
-    enabled: config.enabled,
-    selected: config.provider,
+    enabled: config.behavior.enabled,
+    selected: config.selectedProvider,
     implemented: IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS,
     allowed,
   })
@@ -252,7 +345,12 @@ export async function productManagerStatus(options: ProductManagerCommandOptions
     schema_version: 1,
     contract_version: PRODUCT_MANAGER_CONTRACT_VERSION,
     config_path: resolveCodexProductManagerConfigPath(options.config),
-    configured: config,
+    configured: config.behavior,
+    routing: {
+      authority: 'unified-ccg-routing',
+      role: 'product-manager',
+      provider: config.selectedProvider,
+    },
     implemented_providers: IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS,
     allowed_providers: allowed,
     effective,
@@ -313,8 +411,8 @@ export async function reviewProductManager(options: ProductManagerCommandOptions
   const config = await readCodexProductManagerConfig(options.config)
   const allowed = parseAllowedProviders(options.allowedProviders)
   const effective = resolveEffectiveProductManagerProvider({
-    enabled: config.enabled,
-    selected: config.provider,
+    enabled: config.behavior.enabled,
+    selected: config.selectedProvider,
     implemented: IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS,
     allowed,
   })
@@ -391,11 +489,11 @@ export async function reviewProductManager(options: ProductManagerCommandOptions
             input,
             invocationKey,
             provider: effective.provider,
-            maxRetries: config.max_retries,
+            maxRetries: config.behavior.max_retries,
             invoke: () => invokeProvider({
               provider: effective.provider,
               input,
-              config,
+              config: config.behavior,
             }),
           })
         }
