@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Security
+
+- **Loopback-only preview server** — Bind the local Web UI to
+  `127.0.0.1` instead of every network interface, preventing LAN/public
+  exposure and avoiding repeated Windows Firewall prompts from inbound
+  listeners.
+- **Verified wrapper distribution** — Bump the wrapper to `5.12.3` and refresh
+  all six installer digests from two byte-identical Go 1.21.13 builds.
+
 ## [3.4.1] - 2026-07-27
 
 ### Added

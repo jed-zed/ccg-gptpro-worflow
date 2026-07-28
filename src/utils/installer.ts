@@ -66,20 +66,22 @@ export type { SkillMeta } from './skill-registry'
  * Must match the `version` constant in codeagent-wrapper/main.go.
  * When this differs from the installed binary, update triggers re-download.
  */
-export const EXPECTED_BINARY_VERSION = '5.12.2'
+export const EXPECTED_BINARY_VERSION = '5.12.3'
 export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
 
 /**
  * Trusted digests published by the authoritative personal fork's `preset`
  * release. A candidate must match before it is made executable or started.
+ * Generated from byte-identical Go 1.21.13 builds with CGO disabled and the
+ * release workflow's `-ldflags="-s -w"` settings.
  */
 export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
-  'codeagent-wrapper-darwin-amd64': '92f90c76cceb13cbeb259efe9e1d54b65d0e75e2dfc9c40336ca0f903293e610',
-  'codeagent-wrapper-darwin-arm64': '40310340f61eccd4fb2566f6a257eeee2b0b3f463233e07c4e4763c9809ba222',
-  'codeagent-wrapper-linux-amd64': '6e0b3e7c891fac65ec4949b69d0eda648a015898c320faeb937dce1095846955',
-  'codeagent-wrapper-linux-arm64': '0184f6a1cd804948377f2e627bbd59076c0cc78f776a55147e95ed66a43569f0',
-  'codeagent-wrapper-windows-amd64.exe': 'bd3d9b298d3aea84152c4603bfcb86e67f454aceab9acf33e46a34c2fabf9b43',
-  'codeagent-wrapper-windows-arm64.exe': '7a5dc7cf6b295598fb4a133cdc6b0244c7f4149c11f3501dd72014676afa8790',
+  'codeagent-wrapper-darwin-amd64': '21dc1f0a0e839d8b711a3b39f04ee0994f55bf79ec24aa305de3de27048f0ce1',
+  'codeagent-wrapper-darwin-arm64': '0eab4520a18d259bb656ac77fbf6dc56ada83eb4433dfc50c194e15bbe3121ef',
+  'codeagent-wrapper-linux-amd64': '3a133913cfbd7501c81f8e5da0468b8bf6d47abf1d5e4084ff49aeea146911dc',
+  'codeagent-wrapper-linux-arm64': '086a527b0d4d2027c5ef52f872fbd253423e1961ec2637ed604d0bf66e3c89b5',
+  'codeagent-wrapper-windows-amd64.exe': 'bf0d487624ff56ce947914ddd61627353484f42d84bafa549c453ffeae1095ec',
+  'codeagent-wrapper-windows-arm64.exe': 'ce411baf733214425a966020dfde6d43544d3fa835b2bac09dacfbd29c5dcd32',
 })
 
 // ═══════════════════════════════════════════════════════
