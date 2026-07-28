@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const UNSAFE_UPSTREAM_TASK_RENDERING = String.raw`                    taskEl.innerHTML = '<strong>📋 Task:</strong><br>' + session.task.replace(/\n/g, '<br>');`
@@ -43,7 +43,7 @@ function runPython(
   const commands = process.platform === 'win32' ? ['python'] : ['python3', 'python']
   const failures: string[] = []
   for (const command of commands) {
-    const result = spawnSync(command, ['-c', script, helperPath], {
+    const result = spawnSync(command, ['-B', '-c', script, helperPath], {
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -130,6 +130,13 @@ describe('Codex Gemini preview template', () => {
       { PYTHONIOENCODING: 'ascii:strict' },
     )
     expect(output).toBe('📋')
+  })
+
+  it('does not leave Python bytecode in a history-free package snapshot', () => {
+    const bytecodeCache = join(dirname(helperPath), '__pycache__')
+    expect(existsSync(bytecodeCache)).toBe(false)
+    runPython(helperPath, 'sys.stdout.write(module.render_live_output_html())')
+    expect(existsSync(bytecodeCache)).toBe(false)
   })
 
   it('keeps final response content without replaying it to later SSE clients', () => {
