@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -25,25 +25,6 @@ function findPackageRoot(): string {
     }
   }
   throw new Error('Could not find package root')
-}
-
-function extractResolvedUpstreamTemplate(serverSource: string): string {
-  const normalized = serverSource.replaceAll('\r\n', '\n')
-  const match = normalized.match(
-    /return fmt\.Sprintf\(`([\s\S]*?)`, backend, iconBg, titleColor, iconText, backend\)/,
-  )
-  if (!match)
-    throw new Error('Could not extract generateIndexHTML from codeagent-wrapper/server.go')
-
-  let html = match[1].replaceAll('%%', '%')
-  for (const value of ['gemini', '#8957e5', '#a371f7', 'GEM', 'gemini']) {
-    if (!html.includes('%s'))
-      throw new Error('Upstream template placeholder count drifted')
-    html = html.replace('%s', value)
-  }
-  if (html.includes('%s'))
-    throw new Error('Upstream template has unexpected extra placeholders')
-  return html
 }
 
 function runPython(
@@ -104,18 +85,17 @@ describe('Codex Gemini preview template', () => {
     const doctype = template.indexOf('<!DOCTYPE html>')
     expect(doctype).toBeGreaterThan(0)
     const pinnedPage = template.slice(doctype).replace(/\n$/, '')
-    const upstreamPage = extractResolvedUpstreamTemplate(
-      execFileSync(
-        'git',
-        ['show', '9eaff791de19fe45a1713b1153e65c5c7b607f80:codeagent-wrapper/server.go'],
-        { cwd: packageRoot, encoding: 'utf8', windowsHide: true },
-      ),
+    const upstreamPage = pinnedPage.replace(
+      SAFE_TASK_RENDERING,
+      UNSAFE_UPSTREAM_TASK_RENDERING,
     )
 
     expect(template).toContain('Commit: 9eaff791de19fe45a1713b1153e65c5c7b607f80')
     expect(template).toContain('Copyright (c) 2025 fengshao1227')
     expect(template).toContain('Permission is hereby granted, free of charge')
     expect(template).toContain('THE SOFTWARE IS PROVIDED "AS IS"')
+    expect(pinnedPage).toContain(SAFE_TASK_RENDERING)
+    expect(pinnedPage).not.toContain(UNSAFE_UPSTREAM_TASK_RENDERING)
     expect(createHash('sha256').update(upstreamPage).digest('hex'))
       .toBe('f1d29d0e1bd6b8cc3c1f6a8a6e74f7cc03788b85a4b4e3e8319f83e5e0365ab6')
     expect(upstreamPage).toContain(UNSAFE_UPSTREAM_TASK_RENDERING)
