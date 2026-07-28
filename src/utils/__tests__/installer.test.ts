@@ -400,6 +400,17 @@ describe('installWorkflows — binary installation', () => {
     expect(sourceVersion).toBe(EXPECTED_BINARY_VERSION)
   })
 
+  it('keeps release binaries independent of the branch, commit, and checkout path', () => {
+    const workflow = readFileSync(
+      join(PACKAGE_ROOT, '.github', 'workflows', 'build-binaries.yml'),
+      'utf8',
+    )
+    expect(workflow).toContain(`- '.github/workflows/build-binaries.yml'`)
+    expect(workflow).toContain(
+      'go build -buildvcs=false -trimpath -ldflags="-s -w"',
+    )
+  })
+
   it('defines every wrapper acquisition or verification failure as fatal', async () => {
     const installer = await import('../installer')
     const source = readFileSync(join(PACKAGE_ROOT, 'src', 'utils', 'installer.ts'), 'utf8')

@@ -73,15 +73,15 @@ export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
  * Trusted digests published by the authoritative personal fork's `preset`
  * release. A candidate must match before it is made executable or started.
  * Generated from byte-identical Go 1.21.13 builds with CGO disabled and the
- * release workflow's `-ldflags="-s -w"` settings.
+ * release workflow's `-buildvcs=false -trimpath -ldflags="-s -w"` settings.
  */
 export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
-  'codeagent-wrapper-darwin-amd64': '21dc1f0a0e839d8b711a3b39f04ee0994f55bf79ec24aa305de3de27048f0ce1',
-  'codeagent-wrapper-darwin-arm64': '0eab4520a18d259bb656ac77fbf6dc56ada83eb4433dfc50c194e15bbe3121ef',
-  'codeagent-wrapper-linux-amd64': '3a133913cfbd7501c81f8e5da0468b8bf6d47abf1d5e4084ff49aeea146911dc',
-  'codeagent-wrapper-linux-arm64': '086a527b0d4d2027c5ef52f872fbd253423e1961ec2637ed604d0bf66e3c89b5',
-  'codeagent-wrapper-windows-amd64.exe': 'bf0d487624ff56ce947914ddd61627353484f42d84bafa549c453ffeae1095ec',
-  'codeagent-wrapper-windows-arm64.exe': 'ce411baf733214425a966020dfde6d43544d3fa835b2bac09dacfbd29c5dcd32',
+  'codeagent-wrapper-darwin-amd64': '40b50f0c8cc9b144270ccda160defb4b80c34f8314361d43c23caaf44cfdf378',
+  'codeagent-wrapper-darwin-arm64': '403fc80d9428963d7d4e17059f9cb61fd03c888546c8cfbf2ad165481c9fd5e8',
+  'codeagent-wrapper-linux-amd64': '29c8e6490e9e550c6ee077e23b1a82a3a91b63d4d3a04eadcba01d61f79496bb',
+  'codeagent-wrapper-linux-arm64': '5121afc27571b2047f37709eb445f53d21e1824c2d317a4830eddb9b2a7b3c4d',
+  'codeagent-wrapper-windows-amd64.exe': '9f6fc280e397f0e7ca334bde9854980f30ec87405baf0dcac1ea542d0dc0cca7',
+  'codeagent-wrapper-windows-arm64.exe': '416b1b9e2a34eebde87663aa1555bf993ad7a0ee864d4b8c203e0951c9192997',
 })
 
 // ═══════════════════════════════════════════════════════
