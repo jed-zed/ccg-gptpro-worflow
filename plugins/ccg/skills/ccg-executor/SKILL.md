@@ -75,9 +75,11 @@ providers. Frontend is not permanently Gemini and backend is not permanently
 Codex. An explicit provider request for the current task wins without changing
 the saved defaults.
 
-Whenever `frontend` or `backend` is used, resolve and invoke `search` once for
-the same phase, then evaluate the mapped product-manager candidate. Record
-`searchStatus` and `productManagerStatus`; stop at
+Whenever `frontend` or `backend` is used, resolve one logical `search`
+operation for the same phase. Keep one stable operation/evidence identity,
+allow at most two total attempts against the same configured Provider, and
+record `attemptCount`. Then evaluate the mapped product-manager candidate and
+record `searchStatus` and `productManagerStatus`; stop at
 `authorization_required` until the user explicitly authorizes that Provider
 call.
 
@@ -122,13 +124,15 @@ Codex-native trigger rules:
   planning, drafts, and review.
 - Frontend/UI tasks use the configured `frontend` provider for analysis,
   planning, prototypes, and review.
-- Frontend or backend work automatically uses the configured `search` provider
-  once as required companion evidence, including review of gathered evidence.
+- Frontend or backend work automatically starts the logical `search` operation
+  defined by the Companion Role Contract as required companion evidence,
+  including review of gathered evidence.
 - At the next eligible checkpoint, evaluate the mapped `product-manager`
   candidate and pause for explicit per-call authorization before invocation.
 - Cross-cutting tasks split by role without changing the saved role mappings.
-- If a required external provider fails after two attempts, stop and report the
-  missing evidence instead of silently substituting another provider.
+- If a required external provider fails after at most two total attempts, stop
+  and report the missing evidence instead of silently substituting another
+  provider.
 
 When Gemini is selected, use:
 

@@ -71,8 +71,8 @@ Before writing or presenting a final plan:
   evidence identity.
 
 If a selected external provider cannot start or still has no usable response
-after two attempts, stop and report the failure in Chinese. Do not write or
-present a final plan and do not emit fake multi-model evidence.
+after at most two total attempts, stop and report the failure in Chinese. Do
+not write or present a final plan and do not emit fake multi-model evidence.
 
 This gate does not apply to empty-input usage/help responses.
 
@@ -107,8 +107,9 @@ This gate does not apply to empty-input usage/help responses.
      `../../rules/ccg-role-routing.md` for bounded read-only analysis of that
      role's slice.
    - Include the enhanced requirement, context evidence, and a request for concise analysis: alternative approaches, edge cases, UI/UX concerns when relevant, tests, risks, and recommended plan steps.
-   - Retry a failed external provider call at most twice, then stop without
-     writing a plan.
+   - Make at most two total attempts for a failed external provider call, using
+     the same configured Provider and stable operation/evidence identity, then
+     stop without writing a plan.
    - Read the non-empty provider response before writing the final plan.
 
 5. **Synthesize the plan**

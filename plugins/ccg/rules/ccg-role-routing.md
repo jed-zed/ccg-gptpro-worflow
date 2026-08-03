@@ -45,11 +45,12 @@ authorization.
 ## Companion Role Contract
 
 When a workflow uses `frontend` or `backend`, the controller must also resolve
-and invoke `search` exactly once for that task phase. Search is required
-companion evidence, not an optional classification. Use the configured
-`search` Provider, keep its output read-only, and do not fall back to another
-Provider. If the required search evidence still fails after the workflow's
-normal retry policy, stop and report the missing channel.
+exactly one logical `search` operation for that task phase. Search is required
+companion evidence, not an optional classification. The operation may make at
+most two total attempts against the same configured `search` Provider. Keep one
+stable operation/evidence identity, record `attemptCount`, keep the output
+read-only, and do not fall back to another Provider. If the required search
+evidence still fails after those attempts, stop and report the missing channel.
 
 The same workflow must evaluate the mapped product-manager event at the next
 eligible checkpoint described by `ccg-product-manager.md`. A candidate opens

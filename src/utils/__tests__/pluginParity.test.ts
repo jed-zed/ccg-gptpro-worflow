@@ -123,7 +123,19 @@ describe('Codex plugin release parity', () => {
     expect(routingRule).toContain('productManagerStatus')
     expect(routingRule).toContain('explicit per-call authorization gate')
     expect(routingRule).toContain('`not_applicable` is valid only when neither frontend/backend')
+    expect(routingRule).toContain('exactly one logical `search` operation')
+    expect(routingRule).toMatch(/at\s+most two total attempts/)
+    expect(routingRule).toContain('attemptCount')
+    expect(routingRule).not.toContain('invoke `search` exactly once')
     expect(routingRule).not.toContain('`searchStatus`: `invoked`, `skipped`')
+
+    for (const skill of ['ccg-executor', 'ccg-plan']) {
+      const content = fs.readFileSync(join(pluginRoot, 'skills', skill, 'SKILL.md'), 'utf8')
+      expect(content, skill).toMatch(/at\s+most two total attempts/)
+      expect(content, skill).not.toContain('invoke `search` once')
+      expect(content, skill).not.toContain('after two attempts')
+      expect(content, skill).not.toContain('at most twice')
+    }
 
     const directSkills = [
       'ccg-executor',
