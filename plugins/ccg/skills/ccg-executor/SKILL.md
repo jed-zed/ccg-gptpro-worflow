@@ -49,16 +49,18 @@ Claude Code orchestrates Codex + Gemini
 In Codex, the model is:
 
 ```text
-Codex orchestrates three independently configured top-level roles, applies
-code, verifies, and reports.
+Codex orchestrates four configured top-level roles, applies code, verifies,
+and reports. Frontend or backend work automatically adds search evidence and
+evaluates the product-manager authorization gate.
 ```
 
 When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or legacy external handoff files, treat them as provenance and intent, not as sessions to resume. Translate legacy orchestration into current role routing, bounded provider evidence, Codex edits, and Codex verification.
 
 ## Role Routing
 
-Read `../../rules/ccg-role-routing.md` before assigning generic model work.
-Classify each task slice and resolve only the top-level roles needed:
+Read `../../rules/ccg-role-routing.md` before assigning generic model work and
+follow its **Companion Role Contract**. Classify each task slice and resolve the
+top-level roles needed:
 
 ```text
 ccg routing get frontend --json
@@ -72,6 +74,12 @@ applicable frontend, backend, or search role. They do not have separate saved
 providers. Frontend is not permanently Gemini and backend is not permanently
 Codex. An explicit provider request for the current task wins without changing
 the saved defaults.
+
+Whenever `frontend` or `backend` is used, resolve and invoke `search` once for
+the same phase, then evaluate the mapped product-manager candidate. Record
+`searchStatus` and `productManagerStatus`; stop at
+`authorization_required` until the user explicitly authorizes that Provider
+call.
 
 ## Input Handling
 
@@ -114,8 +122,10 @@ Codex-native trigger rules:
   planning, drafts, and review.
 - Frontend/UI tasks use the configured `frontend` provider for analysis,
   planning, prototypes, and review.
-- External lookup uses the configured `search` provider, including analysis and
-  review of the gathered evidence.
+- Frontend or backend work automatically uses the configured `search` provider
+  once as required companion evidence, including review of gathered evidence.
+- At the next eligible checkpoint, evaluate the mapped `product-manager`
+  candidate and pause for explicit per-call authorization before invocation.
 - Cross-cutting tasks split by role without changing the saved role mappings.
 - If a required external provider fails after two attempts, stop and report the
   missing evidence instead of silently substituting another provider.
@@ -259,7 +269,9 @@ When the task needs more detail, read only the relevant rule file under `../../r
 - `ccg-fast-context.md` for approval-aware local search routing.
 - `ccg-search-evidence.md` for web/search evidence standards.
 - `ccg-quality-gates.md` for quality gate trigger rules.
-- `ccg-role-routing.md` for independently configured role providers.
+- `ccg-role-routing.md` for configured providers and the Companion Role
+  Contract.
+- `ccg-product-manager.md` for product-manager event and authorization gates.
 - `ccg-skill-routing.md` for domain-oriented context routing.
 - `domain-frontend.md`, `domain-backend.md`, `domain-security.md`, `domain-devops.md`, `domain-ai.md`, and `domain-data.md` for migrated original CCG domain guidance.
 - `impeccable-ui.md` for UI polish and visual-risk guidance.
