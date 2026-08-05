@@ -1,7 +1,6 @@
 import type { ModelRouting, ModelType, RoutingRole } from '../types'
 import ansis from 'ansis'
 import fs from 'fs-extra'
-import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { parse, stringify } from 'smol-toml'
 import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
@@ -12,6 +11,7 @@ import {
   setRoleProvider,
 } from '../utils/model-routing'
 import { migrateLegacyProductManagerProviderDocument } from '../utils/config'
+import { resolveCodexHome } from '../utils/codex-mode'
 
 interface CodexConfigDocument {
   [key: string]: unknown
@@ -23,7 +23,7 @@ export interface RoutingCommandOptions {
 }
 
 export function getCodexRoutingConfigPath(): string {
-  return join(homedir(), '.codex', 'ccg', 'config.toml')
+  return join(resolveCodexHome(), 'ccg', 'config.toml')
 }
 
 async function readDocument(configPath: string): Promise<CodexConfigDocument> {

@@ -24,7 +24,6 @@ import { isCodexNativeRequest } from '../../cli-setup'
 import { installCodexModeAt, resolveCodexHome } from '../codex-mode'
 
 const roots: string[] = []
-
 afterEach(async () => {
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
@@ -260,7 +259,7 @@ describe('Codex-only doctor', () => {
     const result = await doctor({ platform: 'codex' })
 
     expect(installed.success, installed.message).toBe(true)
-    expect(result.ok, result.failures.map(failure => failure.detail).join('\n')).toBe(true)
+    expect(result.failures.map(failure => failure.label)).toEqual(['Codex wrapper'])
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })
 
@@ -271,17 +270,48 @@ describe('Codex-only doctor', () => {
 
     const result = await doctor({ platform: 'codex' })
 
-    expect(result.ok, result.failures.map(failure => `${failure.label}: ${failure.detail}`).join('\n')).toBe(true)
+    expect(result.failures.map(failure => failure.label)).toEqual(['Codex wrapper'])
     expect(result.checks.map(check => check.label)).toEqual([
       'Node.js',
       'Codex AGENTS.md',
       'Codex version',
       'Codex ownership',
+      'Codex wrapper',
       'Codex transaction',
       'CCG role routing',
       'Product manager route',
     ])
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
+  })
+
+  it('rejects an owned wrapper that does not match the pinned binary', async () => {
+    const { codexHome } = await makeCodexFixture()
+    vi.stubEnv('CODEX_HOME', codexHome)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const result = await doctor({ platform: 'codex' })
+    const wrapper = result.checks.find(check => check.label === 'Codex wrapper')
+
+    expect(result.ok).toBe(false)
+    expect(wrapper?.detail).toContain(`expected v`)
+  })
+
+  it('preserves invalid routing and recommends an exact routing set command', async () => {
+    const { codexHome } = await makeCodexFixture()
+    const configPath = join(codexHome, 'ccg', 'config.toml')
+    const invalid = (await fs.readFile(configPath, 'utf8'))
+      .replace('[routing.search]\nmodels = ["codex"]\nprimary = "codex"', '[routing.search]\nmodels = ["antigravity"]\nprimary = "antigravity"')
+    await writeFile(configPath, invalid)
+    vi.stubEnv('CODEX_HOME', codexHome)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const result = await doctor({ platform: 'codex' })
+    const output = log.mock.calls.flat().join('\n')
+
+    expect(result.ok).toBe(false)
+    expect(output).toContain('ccg routing set search grok')
+    expect(output).not.toContain('ccg codex-mode install')
+    expect(await fs.readFile(configPath, 'utf8')).toBe(invalid)
   })
 
   it('detects drift in files tracked by the Codex ownership manifest', async () => {
@@ -317,7 +347,7 @@ describe('Codex-only doctor', () => {
     const result = await doctor({ platform: 'codex' })
     const ownership = result.checks.find(check => check.label === 'Codex ownership')
 
-    expect(result.ok, result.failures.map(failure => `${failure.label}: ${failure.detail}`).join('\n')).toBe(true)
+    expect(result.failures.map(failure => failure.label)).toEqual(['Codex wrapper'])
     expect(ownership?.detail).toContain('mutable CCG config differs from the installed template')
   })
 
@@ -404,6 +434,7 @@ describe('Codex-only doctor', () => {
     expect(result.failures.map(check => check.label)).toEqual([
       'Codex version',
       'Codex ownership',
+      'Codex wrapper',
       'Codex transaction',
     ])
     expect(output).toContain('ccg codex-mode recover')
@@ -427,26 +458,27 @@ describe('doctor CLI', () => {
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })
 
-  it('returns zero for --platform codex without reading or creating ~/.claude', async () => {
+  it('rejects an untrusted Codex wrapper without reading or creating ~/.claude', async () => {
     const { root, codexHome } = await makeCodexFixture()
 
     const result = runCli(root, ['doctor', '--platform', 'codex'], codexHome)
 
-    expect(result.status, result.stderr).toBe(0)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stdout).toContain('CCG Doctor (Codex)')
-    expect(result.stdout).toContain('All Codex checks passed.')
+    expect(result.stdout).toContain('Codex wrapper')
+    expect(result.stdout).toContain('Pinned SHA-256 or version check failed')
     expect(result.stdout).not.toContain('.claude')
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })
 
-  it('falls back to ~/.codex when CODEX_HOME is unset', async () => {
+  it('falls back to ~/.codex when CODEX_HOME is unset before checking wrapper trust', async () => {
     const { root, codexHome } = await makeCodexFixture()
     await fs.copy(codexHome, join(root, '.codex'))
 
     const result = runCli(root, ['doctor', '--platform', 'codex'])
 
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.stdout).toContain('All Codex checks passed.')
+    expect(result.status, result.stderr).toBe(1)
+    expect(result.stdout).toContain('Pinned SHA-256 or version check failed')
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })
 
@@ -494,8 +526,8 @@ describe('doctor CLI', () => {
     expect(await fs.pathExists(join(root, '.codex'))).toBe(false)
 
     const checked = runCli(root, ['doctor', '--platform', 'codex'], codexHome)
-    expect(checked.status, checked.stderr).toBe(0)
-    expect(checked.stdout).toContain('All Codex checks passed.')
+    expect(checked.status, checked.stderr).toBe(1)
+    expect(checked.stdout).toContain('Pinned SHA-256 or version check failed')
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })
 })

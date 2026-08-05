@@ -12,6 +12,7 @@ import { resolveClaudeExecutable, resolveGeminiEntrypoint } from './product-mana
 import { readCcgConfig, readCcgConfigAt } from '../utils/config'
 import { resolveCodexHome, validateOwnershipManifest } from '../utils/codex-mode'
 import { EXPECTED_BINARY_VERSION, verifyBinaryVersion } from '../utils/installer'
+import { createDefaultRoleRouting, isRoutingRole } from '../utils/model-routing'
 import { assertManagedPath } from '../utils/managed-path'
 import { PACKAGE_ROOT } from '../utils/installer-template'
 import { version as packageVersion } from '../../package.json'
@@ -348,6 +349,20 @@ async function doctorCodex(): Promise<DoctorResult> {
     detail: ownership.detail,
   })
 
+  const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
+  const wrapperPath = join(codexHome, 'ccg', 'bin', wrapperName)
+  const wrapperExists = await fileExists(wrapperPath)
+  const wrapperValid = wrapperExists && await verifyBinaryVersion(join(codexHome, 'ccg'))
+  checks.push({
+    label: 'Codex wrapper',
+    status: wrapperValid ? OK : FAIL,
+    detail: wrapperValid
+      ? `Pinned SHA-256 and version v${EXPECTED_BINARY_VERSION} verified`
+      : wrapperExists
+        ? `Pinned SHA-256 or version check failed (expected v${EXPECTED_BINARY_VERSION})`
+        : `Not found (${wrapperPath})`,
+  })
+
   const transactionPath = join(codexHome, '.ccg', 'transaction.json')
   const hasPendingTransaction = await fileExists(transactionPath)
   checks.push({
@@ -432,9 +447,13 @@ async function doctorCodex(): Promise<DoctorResult> {
     console.log(ansis.green('  All Codex checks passed.'))
   }
   else {
+    const invalidRole = routingError?.match(/not supported for role ([a-z-]+);/u)?.[1]
+    const routingRepair = invalidRole && isRoutingRole(invalidRole)
+      ? `ccg routing set ${invalidRole} ${createDefaultRoleRouting()[invalidRole].primary}`
+      : null
     const repairCommand = hasPendingTransaction
       ? 'ccg codex-mode recover'
-      : 'ccg codex-mode install'
+      : routingRepair || 'ccg codex-mode install'
     console.log(ansis.red(`  ${failures.length} issue(s) found. Run ${ansis.cyan(repairCommand)}, then rerun this check.`))
   }
   console.log()

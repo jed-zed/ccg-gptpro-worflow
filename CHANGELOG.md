@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Role capability matrix** — Restrict frontend/backend, search, and
   product-manager routes to their supported provider sets; ordinary Claude
   delegation remains prohibited.
+- **Pinned wrapper runtime** — Bump the wrapper to `5.12.4` for Pi execution,
+  make Codex doctor verify the pinned binary version and SHA-256, and provide
+  exact remediation for invalid persisted role routing.
 
 ## [3.4.5] - 2026-07-31
 
