@@ -93,6 +93,15 @@ describe('Codex mode ownership and reversibility', () => {
     expect(await readFile(wrapperPath)).toEqual(original)
   })
 
+  it.skipIf(process.platform === 'win32')('installs the managed wrapper with executable mode', async () => {
+    const codexHome = await makeCodexHome()
+
+    expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+
+    const wrapperPath = join(codexHome, 'ccg', 'bin', 'codeagent-wrapper')
+    expect((await fs.stat(wrapperPath)).mode & 0o777).toBe(0o755)
+  })
+
   it('restores byte-exact original global instructions and hooks when unchanged', async () => {
     const codexHome = await makeCodexHome()
     const agentsPath = join(codexHome, 'AGENTS.md')
@@ -442,6 +451,9 @@ describe('Codex mode ownership and reversibility', () => {
     expect(recovered).toMatchObject({ success: true, recovered: true })
     for (const [relativePath, bytes] of installed)
       expect(await readFile(join(codexHome, relativePath))).toEqual(bytes)
+    if (process.platform !== 'win32') {
+      expect((await fs.stat(join(codexHome, 'ccg', 'bin', 'codeagent-wrapper'))).mode & 0o777).toBe(0o755)
+    }
   }, 30_000)
 
   it('rejects a tampered transaction schema without touching an external path', async () => {

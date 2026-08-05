@@ -20,6 +20,7 @@ import { formatPythonCommand, resolvePythonInvocation } from './python-resolver'
 
 const START_MARKER = '<!-- CCG:START'
 const END_MARKER = '<!-- CCG:END -->'
+const WRAPPER_RELATIVE_PATH = `ccg/bin/${process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'}`
 
 interface OriginalFile {
   sha256: string
@@ -201,7 +202,7 @@ async function atomicWrite(
   codexHome: string,
   path: string,
   value: string | Buffer,
-  mode = 0o600,
+  mode = managedRelativePath(codexHome, path) === WRAPPER_RELATIVE_PATH ? 0o755 : 0o600,
 ): Promise<void> {
   await safeManagedAtomicWrite(
     codexHome,
@@ -653,7 +654,7 @@ export async function recoverCodexModeAt(
 
     for (const entry of [...recovery].reverse()) {
       if (entry.bytes)
-        await safeManagedAtomicWrite(codexHome, entry.relativePath, entry.bytes)
+        await atomicWrite(codexHome, join(codexHome, entry.relativePath), entry.bytes)
       else
         await safeManagedRemoveFile(codexHome, entry.relativePath)
     }
@@ -755,7 +756,7 @@ export async function installCodexModeAt(
   const agentsPath = join(codexHome, 'AGENTS.md')
   const pythonCommand = options.pythonCommand
     ?? formatPythonCommand(resolvePythonInvocation())
-  const wrapperRelativePath = `ccg/bin/${process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'}`
+  const wrapperRelativePath = WRAPPER_RELATIVE_PATH
 
   if (!(await fs.pathExists(templateDir)))
     return { success: false, message: 'Codex template directory not found' }
