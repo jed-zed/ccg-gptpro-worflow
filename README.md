@@ -250,8 +250,9 @@ node bin/ccg.mjs status                   # Installation overview
 node bin/ccg.mjs codex-mode install       # Install Codex-Led mode
 node bin/ccg.mjs codex-mode uninstall     # Uninstall Codex-Led mode
 node bin/ccg.mjs codex-mode recover       # Recover an interrupted Codex transaction
-node bin/ccg.mjs routing list              # Show three top-level role providers
-node bin/ccg.mjs routing set frontend claude # Change one role only
+node bin/ccg.mjs wrapper --backend antigravity "task" . # Managed provider run; Web UI on by default
+node bin/ccg.mjs routing list              # Show four top-level role providers
+node bin/ccg.mjs routing set frontend antigravity # Change one compatible role only
 node bin/ccg.mjs uninstall                # Uninstall CCG
 node bin/ccg.mjs config mcp               # Configure approved MCPs
 node bin/ccg.mjs diagnose-mcp             # Static MCP diagnosis
@@ -261,11 +262,14 @@ node bin/ccg.mjs doctor --grok            # Non-paid Grok contract doctor
 node bin/ccg.mjs doctor --grok-live       # Explicit paid Web/X smoke
 ```
 
-Codex mode routes `frontend`, `backend`, and `search` independently to any
-provider already registered by `codeagent-wrapper`: `codex`, `gemini`,
-`claude`, `antigravity`, `grok`, or `pi`. Analysis, planning, and review run inside
-the applicable top-level role. Codex remains the final real-workspace writer
-and verifier.
+Codex mode routes four roles through an explicit capability matrix:
+frontend/backend support `codex`, `gemini`, `antigravity`, `grok`, and `pi`;
+search supports `codex` and `grok`; product-manager supports `codex`, `gemini`,
+and read-only `claude`. CCG workflows use `ccg wrapper` for managed
+Antigravity/Grok/Pi runs; the direct command also accepts ordinary Codex and
+Gemini wrapper backends, but never Claude and never changes role routing. It
+leaves the browser Web UI enabled unless `--lite` is explicit. Codex remains
+the final real-workspace writer and verifier.
 
 ## Configuration
 
@@ -376,4 +380,4 @@ MIT
 
 ---
 
-v3.4.5 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.6 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

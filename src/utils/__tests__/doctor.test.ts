@@ -16,6 +16,7 @@ import {
   execFileSafe,
   formatGrokDoctorFailure,
   getGrokDoctorTimeout,
+  providerCliCommand,
   routingStatusRows,
   validateIntelligenceDoctorConfig,
 } from '../../commands/doctor'
@@ -42,16 +43,39 @@ async function makeCodexFixture(): Promise<{ root: string, codexHome: string }> 
     matcher: '*',
     hooks: [{ type: 'command', command: 'python fixture.py' }],
   }
+  const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
   const managedFiles = new Map([
     ['.ccg-version', packageVersion],
     ['agents/ccg-review.toml', 'name = "ccg-review"\n'],
-    ['ccg/config.toml', '[intelligence]\nenabled = false\n'],
+    [`ccg/bin/${wrapperName}`, 'test wrapper\n'],
+    ['ccg/config.toml', [
+      '[routing.frontend]',
+      'models = ["codex"]',
+      'primary = "codex"',
+      'strategy = "fallback"',
+      '[routing.backend]',
+      'models = ["codex"]',
+      'primary = "codex"',
+      'strategy = "fallback"',
+      '[routing.search]',
+      'models = ["codex"]',
+      'primary = "codex"',
+      'strategy = "fallback"',
+      '[routing.product-manager]',
+      'models = ["codex"]',
+      'primary = "codex"',
+      'strategy = "fallback"',
+      '[intelligence]',
+      'enabled = false',
+      '',
+    ].join('\n')],
     ['hooks/ccg-workflow.py', 'print("ok")\n'],
   ])
   roots.push(root)
   await fs.ensureDir(join(codexHome, '.ccg'))
   await fs.ensureDir(join(codexHome, 'agents'))
   await fs.ensureDir(join(codexHome, 'ccg'))
+  await fs.ensureDir(join(codexHome, 'ccg', 'bin'))
   await fs.ensureDir(join(codexHome, 'hooks'))
   await writeFile(join(codexHome, 'AGENTS.md'), `${agentsBlock}\n`)
   await writeFile(
@@ -82,6 +106,18 @@ async function makeCodexFixture(): Promise<{ root: string, codexHome: string }> 
   return { root, codexHome }
 }
 
+async function selectCodexOnlyRouting(codexHome: string): Promise<void> {
+  const configPath = join(codexHome, 'ccg', 'config.toml')
+  let config = await fs.readFile(configPath, 'utf8')
+  for (const role of ['frontend', 'backend', 'search', 'product-manager']) {
+    config = config.replace(
+      new RegExp(`(\\[routing\\.${role}\\][\\s\\S]*?models\\s*=\\s*)\\[[^\\]]+\\]([\\s\\S]*?primary\\s*=\\s*)"[^"]+"`),
+      '$1["codex"]$2"codex"',
+    )
+  }
+  await writeFile(configPath, config)
+}
+
 function runCli(home: string, args: string[], codexHome?: string) {
   const tsxImport = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   return spawnSync(
@@ -105,6 +141,7 @@ function runCli(home: string, args: string[], codexHome?: string) {
 describe('doctor command helpers', () => {
   it('recognizes Codex-native requests before legacy config loading', () => {
     expect(isCodexNativeRequest(['codex-mode', 'install'])).toBe(true)
+    expect(isCodexNativeRequest(['wrapper', '--backend', 'antigravity'])).toBe(true)
     expect(isCodexNativeRequest(['doctor', '--platform', 'codex'])).toBe(true)
     expect(isCodexNativeRequest(['doctor', '--platform=codex'])).toBe(true)
     expect(isCodexNativeRequest(['doctor'])).toBe(false)
@@ -162,6 +199,15 @@ describe('doctor command helpers', () => {
     ])
   })
 
+  it('maps only external wrapper providers to their executable names', () => {
+    expect(providerCliCommand('codex')).toBeNull()
+    expect(providerCliCommand('claude')).toBeNull()
+    expect(providerCliCommand('gemini')).toBe('gemini')
+    expect(providerCliCommand('antigravity')).toBe('agy')
+    expect(providerCliCommand('grok')).toBe('grok')
+    expect(providerCliCommand('pi')).toBe('pi')
+  })
+
   it('allows enough time for model discovery plus the bounded ACP handshake', () => {
     expect(getGrokDoctorTimeout({ grok: true })).toBe(180_000)
     expect(getGrokDoctorTimeout({ grokLive: true })).toBe(600_000)
@@ -205,7 +251,9 @@ describe('Codex-only doctor', () => {
     const installed = await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
+      wrapperBytes: Buffer.from('test wrapper\n'),
     })
+    await selectCodexOnlyRouting(codexHome)
     vi.stubEnv('CODEX_HOME', codexHome)
     vi.spyOn(console, 'log').mockImplementation(() => {})
 
@@ -223,7 +271,7 @@ describe('Codex-only doctor', () => {
 
     const result = await doctor({ platform: 'codex' })
 
-    expect(result.ok).toBe(true)
+    expect(result.ok, result.failures.map(failure => `${failure.label}: ${failure.detail}`).join('\n')).toBe(true)
     expect(result.checks.map(check => check.label)).toEqual([
       'Node.js',
       'Codex AGENTS.md',
@@ -259,7 +307,7 @@ describe('Codex-only doctor', () => {
         '',
         '[product_manager]',
         'enabled = true',
-        'provider = "gemini"',
+        'provider = "codex"',
         'contract_version = "1"',
         '',
       ].join('\n'),
@@ -270,7 +318,7 @@ describe('Codex-only doctor', () => {
     const result = await doctor({ platform: 'codex' })
     const ownership = result.checks.find(check => check.label === 'Codex ownership')
 
-    expect(result.ok).toBe(true)
+    expect(result.ok, result.failures.map(failure => `${failure.label}: ${failure.detail}`).join('\n')).toBe(true)
     expect(ownership?.detail).toContain('mutable CCG config differs from the installed template')
   })
 
@@ -436,8 +484,13 @@ describe('doctor CLI', () => {
     const codexHome = join(root, 'custom-codex')
     roots.push(root)
 
-    const installed = runCli(root, ['codex-mode', 'install'], codexHome)
-    expect(installed.status, installed.stderr).toBe(0)
+    const installed = await installCodexModeAt({
+      codexHome,
+      pythonCommand: 'python',
+      wrapperBytes: Buffer.from('test wrapper\n'),
+    })
+    expect(installed.success, installed.message).toBe(true)
+    await selectCodexOnlyRouting(codexHome)
     expect(await fs.pathExists(join(codexHome, '.ccg', 'ownership.json'))).toBe(true)
     expect(await fs.pathExists(join(root, '.codex'))).toBe(false)
 

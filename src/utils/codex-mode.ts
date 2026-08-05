@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { isAbsolute, relative, resolve } from 'node:path'
 import fs from 'fs-extra'
 import { join } from 'pathe'
@@ -56,6 +56,8 @@ export interface InstallCodexModeOptions {
   codexHome?: string
   templateDir?: string
   pythonCommand?: string
+  /** Test-only verified wrapper bytes; production callers must use the pinned downloader. */
+  wrapperBytes?: Buffer
 }
 
 export interface UninstallCodexModeOptions {
@@ -261,6 +263,7 @@ function validateManagedRelativePath(value: unknown): string {
   const allowed = normalized === '.ccg-version'
     || normalized === 'config.toml'
     || normalized === 'ccg/config.toml'
+    || /^ccg\/bin\/codeagent-wrapper(?:\.exe)?$/i.test(normalized)
     || /^(?:agents|hooks)\/[a-z0-9._-]+$/i.test(normalized)
   if (!allowed || normalized.includes('..'))
     throw new Error(`Codex mode ownership contains an unsafe path: ${value}`)
@@ -439,10 +442,11 @@ function validateTransactionTarget(value: unknown): string {
     || normalized === 'hooks.json'
     || normalized === 'config.toml'
     || normalized === 'ccg/config.toml'
+    || /^ccg\/bin\/codeagent-wrapper(?:\.exe)?$/i.test(normalized)
     || normalized === '.ccg-version'
     || normalized === '.ccg/ownership.json'
     || /^(?:agents|hooks)\/[a-z0-9._-]+$/i.test(normalized)
-    || /^\.ccg\/backups\/[^/]+\/(?:AGENTS\.md|hooks\.json|config\.toml|ccg\/config\.toml|\.ccg-version|(?:agents|hooks)\/[a-z0-9._-]+)$/i.test(normalized)
+    || /^\.ccg\/backups\/[^/]+\/(?:AGENTS\.md|hooks\.json|config\.toml|ccg\/config\.toml|ccg\/bin\/codeagent-wrapper(?:\.exe)?|\.ccg-version|(?:agents|hooks)\/[a-z0-9._-]+)$/i.test(normalized)
   if (!allowed || normalized.includes('..'))
     throw new Error(`Codex mode transaction target is invalid: ${value}`)
   return normalized
@@ -751,6 +755,7 @@ export async function installCodexModeAt(
   const agentsPath = join(codexHome, 'AGENTS.md')
   const pythonCommand = options.pythonCommand
     ?? formatPythonCommand(resolvePythonInvocation())
+  const wrapperRelativePath = `ccg/bin/${process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'}`
 
   if (!(await fs.pathExists(templateDir)))
     return { success: false, message: 'Codex template directory not found' }
@@ -762,6 +767,7 @@ export async function installCodexModeAt(
     for (const relativePath of [
       '.ccg/ownership.json',
       'ccg/config.toml',
+      wrapperRelativePath,
       'hooks.json',
       'AGENTS.md',
     ]) {
@@ -814,6 +820,31 @@ export async function installCodexModeAt(
     const previousFiles = new Map(previous?.files.map(file => [file.relativePath, file]) ?? [])
     const planned = new Map<string, Buffer>()
     const plannedBackups = new Map<string, Buffer>()
+
+    if (options.wrapperBytes && process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true')
+      throw new Error('wrapperBytes is available only in tests.')
+    let wrapperBytes = options.wrapperBytes
+    const existingWrapper = previousFiles.get(wrapperRelativePath)
+    const wrapperPath = join(codexHome, wrapperRelativePath)
+    if (!wrapperBytes && existingWrapper && await fs.pathExists(wrapperPath)) {
+      const current = await fs.readFile(wrapperPath)
+      if (sha256(current) === existingWrapper.installedSha256) {
+        const { verifyBinaryVersion } = await import('./installer')
+        if (await verifyBinaryVersion(join(codexHome, 'ccg')))
+          wrapperBytes = current
+      }
+    }
+    if (!wrapperBytes) {
+      const stagingRoot = await fs.mkdtemp(join(tmpdir(), 'ccg-wrapper-'))
+      try {
+        const { installVerifiedBinaryAt } = await import('./installer')
+        wrapperBytes = await fs.readFile(await installVerifiedBinaryAt(stagingRoot))
+      }
+      finally {
+        await fs.remove(stagingRoot)
+      }
+    }
+    planned.set(wrapperRelativePath, wrapperBytes)
 
     const agentsTemplateDir = join(templateDir, 'agents')
     for (const name of (await fs.readdir(agentsTemplateDir)).sort()) {

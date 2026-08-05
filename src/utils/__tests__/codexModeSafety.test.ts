@@ -10,6 +10,13 @@ import * as codexMode from '../codex-mode'
 import { readCcgConfigAt } from '../config'
 
 const roots: string[] = []
+const TEST_WRAPPER_BYTES = Buffer.from('verified test wrapper')
+
+function installCodexModeAt(
+  options: Omit<codexMode.InstallCodexModeOptions, 'wrapperBytes'>,
+) {
+  return codexMode.installCodexModeAt({ ...options, wrapperBytes: TEST_WRAPPER_BYTES })
+}
 
 async function makeCodexHome(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'ccg codex mode '))
@@ -44,7 +51,7 @@ async function hardTerminateCodexMode(
     runnerPath,
     [
       `import { ${functionName} } from ${JSON.stringify(codexModeUrl)};`,
-      `await ${functionName}({ codexHome: ${JSON.stringify(codexHome)}, pythonCommand: "python" });`,
+      `await ${functionName}({ codexHome: ${JSON.stringify(codexHome)}, pythonCommand: "python", wrapperBytes: Buffer.from(${JSON.stringify(TEST_WRAPPER_BYTES.toString('base64'))}, "base64") });`,
       '',
     ].join('\n'),
   )
@@ -66,6 +73,26 @@ async function hardTerminateCodexMode(
 }
 
 describe('Codex mode ownership and reversibility', () => {
+  it('owns the wrapper and restores a pre-existing binary on uninstall', async () => {
+    const codexHome = await makeCodexHome()
+    const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
+    const wrapperPath = join(codexHome, 'ccg', 'bin', wrapperName)
+    const original = Buffer.from('user wrapper')
+    await fs.ensureDir(join(codexHome, 'ccg', 'bin'))
+    await writeFile(wrapperPath, original)
+
+    expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+    expect(await readFile(wrapperPath)).toEqual(TEST_WRAPPER_BYTES)
+    const ownership = await fs.readJSON(join(codexHome, '.ccg', 'ownership.json'))
+    expect(ownership.files).toContainEqual(expect.objectContaining({
+      relativePath: `ccg/bin/${wrapperName}`,
+      original: expect.objectContaining({ backupPath: expect.any(String) }),
+    }))
+
+    expect((await codexMode.uninstallCodexModeAt({ codexHome })).success).toBe(true)
+    expect(await readFile(wrapperPath)).toEqual(original)
+  })
+
   it('restores byte-exact original global instructions and hooks when unchanged', async () => {
     const codexHome = await makeCodexHome()
     const agentsPath = join(codexHome, 'AGENTS.md')
@@ -75,7 +102,7 @@ describe('Codex mode ownership and reversibility', () => {
     await writeFile(agentsPath, originalAgents)
     await writeFile(hooksPath, originalHooks)
 
-    expect((await codexMode.installCodexModeAt({
+    expect((await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })).success).toBe(true)
@@ -97,7 +124,7 @@ describe('Codex mode ownership and reversibility', () => {
     await writeFile(hooksPath, JSON.stringify({ hooks: { UserPromptSubmit: [userHook] } }, null, 2))
     await writeFile(collisionPath, 'user-owned-agent = true\n')
 
-    const installed = await codexMode.installCodexModeAt({
+    const installed = await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })
@@ -131,7 +158,7 @@ describe('Codex mode ownership and reversibility', () => {
 
   it('keeps a managed file that the user changed after installation', async () => {
     const codexHome = await makeCodexHome()
-    await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })
+    await installCodexModeAt({ codexHome, pythonCommand: 'python' })
     const managedPath = join(codexHome, 'agents', 'ccg-review.toml')
     await writeFile(managedPath, 'user changed this after install\n')
 
@@ -149,7 +176,7 @@ describe('Codex mode ownership and reversibility', () => {
     await writeFile(agentsPath, '# untouched\n')
     await writeFile(hooksPath, '{"hooks":')
 
-    const result = await codexMode.installCodexModeAt({
+    const result = await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })
@@ -162,8 +189,8 @@ describe('Codex mode ownership and reversibility', () => {
   it('is idempotent and never duplicates its managed block or hook group', async () => {
     const codexHome = await makeCodexHome()
 
-    expect((await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
-    expect((await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+    expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+    expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
 
     const agents = await readFile(join(codexHome, 'AGENTS.md'), 'utf8')
     const hooks = JSON.parse(await readFile(join(codexHome, 'hooks.json'), 'utf8'))
@@ -173,30 +200,30 @@ describe('Codex mode ownership and reversibility', () => {
 
   it('preserves customized role routing across Codex mode updates', async () => {
     const codexHome = await makeCodexHome()
-    expect((await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+    expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
 
     const configPath = join(codexHome, 'ccg', 'config.toml')
     const installed = await readFile(configPath, 'utf8')
     const configured = installed.replace(
       /(\[routing\.search\]\r?\n)models = \["grok"\](\r?\n)primary = "grok"/,
-      '$1models = ["claude"]$2primary = "claude"',
+      '$1models = ["codex"]$2primary = "codex"',
     )
     expect(configured).not.toBe(installed)
     await writeFile(configPath, configured)
 
-    const updated = await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })
+    const updated = await installCodexModeAt({ codexHome, pythonCommand: 'python' })
 
     expect(updated.success).toBe(true)
     const persisted = await readFile(configPath, 'utf8')
-    expect(persisted).toContain('models = [ "claude" ]')
-    expect(persisted).toContain('primary = "claude"')
+    expect(persisted).toContain('models = [ "codex" ]')
+    expect(persisted).toContain('primary = "codex"')
   })
 
   it('installs a Claude-clean Codex runtime without creating or referencing .claude', async () => {
     const codexHome = await makeCodexHome()
     const claudeHome = join(codexHome, '..', '.claude')
 
-    const result = await codexMode.installCodexModeAt({
+    const result = await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })
@@ -224,7 +251,7 @@ describe('Codex mode ownership and reversibility', () => {
     const codexHome = await makeCodexHome()
     const claudeHome = join(codexHome, '..', '.claude')
 
-    const result = await codexMode.installCodexModeAt({
+    const result = await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })
@@ -241,7 +268,7 @@ describe('Codex mode ownership and reversibility', () => {
 
   it('upgrades after the owned legacy product-manager route is migrated on first read', async () => {
     const codexHome = await makeCodexHome()
-    expect((await codexMode.installCodexModeAt({
+    expect((await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })).success).toBe(true)
@@ -279,7 +306,7 @@ describe('Codex mode ownership and reversibility', () => {
       /\[product_manager\][\s\S]*provider\s*=/,
     )
 
-    const upgraded = await codexMode.installCodexModeAt({
+    const upgraded = await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })
@@ -292,7 +319,7 @@ describe('Codex mode ownership and reversibility', () => {
     expect(installed).toContain('enabled = true')
     expect(installed).not.toMatch(/\[product_manager\][\s\S]*provider\s*=/)
     const nextOwnership = await fs.readJSON(ownershipPath)
-    expect(nextOwnership.version).toBe('3.4.5')
+    expect(nextOwnership.version).toBe('3.4.6')
     expect(nextOwnership.files.find(
       (file: { relativePath: string }) => file.relativePath === 'ccg/config.toml',
     ).installedSha256).toBe(
@@ -344,7 +371,7 @@ describe('Codex mode ownership and reversibility', () => {
         process.platform === 'win32' ? 'junction' : 'dir',
       )
 
-      const result = await codexMode.installCodexModeAt({
+      const result = await installCodexModeAt({
         codexHome,
         pythonCommand: 'python',
       })
@@ -371,7 +398,7 @@ describe('Codex mode ownership and reversibility', () => {
       join(codexHome, '.ccg', 'transaction.json'),
     )).toBe(true)
 
-    const blocked = await codexMode.installCodexModeAt({
+    const blocked = await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })
@@ -389,7 +416,7 @@ describe('Codex mode ownership and reversibility', () => {
 
   it('restores the installed state after a hard-killed uninstall process', async () => {
     const codexHome = await makeCodexHome()
-    expect((await codexMode.installCodexModeAt({
+    expect((await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })).success).toBe(true)
@@ -398,6 +425,7 @@ describe('Codex mode ownership and reversibility', () => {
       'hooks.json',
       'agents/ccg-implement.toml',
       'hooks/ccg-workflow.py',
+      `ccg/bin/${process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'}`,
       '.ccg/ownership.json',
     ]
     const installed = new Map<string, Buffer>()
@@ -437,7 +465,7 @@ describe('Codex mode ownership and reversibility', () => {
 
   it('rejects unknown ownership fields before uninstalling any managed file', async () => {
     const codexHome = await makeCodexHome()
-    expect((await codexMode.installCodexModeAt({
+    expect((await installCodexModeAt({
       codexHome,
       pythonCommand: 'python',
     })).success).toBe(true)

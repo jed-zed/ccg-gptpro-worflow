@@ -2,15 +2,22 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-07-31 (v3.4.5)
+**Last Updated**: 2026-08-04 (v3.4.6)
 
-> 本文档已同步 v3.4.5 的可选 add-on 最新版通道、v3.4.4 的辅助 MCP 推荐与安全远程配置、v3.4.3 的 ChatGPT Pro 侧边栏自动桥接、v3.4.2 的 product-manager、v3.4.0 的独立职责路由、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.6 的 Codex Provider 执行层、角色能力矩阵与路由感知 doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-08-04 (v3.4.6)
+
+- Codex 模式托管安装固定摘要的 wrapper，并新增默认保留网页预览的
+  `ccg wrapper --backend <provider>` 执行入口。
+- 路由按职责能力关闭式校验；doctor 检查执行层、已选外部 CLI 和
+  product-manager 运行时，不再只验证配置存在。
 
 ### 2026-07-31 (v3.4.5)
 

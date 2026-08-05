@@ -58,8 +58,9 @@ If `$ARGUMENTS` is empty, show the available CCG commands in Chinese:
 - `/ccg:verify-module <module-path>` - check module completeness.
 - `/ccg:verify-quality <changed-path>` - check quality issues.
 - `/ccg:verify-security <changed-path>` - check security-sensitive changes.
-- `ccg routing list` - show the three top-level role providers.
+- `ccg routing list` - show the four top-level role providers.
 - `ccg routing set <role> <provider>` - change one role independently.
+- `ccg wrapper --backend <provider> ...` - run any ordinary wrapper backend except Claude; CCG workflows use it for Antigravity, Grok, and Pi, with Web UI enabled by default.
 
 If `$ARGUMENTS` contains a plan path or task, treat it as `/ccg:execute $ARGUMENTS`.
 

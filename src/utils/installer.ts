@@ -749,7 +749,10 @@ export function showBinaryInstallFailure(binDir: string): void {
   console.log()
 }
 
-function recordFatalBinaryFailure(ctx: InstallContext, message: string): void {
+function recordFatalBinaryFailure(
+  ctx: Pick<InstallContext, 'result'>,
+  message: string,
+): void {
   ctx.result.binInstalled = false
   ctx.result.success = false
   ctx.result.errors.push(`Fatal codeagent-wrapper installation failure: ${message}`)
@@ -759,7 +762,7 @@ function recordFatalBinaryFailure(ctx: InstallContext, message: string): void {
  * Download and install codeagent-wrapper for the current platform.
  * Existing and downloaded bytes must match the pinned digest before execution.
  */
-async function installBinaryFile(ctx: InstallContext): Promise<void> {
+async function installBinaryFile(ctx: Pick<InstallContext, 'installDir' | 'result'>): Promise<void> {
   let candidateBinary: string | null = null
   try {
     const binDir = join(ctx.installDir, 'bin')
@@ -855,6 +858,24 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
   finally {
     if (candidateBinary) await fs.remove(candidateBinary).catch(() => {})
   }
+}
+
+/** Install one pinned, verified wrapper without installing legacy workflow assets. */
+export async function installVerifiedBinaryAt(installDir: string): Promise<string> {
+  const result: InstallResult = {
+    success: true,
+    installedCommands: [],
+    installedPrompts: [],
+    errors: [],
+    configPath: '',
+  }
+  await installBinaryFile({ installDir, result })
+  if (!result.binInstalled || !result.binPath)
+    throw new Error(result.errors.join('\n') || 'codeagent-wrapper installation failed')
+  return join(
+    result.binPath,
+    process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper',
+  )
 }
 
 // ═══════════════════════════════════════════════════════

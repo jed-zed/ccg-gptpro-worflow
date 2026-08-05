@@ -145,10 +145,10 @@ describe('Codex-native CCG route CLI', () => {
       },
     )
 
-    const changed = run(['routing', 'set', 'frontend', 'claude'])
+    const changed = run(['routing', 'set', 'frontend', 'antigravity'])
     expect(changed.status, changed.stderr).toBe(0)
     const document = parse(await readFile(configPath, 'utf8')) as any
-    expect(document.routing.frontend.primary).toBe('claude')
+    expect(document.routing.frontend.primary).toBe('antigravity')
     expect(document.routing.backend.primary).toBe('codex')
     expect(document.routing.search.primary).toBe('grok')
     expect(document.routing['product-manager'].primary).toBe('claude')
@@ -160,7 +160,7 @@ describe('Codex-native CCG route CLI', () => {
     expect(getResult.status, getResult.stderr).toBe(0)
     expect(JSON.parse(getResult.stdout)).toEqual({
       role: 'frontend',
-      provider: 'claude',
+      provider: 'antigravity',
     })
     expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
   })
