@@ -299,18 +299,17 @@ describe('Codex-only doctor', () => {
 
   it('accepts a valid user-selected Codex CCG config while preserving its ownership boundary', async () => {
     const { codexHome } = await makeCodexFixture()
+    const configPath = join(codexHome, 'ccg', 'config.toml')
+    const config = (await fs.readFile(configPath, 'utf8')).replace('enabled = false', 'enabled = true')
     await writeFile(
-      join(codexHome, 'ccg', 'config.toml'),
-      [
-        '[intelligence]',
-        'enabled = true',
-        '',
+      configPath,
+      `${config}${[
         '[product_manager]',
         'enabled = true',
         'provider = "codex"',
         'contract_version = "1"',
         '',
-      ].join('\n'),
+      ].join('\n')}`,
     )
     vi.stubEnv('CODEX_HOME', codexHome)
     vi.spyOn(console, 'log').mockImplementation(() => {})
