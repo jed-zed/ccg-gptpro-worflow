@@ -113,8 +113,8 @@ describe('Codex-native CCG route CLI', () => {
       'strategy = "fallback"',
       '',
       '[routing.search]',
-      'models = ["grok"]',
-      'primary = "grok"',
+      'models = ["antigravity"]',
+      'primary = "antigravity"',
       'strategy = "fallback"',
       '',
       '[routing.product-manager]',
@@ -144,6 +144,9 @@ describe('Codex-native CCG route CLI', () => {
         windowsHide: true,
       },
     )
+
+    const repaired = run(['routing', 'set', 'search', 'grok'])
+    expect(repaired.status, repaired.stderr).toBe(0)
 
     const changed = run(['routing', 'set', 'frontend', 'antigravity'])
     expect(changed.status, changed.stderr).toBe(0)

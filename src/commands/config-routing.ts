@@ -8,7 +8,6 @@ import {
   isRegisteredModel,
   isRoutingRole,
   normalizeModelRouting,
-  setRoleProvider,
 } from '../utils/model-routing'
 import { migrateLegacyProductManagerProviderDocument } from '../utils/config'
 import { resolveCodexHome } from '../utils/codex-mode'
@@ -70,10 +69,9 @@ export async function configRouting(
 ): Promise<void> {
   const configPath = getCodexRoutingConfigPath()
   const document = await readDocument(configPath)
-  const routing = normalizeModelRouting(document.routing)
 
   if (action === 'list') {
-    printRows(routing, options.json)
+    printRows(normalizeModelRouting(document.routing), options.json)
     return
   }
 
@@ -81,6 +79,7 @@ export async function configRouting(
     throw new Error(`role must be one of: ${STANDARD_ROUTING_ROLES.join(', ')}`)
 
   if (action === 'get') {
+    const routing = normalizeModelRouting(document.routing)
     const result = { role: roleValue, provider: routing[roleValue].primary }
     console.log(options.json ? JSON.stringify(result, null, 2) : result.provider)
     return
@@ -91,7 +90,14 @@ export async function configRouting(
   if (!providerValue || !isRegisteredModel(providerValue))
     throw new Error(`provider must be one of: ${REGISTERED_MODEL_TYPES.join(', ')}`)
 
-  document.routing = setRoleProvider(routing, roleValue, providerValue)
+  document.routing = normalizeModelRouting({
+    ...document.routing,
+    [roleValue]: {
+      ...document.routing?.[roleValue],
+      models: [providerValue],
+      primary: providerValue,
+    },
+  })
   await writeDocument(configPath, document)
   console.log(ansis.green(`✓ ${roleValue} → ${providerValue}`))
 }
