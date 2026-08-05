@@ -59,9 +59,11 @@ If the user provided no argument, answer in Chinese with the CCG command index:
 
 If the user provided a plan path or task, treat it as `/ccg:execute`.
 
-Core rule: `frontend`, `backend`, and `search` resolve their providers through
-`ccg routing`; analysis, planning, and review occur inside those roles. Codex
-remains the orchestrator, sole real-workspace writer, and final verifier.
+Core rule: all four roles resolve through `ccg routing`; analysis, planning,
+and review occur inside those roles. Follow the shared **Companion Role
+Contract**: frontend or backend adds required search evidence and evaluates the
+product-manager authorization gate. Codex remains the orchestrator, sole
+real-workspace writer, and final verifier.
 Whenever a role selects Gemini, invoke the bundled browser preview helper
 automatically. Explicit provider commands bypass default role routing without
 changing it.

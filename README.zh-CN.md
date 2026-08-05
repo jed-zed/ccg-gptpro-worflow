@@ -267,7 +267,9 @@ Codex 模式按能力矩阵设置四个角色：frontend/backend 支持 `codex`�
 product-manager 只支持 `codex`、`gemini` 和只读 `claude`。CCG 工作流用
 `ccg wrapper` 托管 Antigravity/Grok/Pi；直接命令也接受普通 Codex/Gemini
 wrapper 后端，但永远拒绝 Claude，也不会修改角色路由。除非显式传入
-`--lite`，否则默认打开浏览器网页。Codex 仍负责真实工作区的最终写入和验证。
+`--lite`，否则默认打开浏览器网页。使用 frontend/backend 时还会自动加入
+必需的 search 证据，并在下一适用检查点评估 product-manager 授权门；每次
+Provider 调用仍需显式批准。Codex 仍负责真实工作区的最终写入和验证。
 
 ## 配置
 

@@ -62,6 +62,10 @@ If `$ARGUMENTS` is empty, show the available CCG commands in Chinese:
 - `ccg routing set <role> <provider>` - change one role independently.
 - `ccg wrapper --backend <provider> ...` - run any ordinary wrapper backend except Claude; CCG workflows use it for Antigravity, Grok, and Pi, with Web UI enabled by default.
 
+All ordinary routes follow the shared **Companion Role Contract**: frontend or
+backend work adds required search evidence and evaluates the product-manager
+authorization gate; an actual Provider call still needs explicit authorization.
+
 If `$ARGUMENTS` contains a plan path or task, treat it as `/ccg:execute $ARGUMENTS`.
 
 Core rule: generic workflow roles resolve their providers through `ccg

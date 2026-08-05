@@ -268,8 +268,11 @@ search supports `codex` and `grok`; product-manager supports `codex`, `gemini`,
 and read-only `claude`. CCG workflows use `ccg wrapper` for managed
 Antigravity/Grok/Pi runs; the direct command also accepts ordinary Codex and
 Gemini wrapper backends, but never Claude and never changes role routing. It
-leaves the browser Web UI enabled unless `--lite` is explicit. Codex remains
-the final real-workspace writer and verifier.
+leaves the browser Web UI enabled unless `--lite` is explicit. Frontend or
+backend work also adds required search evidence and evaluates the
+product-manager authorization gate at the next applicable checkpoint; every
+Provider call still requires explicit per-call approval. Codex remains the final
+real-workspace writer and verifier.
 
 ## Configuration
 
