@@ -4,13 +4,17 @@ argument-hint: "[diff-or-plan-path]"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write, WebFetch]
 ---
 
-## Automatic External Intelligence Gate
+## Evidence Mode Selection
 
-Before ordinary work, run the shared route once from the controller:
+Classify the review before any external route:
+
+- Codex remains the final review owner in both modes.
+- For a pure local code review, use the bound diff, source, tests, CI, and local read-only Provider evidence. Do not run or invoke Grok external-intelligence, and do not apply an official-domain gate.
+- Only when a review conclusion depends on a current external API, version, advisory, incident, or other external fact, predeclare the authoritative domain from the explicit target or trusted package/repository metadata and run the shared route from the controller:
 
 `ccg route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-For final review append --trigger final_diff_verify and bind the actual --diff plus any --plan, --target, and --dependency files. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+For that external-fact path, append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. The domain must be chosen before Grok runs; never promote a domain merely because Grok returned it. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. Stop ordinary work on exit code `2`, `3`, or `4`.
 
 # CCG Review
 
