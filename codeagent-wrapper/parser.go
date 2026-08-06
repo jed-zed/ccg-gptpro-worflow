@@ -149,33 +149,66 @@ func (e *grokReviewEvidence) observeACP(raw json.RawMessage) {
 	if update.ToolCallID == "" || (update.SessionUpdate != "tool_call" && update.SessionUpdate != "tool_call_update") {
 		return
 	}
-	call := e.calls[update.ToolCallID]
+	path := update.RawInput.TargetFile
+	if update.RawInput.Path != "" {
+		path = update.RawInput.Path
+	}
+	e.observeToolCall(update.ToolCallID, update.Status, update.RawInput.Variant, path)
+}
+
+func (e *grokReviewEvidence) observeStreamingJSON(raw json.RawMessage) bool {
+	if e == nil || len(raw) == 0 {
+		return false
+	}
+	var update struct {
+		Type       string `json:"type"`
+		ToolCallID string `json:"toolCallId"`
+		ToolName   string `json:"toolName"`
+		Status     string `json:"status"`
+		RawInput   struct {
+			TargetFile string `json:"target_file"`
+			Path       string `json:"path"`
+		} `json:"rawInput"`
+	}
+	if json.Unmarshal(raw, &update) != nil || (update.Type != "tool_call" && update.Type != "tool_call_update") {
+		return false
+	}
+	path := update.RawInput.TargetFile
+	if update.RawInput.Path != "" {
+		path = update.RawInput.Path
+	}
+	e.observeToolCall(update.ToolCallID, update.Status, update.ToolName, path)
+	return true
+}
+
+func (e *grokReviewEvidence) observeToolCall(id, status, variant, path string) {
+	if e == nil || id == "" {
+		return
+	}
+	call := e.calls[id]
 	if call == nil {
 		call = &grokToolCall{}
-		e.calls[update.ToolCallID] = call
+		e.calls[id] = call
 	}
-	if update.RawInput.TargetFile != "" {
-		call.path = update.RawInput.TargetFile
+	if path != "" {
+		call.path = path
 	}
-	if update.RawInput.Path != "" {
-		call.path = update.RawInput.Path
-	}
-	if update.RawInput.Variant != "" {
-		switch strings.ToLower(update.RawInput.Variant) {
-		case "readfile":
+	if variant != "" {
+		switch strings.ToLower(variant) {
+		case "readfile", "read_file":
 			call.variant = "ReadFile"
 		case "grep":
 			call.variant = "Grep"
-		case "listdir":
+		case "listdir", "list_dir":
 			call.variant = "ListDir"
 		default:
-			call.variant = update.RawInput.Variant
+			call.variant = variant
 			if e.forbiddenTool == "" {
-				e.forbiddenTool = update.RawInput.Variant
+				e.forbiddenTool = variant
 			}
 		}
 	}
-	if strings.EqualFold(update.Status, "completed") {
+	if strings.EqualFold(status, "completed") {
 		call.completed = true
 	}
 }
@@ -273,6 +306,9 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 
 		if tooLong {
 			warnFn(fmt.Sprintf("Skipped overlong JSON line (> %d bytes): %s", jsonLineMaxBytes, truncateBytes(line, 100)))
+			continue
+		}
+		if grokReview.observeStreamingJSON(line) {
 			continue
 		}
 

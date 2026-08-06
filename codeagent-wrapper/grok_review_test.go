@@ -217,6 +217,36 @@ func TestParseGrokReviewACP(t *testing.T) {
 	}
 }
 
+func TestParseGrokReviewStreamingJSON(t *testing.T) {
+	evidence := newGrokReviewEvidence()
+	var warnings []string
+	stream := strings.Join([]string{
+		`{"type":"tool_call","toolCallId":"call-read","title":"read_file","toolName":"read_file","rawInput":{"target_file":"a.go"},"content":[]}`,
+		`{"type":"tool_call_update","toolCallId":"call-read","status":null,"content":[],"rawOutput":null}`,
+		`{"type":"tool_call_update","toolCallId":"call-read","status":"completed","content":[{"type":"content","content":{"type":"text","text":"package test"}}]}`,
+		`{"type":"tool_call","toolCallId":"call-grep","title":"grep","toolName":"grep","rawInput":{"pattern":"package","path":"b.go"},"content":[]}`,
+		`{"type":"tool_call_update","toolCallId":"call-grep","status":"completed","content":[{"type":"content","content":{"type":"text","text":"found 1 matches"}}]}`,
+		`{"type":"text","data":"done"}`,
+		`{"type":"end","stopReason":"end_turn","sessionId":"session-1"}`,
+	}, "\n")
+
+	message, threadID, terminalError := parseJSONStreamInternalWithReview(
+		strings.NewReader(stream), func(message string) { warnings = append(warnings, message) }, nil, nil, nil, nil, nil, nil, evidence,
+	)
+	if message != "done" || threadID != "session-1" || terminalError != "" || len(warnings) != 0 {
+		t.Fatalf("parse result = (%q, %q, %q), warnings = %v", message, threadID, terminalError, warnings)
+	}
+	for id, want := range map[string]grokToolCall{
+		"call-read": {variant: "ReadFile", path: "a.go", completed: true},
+		"call-grep": {variant: "Grep", path: "b.go", completed: true},
+	} {
+		call := evidence.calls[id]
+		if call == nil || *call != want {
+			t.Fatalf("%s = %+v, want %+v", id, call, want)
+		}
+	}
+}
+
 func TestRunGrokReviewFailsClosedWithoutReadEvidence(t *testing.T) {
 	workDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workDir, "a.go"), []byte("package test\n"), 0o600); err != nil {
