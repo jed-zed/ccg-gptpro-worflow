@@ -115,6 +115,7 @@ type grokToolCall struct {
 
 type grokReviewEvidence struct {
 	calls          map[string]*grokToolCall
+	toolCallSeen   bool
 	stopReasonSeen bool
 	terminalError  string
 	forbiddenTool  string
@@ -146,7 +147,7 @@ func (e *grokReviewEvidence) observeACP(raw json.RawMessage) {
 		e.observeStopReason(update.StopReason)
 		return
 	}
-	if update.ToolCallID == "" || (update.SessionUpdate != "tool_call" && update.SessionUpdate != "tool_call_update") {
+	if update.SessionUpdate != "tool_call" && update.SessionUpdate != "tool_call_update" {
 		return
 	}
 	path := update.RawInput.TargetFile
@@ -182,7 +183,11 @@ func (e *grokReviewEvidence) observeStreamingJSON(raw json.RawMessage) bool {
 }
 
 func (e *grokReviewEvidence) observeToolCall(id, status, variant, path string) {
-	if e == nil || id == "" {
+	if e == nil {
+		return
+	}
+	e.toolCallSeen = true
+	if id == "" {
 		return
 	}
 	call := e.calls[id]

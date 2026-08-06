@@ -224,6 +224,43 @@ func TestParseGrokReviewStreamingJSON(t *testing.T) {
 	}
 }
 
+func TestGrokReviewRejectsToolCallsWithoutID(t *testing.T) {
+	tests := map[string]string{
+		"ACP": strings.Join([]string{
+			`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","rawInput":{"variant":"ReadFile","target_file":"a.go"}}}}`,
+			`{"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}`,
+			`{"type":"text","data":"done"}`,
+			`{"type":"end","stopReason":"end_turn","sessionId":"session-1"}`,
+		}, "\n"),
+		"streaming-json": strings.Join([]string{
+			`{"type":"tool_call","toolName":"read_file","rawInput":{"target_file":"a.go"}}`,
+			`{"type":"text","data":"done"}`,
+			`{"type":"end","stopReason":"end_turn","sessionId":"session-1"}`,
+		}, "\n"),
+	}
+
+	for name, stream := range tests {
+		t.Run(name, func(t *testing.T) {
+			evidence := newGrokReviewEvidence()
+			message, _, terminalError := parseJSONStreamInternalWithReview(
+				strings.NewReader(stream), nil, nil, nil, nil, nil, nil, nil, evidence,
+			)
+			if message != "done" || terminalError != "" {
+				t.Fatalf("parse result = (%q, %q)", message, terminalError)
+			}
+			if !evidence.toolCallSeen {
+				t.Fatal("tool call without ID must still be recorded")
+			}
+			if err := validateGrokReview("", message, []string{"a.go"}, evidence); err == nil || !strings.Contains(err.Error(), "attempted tool use") {
+				t.Fatalf("tool call without ID must fail closed, got %v", err)
+			}
+			if err := validateGrokReview("", message, nil, evidence); err != nil {
+				t.Fatalf("ordinary Grok mode must remain unaffected, got %v", err)
+			}
+		})
+	}
+}
+
 func TestRunGrokReviewUsesIsolatedSnapshotAndWrapperEnvelope(t *testing.T) {
 	workDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workDir, "a.go"), []byte("package test\n"), 0o600); err != nil {

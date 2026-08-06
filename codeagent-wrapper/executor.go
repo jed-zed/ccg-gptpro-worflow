@@ -1556,7 +1556,7 @@ func validateGrokReview(_, _ string, targets []string, evidence *grokReviewEvide
 	if evidence.forbiddenTool != "" {
 		return fmt.Errorf("Grok review attempted forbidden tool %q", evidence.forbiddenTool)
 	}
-	if len(evidence.calls) > 0 {
+	if evidence.toolCallSeen {
 		return errors.New("Grok review attempted tool use in snapshot-only mode")
 	}
 	return nil
