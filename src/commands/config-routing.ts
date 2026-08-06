@@ -5,7 +5,9 @@ import { join } from 'pathe'
 import { parse, stringify } from 'smol-toml'
 import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
 import {
+  allowedProvidersForRole,
   isRegisteredModel,
+  isRoleProviderAllowed,
   isRoutingRole,
   normalizeModelRouting,
 } from '../utils/model-routing'
@@ -89,15 +91,21 @@ export async function configRouting(
     throw new Error('routing action must be list, get, or set')
   if (!providerValue || !isRegisteredModel(providerValue))
     throw new Error(`provider must be one of: ${REGISTERED_MODEL_TYPES.join(', ')}`)
+  if (!isRoleProviderAllowed(roleValue, providerValue)) {
+    throw new Error(
+      `routing.${roleValue}.primary provider ${providerValue} is not supported for role ${roleValue}; allowed: ${allowedProvidersForRole(roleValue).join(', ')}`,
+    )
+  }
 
-  document.routing = normalizeModelRouting({
+  document.routing = {
     ...document.routing,
     [roleValue]: {
       ...document.routing?.[roleValue],
       models: [providerValue],
       primary: providerValue,
+      strategy: document.routing?.[roleValue]?.strategy || 'fallback',
     },
-  })
+  }
   await writeDocument(configPath, document)
   console.log(ansis.green(`✓ ${roleValue} → ${providerValue}`))
 }

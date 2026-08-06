@@ -8,6 +8,14 @@ For a pure local code review, use the diff, source, tests, CI, and local read-on
 
 For that external-fact path append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. Choose the domain before Grok runs; never promote a returned domain. Stop ordinary work on exit code `2`, `3`, or `4`.
 
+For local Grok review, bind every regular workspace-relative file with
+`--grok-review-target`. The wrapper embeds only those files in a fresh,
+tool-less Provider session and appends the validated `CCG_GROK_REVIEW_JSON`
+scope envelope. For local Antigravity review, bind the concrete files in the prompt
+and invoke `ccg wrapper --backend antigravity --antigravity-review`; require a
+completed model report. Neither local path uses the external-intelligence
+route or an official-domain gate.
+
 > 适用于代码审查需求，双模型交叉验证，结果分级输出。
 
 ## 适用条件

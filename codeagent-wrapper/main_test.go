@@ -1275,6 +1275,25 @@ func TestBackendParseArgs_BackendFlag(t *testing.T) {
 	}
 }
 
+func TestBackendParseArgs_AntigravityReview(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+
+	os.Args = []string{"codeagent-wrapper", "--backend", "antigravity", "--antigravity-review", "review"}
+	cfg, err := parseArgs()
+	if err != nil {
+		t.Fatalf("parseArgs() unexpected error: %v", err)
+	}
+	if !cfg.AntigravityReview {
+		t.Fatalf("AntigravityReview = false, want true")
+	}
+
+	os.Args = []string{"codeagent-wrapper", "--backend", "codex", "--antigravity-review", "review"}
+	if _, err := parseArgs(); err == nil {
+		t.Fatalf("expected non-Antigravity backend to reject --antigravity-review")
+	}
+}
+
 func TestBackendParseArgs_SkipPermissions(t *testing.T) {
 	const envKey = "CODEAGENT_SKIP_PERMISSIONS"
 	t.Cleanup(func() { os.Unsetenv(envKey) })
@@ -1409,6 +1428,24 @@ do something`
 	}
 	if task.Mode != "resume" || task.SessionID != "sess-123" {
 		t.Fatalf("expected resume mode with session, got mode=%q session=%q", task.Mode, task.SessionID)
+	}
+}
+
+func TestParallelParseConfig_ManagedRejectsClaude(t *testing.T) {
+	input := `---TASK---
+id: task-1
+backend: claude
+---CONTENT---
+do something`
+
+	t.Setenv("CCG_CODEX_MANAGED_WRAPPER", "1")
+	if _, err := parseParallelConfig([]byte(input)); err == nil || !strings.Contains(err.Error(), "product-manager") {
+		t.Fatalf("expected managed wrapper to reject Claude, got %v", err)
+	}
+
+	t.Setenv("CCG_CODEX_MANAGED_WRAPPER", "")
+	if _, err := parseParallelConfig([]byte(input)); err != nil {
+		t.Fatalf("legacy wrapper should keep accepting Claude: %v", err)
 	}
 }
 
@@ -2315,6 +2352,7 @@ func TestBackendPrintHelp(t *testing.T) {
 		"Usage:",
 		"resume",
 		"antigravity",
+		"--antigravity-review",
 		"grok",
 		"--grok-model",
 		"CODEX_TIMEOUT",
@@ -3333,7 +3371,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.4\n"
+	want := "codeagent-wrapper version 5.12.5\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3349,7 +3387,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.4\n"
+	want := "codeagent-wrapper version 5.12.5\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3365,7 +3403,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.12.4\n"
+	want := "codex-wrapper version 5.12.5\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)

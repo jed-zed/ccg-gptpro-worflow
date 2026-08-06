@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.4"
+	version               = "5.12.5"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -467,7 +467,11 @@ func run() (exitCode int) {
 	// Print startup information to stderr
 	fmt.Fprintf(os.Stderr, "[%s]\n", name)
 	fmt.Fprintf(os.Stderr, "  Backend: %s\n", cfg.Backend)
-	fmt.Fprintf(os.Stderr, "  Command: %s %s\n", codexCommand, strings.Join(codexArgs, " "))
+	if len(cfg.GrokReviewTargets) > 0 {
+		fmt.Fprintf(os.Stderr, "  Command: %s <isolated review snapshot prepared at execution>\n", codexCommand)
+	} else {
+		fmt.Fprintf(os.Stderr, "  Command: %s %s\n", codexCommand, strings.Join(codexArgs, " "))
+	}
 	fmt.Fprintf(os.Stderr, "  PID: %d\n", os.Getpid())
 	fmt.Fprintf(os.Stderr, "  Log: %s\n", logger.Path())
 
@@ -508,15 +512,17 @@ func run() (exitCode int) {
 	logInfo(fmt.Sprintf("%s running...", cfg.Backend))
 
 	taskSpec := TaskSpec{
-		Task:        taskText,
-		WorkDir:     cfg.WorkDir,
-		Mode:        cfg.Mode,
-		SessionID:   cfg.SessionID,
-		UseStdin:    useStdin,
-		Progress:    cfg.Progress,
-		Backend:     cfg.Backend,
-		GeminiModel: cfg.GeminiModel,
-		GrokModel:   cfg.GrokModel,
+		Task:              taskText,
+		WorkDir:           cfg.WorkDir,
+		Mode:              cfg.Mode,
+		SessionID:         cfg.SessionID,
+		UseStdin:          useStdin,
+		Progress:          cfg.Progress,
+		Backend:           cfg.Backend,
+		GeminiModel:       cfg.GeminiModel,
+		GrokModel:         cfg.GrokModel,
+		GrokReviewTargets: cfg.GrokReviewTargets,
+		AntigravityReview: cfg.AntigravityReview,
 	}
 
 	result := runTaskFn(taskSpec, false, cfg.Timeout)
@@ -615,7 +621,11 @@ Options:
                           Can also be set via GROK_MODEL environment variable
                           CLI parameter takes precedence over environment variable
                           Examples: grok-4.5, grok-composer-2.5-fast
-    --progress            Emit compact progress lines to stderr during execution
+	    --grok-review-target <path>
+	                          Embed this exact file in a fresh tool-less Grok review
+	                          Repeat once per workspace-relative regular file
+	    --antigravity-review  Run Antigravity in sandboxed plan mode for local review
+	    --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:
     CODEX_TIMEOUT              Timeout in milliseconds (default: 7200000)

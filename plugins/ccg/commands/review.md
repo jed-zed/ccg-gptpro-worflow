@@ -33,6 +33,14 @@ Codex verifies findings before reporting them. When a selected role
 uses Gemini, invoke the bundled browser preview helper automatically and do not
 call the raw Gemini CLI.
 
+For local Grok review, bind an exact `CCG_REVIEW_TARGETS` list and pass each
+regular workspace-relative file through `--grok-review-target`. The wrapper
+must embed only those files in a fresh, tool-less Provider session. Require a
+zero exit and wrapper-generated, validated `CCG_GROK_REVIEW_JSON` envelope. For local Antigravity
+review, bind the concrete files in the prompt and invoke `ccg wrapper --backend
+antigravity --antigravity-review`; require a completed model report. Neither
+local path uses the external-intelligence route or an official-domain gate.
+
 Claude is disabled for ordinary review delegation. It may run only when
 unified CCG routing selects Claude for the isolated, read-only
 `product-manager` role and the project allows the explicit provider call.

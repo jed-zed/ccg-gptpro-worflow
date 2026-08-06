@@ -15,10 +15,14 @@ describe('Codex wrapper command', () => {
 
     expect(parseWrapperBackend(args)).toBe('antigravity')
     await expect(spawnWrapperProcess('C:/wrapper.exe', args, spawn)).resolves.toBe(0)
-    expect(invocation).toEqual({
+    expect(invocation).toMatchObject({
       command: 'C:/wrapper.exe',
       args,
-      options: { shell: false, stdio: 'inherit' },
+      options: {
+        env: { CCG_CODEX_MANAGED_WRAPPER: '1' },
+        shell: false,
+        stdio: 'inherit',
+      },
     })
     expect(invocation?.args).not.toContain('--lite')
   })

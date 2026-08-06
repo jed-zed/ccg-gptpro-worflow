@@ -63,6 +63,7 @@ export function spawnWrapperProcess(
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const child: ChildProcess = spawnImpl(executable, [...args], {
+      env: { ...process.env, CCG_CODEX_MANAGED_WRAPPER: '1' },
       shell: false,
       stdio: 'inherit',
     })
