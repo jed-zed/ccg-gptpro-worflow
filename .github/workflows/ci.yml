@@ -17,6 +17,10 @@ jobs:
         node-version: [20, 22]
 
     steps:
+      - name: Configure LF checkout on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
