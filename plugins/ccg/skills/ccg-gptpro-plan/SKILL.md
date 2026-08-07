@@ -52,8 +52,8 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
   decides final plan edits.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
-- Do not read ChatGPT web DOM.
-- Do not use DOM extraction; only the installed sidebar Skill may capture bounded UIA output.
+- Do not read arbitrary ChatGPT DOM.
+- Only the installed bridge Skill may use its fixed bounded DOM extractor through `agent-browser-cli-v2`.
 
 ## Plan-only Boundary
 
@@ -70,7 +70,7 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 
 - Create the bridge artifacts without launching the legacy preview.
 - Use the installed sidebar Skill to create the ChatGPT conversation and submit `prompt.md`.
-- Start the detached watcher and end the turn only after the watcher registration is durable.
-- Continue automatically in the same Codex Desktop task when the Stop Hook fires.
+- Start the detached watcher in `-RootWait` mode and keep the current root turn active through `wait-root`.
+- Continue only after `wait-root` returns completed evidence for the exact Codex task.
 - Import the completed sidebar evidence through `--import-session`, `--import-sidebar-evidence`, and
   `--expected-codex-thread-id`; never ask the user to copy or save the response.

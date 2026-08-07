@@ -126,8 +126,8 @@ Bash({
 
 ## 6. ChatGPT Pro Sidebar Evidence
 
-GPT Pro is not a `codeagent-wrapper` backend. Do not set `$MODEL=gptpro`, do not route it through
-the automated backend/frontend model tables, and do not imply automated ChatGPT web submission.
+GPT Pro is not a `codeagent-wrapper` backend. Do not set `$MODEL=gptpro` or route it through
+the automated backend/frontend model tables. Browser submission is owned only by the installed Skill.
 
 Use GPT Pro only through the installed `chatgpt-pro-sidebar` Skill and the bridge under:
 
@@ -138,4 +138,4 @@ Use GPT Pro only through the installed `chatgpt-pro-sidebar` Skill and the bridg
 The bridge creates task-local artifacts under `.ccg/tasks/<task-id>/gptpro/<session-id>/` and writes
 canonical evidence to `.ccg/tasks/<task-id>/evidence.json`. Commands must pause at
 `gate=gptpro_sidebar_running` while the detached watcher is active. Continue only after the same-task
-Stop Hook fires and `--import-sidebar-evidence` validates the completed response.
+`wait-root` returns completed evidence and `--import-sidebar-evidence` validates the response.

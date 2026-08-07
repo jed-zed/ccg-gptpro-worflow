@@ -63,14 +63,14 @@ the execution route is worth local implementation before real code landing.
   evidence was not used, say so from routing evidence rather than inventing a Gemini result.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
-- Do not read ChatGPT web DOM.
-- Do not use DOM extraction; only the installed sidebar Skill may capture bounded UIA output.
+- Do not read arbitrary ChatGPT DOM.
+- Only the installed bridge Skill may use its fixed bounded DOM extractor through `agent-browser-cli-v2`.
 
 ## Sidebar Handoff
 
 - Create the bridge artifacts without launching the legacy preview.
 - Use the installed sidebar Skill to create the ChatGPT conversation and submit `prompt.md`.
-- Start the detached watcher and end the turn only after the watcher registration is durable.
-- Continue automatically in the same Codex Desktop task when the Stop Hook fires.
+- Start the detached watcher in `-RootWait` mode and keep the current root turn active through `wait-root`.
+- Continue only after `wait-root` returns completed evidence for the exact Codex task.
 - Import completed sidebar evidence with the exact Codex task binding; never ask the user to copy or
   save the response.

@@ -404,4 +404,4 @@ give GPT Pro file-write authority.
 
 Use the sidebar bridge only after Gemini/Codex planning evidence exists, then set
 `gate=gptpro_sidebar_running` and pause after the detached watcher is registered. Resume through the
-same-task Stop Hook and import the completed sidebar evidence before continuing.
+local RootWait and import the completed browser evidence before continuing.

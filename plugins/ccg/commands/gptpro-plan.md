@@ -48,8 +48,8 @@ Plan-only boundary:
 
 Hard boundaries:
 
-- Do not automate ChatGPT login, DOM reading, cookies, or tokens. Only the installed
-  `chatgpt-pro-sidebar` Skill may submit prompts and capture bounded UIA output.
+- Do not automate ChatGPT login, cookies, tokens, or arbitrary DOM. Only the installed
+  `chatgpt-pro-sidebar` Skill may use the fixed bounded DOM contract and `agent-browser-cli-v2`.
 - Do not paste the full generated prompt into the chat unless the user explicitly asks.
 - Do not continue planning synthesis until the sidebar watcher reaches a terminal state and the bridge
   successfully imports a non-empty GPT Pro response.
@@ -138,7 +138,7 @@ After bridge creation, update the active task only when native CCG owns lifecycl
 {
   "status": "in_progress",
   "gate": "gptpro_sidebar_running",
-  "nextAction": "The sidebar watcher is registered; continue in this task when the Stop Hook fires."
+  "nextAction": "The RootWait watcher is active; continue after wait-root returns completed evidence."
 }
 ```
 
@@ -146,8 +146,8 @@ For a Trellis task, do not write those CCG gate fields into `task.json`; preserv
 state and use bridge `status.json` plus the sidebar watcher evidence for the wait state.
 
 Use the installed `chatgpt-pro-sidebar` Skill to create a fresh conversation, submit `prompt.md`,
-start the detached watcher, and then stop the current turn. Never ask the user to copy the prompt or
-response.
+start the detached RootWait watcher, and keep the current root turn active through `wait-root`.
+Never ask the user to copy the prompt or response.
 
 Continue only after:
 
