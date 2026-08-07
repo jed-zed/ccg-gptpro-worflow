@@ -67,212 +67,233 @@ func TestParseArgsGrokReviewTargets(t *testing.T) {
 	}
 }
 
-func TestGrokBuildArgs_ReviewModeIsReadOnly(t *testing.T) {
+func TestGrokBuildArgs_ReviewModeIsSnapshotOnly(t *testing.T) {
 	args := buildGrokArgs(&Config{
 		Mode:              "new",
 		Backend:           "grok",
 		GrokReviewTargets: []string{"a.go"},
-	}, "C:/tmp/review/prompt.json")
-	joined := strings.Join(args, " ")
-	if strings.Contains(joined, "--always-approve") {
-		t.Fatalf("review args must not contain --always-approve: %v", args)
-	}
-	for _, want := range []string{
-		"--tools todo_write",
-		"--disable-web-search",
-		"--no-memory",
-		"--no-plan",
-		"--no-subagents",
-		"--no-auto-update",
-		"--permission-mode dontAsk",
-		"--deny MCPTool(*)",
-		"--system-prompt-override",
-		"--verbatim",
-		"--output-format streaming-json",
-		"--prompt-file C:/tmp/review/prompt.json",
+	}, "review-prompt.md")
+
+	for _, pair := range [][2]string{
+		{"--tools", ""},
+		{"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool"},
+		{"--permission-mode", "dontAsk"},
+		{"--deny", "mcp__*"},
+		{"--max-turns", "1"},
+		{"--system-prompt-override", grokReviewSystemPrompt},
+		{"--output-format", "streaming-json"},
+		{"--prompt-file", "review-prompt.md"},
 	} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("review args missing %q: %v", want, args)
+		if !hasArgPair(args, pair[0], pair[1]) {
+			t.Fatalf("review args missing %q %q: %v", pair[0], pair[1], args)
 		}
 	}
-	for _, forbidden := range []string{"read_file", "grep", "list_dir", " -p "} {
-		if strings.Contains(" "+joined+" ", forbidden) {
-			t.Fatalf("review args must not expose filesystem tools or argv prompt %q: %v", forbidden, args)
+	for _, flag := range []string{"--disable-web-search", "--no-memory", "--no-plan", "--no-subagents", "--verbatim"} {
+		if !hasArg(args, flag) {
+			t.Fatalf("review args missing %q: %v", flag, args)
 		}
+	}
+	for _, forbidden := range []string{"--always-approve", "--allow", "-p", "-r"} {
+		if hasArg(args, forbidden) {
+			t.Fatalf("review args must not contain %q: %v", forbidden, args)
+		}
+	}
+	if isWindows() {
+		if hasArg(args, "--sandbox") {
+			t.Fatalf("Windows review must not depend on unsupported sandbox: %v", args)
+		}
+	} else if !hasArgPair(args, "--sandbox", "strict") {
+		t.Fatalf("Unix review args missing strict sandbox: %v", args)
 	}
 }
 
-func TestGrokBuildArgs_ReviewModeNeverResumes(t *testing.T) {
-	args := buildGrokArgs(&Config{
-		Mode:              "resume",
-		SessionID:         "old-session",
-		Backend:           "grok",
-		GrokReviewTargets: []string{"a.go"},
-	}, "C:/tmp/review/prompt.json")
-	if strings.Contains(" "+strings.Join(args, " ")+" ", " -r ") {
-		t.Fatalf("review args must not resume prior context: %v", args)
-	}
-}
-
-func TestPrepareGrokReviewPromptOnlyIncludesTargets(t *testing.T) {
+func TestPrepareGrokReviewSnapshot(t *testing.T) {
 	workDir := t.TempDir()
-	files := map[string]string{
-		"a.go":     "package a\n",
-		"other.go": "SECRET_OUTSIDE_SCOPE\n",
+	if err := os.Mkdir(filepath.Join(workDir, "nested"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for name, content := range files {
+	for name, content := range map[string]string{
+		"a.go":                          "package a\n",
+		filepath.Join("nested", "b.go"): "package b\n",
+		"unbound-secret.txt":            "MUST_NOT_APPEAR\n",
+	} {
 		if err := os.WriteFile(filepath.Join(workDir, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	dir, promptFile, err := prepareGrokReviewPrompt(workDir, "find bugs", []string{"a.go"})
+
+	snapshot, err := prepareGrokReviewSnapshot(workDir, "find bugs", []string{"a.go", "nested/b.go"})
+	if err != nil {
+		t.Fatalf("prepare snapshot: %v", err)
+	}
+	promptPath := snapshot.promptFile
+	t.Cleanup(snapshot.cleanup)
+
+	prompt, err := os.ReadFile(promptPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	if filepath.Dir(promptFile) != dir {
-		t.Fatalf("prompt file %q must live in isolated dir %q", promptFile, dir)
-	}
-	data, err := os.ReadFile(promptFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prompt := string(data)
-	if !strings.Contains(prompt, "find bugs") || !strings.Contains(prompt, "package a") {
-		t.Fatalf("prompt missing request or target content: %s", prompt)
-	}
-	if strings.Contains(prompt, "SECRET_OUTSIDE_SCOPE") || strings.Contains(prompt, "other.go") {
-		t.Fatalf("prompt leaked non-target file: %s", prompt)
-	}
-	if err := os.WriteFile(filepath.Join(workDir, "binary.bin"), []byte{0xff}, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := prepareGrokReviewPrompt(workDir, "review", []string{"binary.bin"}); err == nil || !strings.Contains(err.Error(), "UTF-8") {
-		t.Fatalf("non-UTF-8 target must fail closed, got %v", err)
-	}
-}
-
-func TestValidateGrokReviewSnapshotMode(t *testing.T) {
-	evidence := newGrokReviewEvidence()
-	evidence.observeStopReason("end_turn")
-	if err := validateGrokReview("", "plain review prose", []string{"a.go"}, evidence); err != nil {
-		t.Fatalf("validate snapshot review: %v", err)
-	}
-
-	evidence.observeToolCall("call-1", "completed", "read_file", "other.go")
-	if err := validateGrokReview("", "plain review prose", []string{"a.go"}, evidence); err == nil || !strings.Contains(err.Error(), "attempted tool") {
-		t.Fatalf("tool call must fail closed, got %v", err)
-	}
-
-	failed := newGrokReviewEvidence()
-	failed.observeStopReason("error")
-	if err := validateGrokReview("", "partial prose", []string{"a.go"}, failed); err == nil || !strings.Contains(err.Error(), "stop reason") {
-		t.Fatalf("error stop reason must fail closed, got %v", err)
-	}
-}
-
-func TestParseGrokReviewACP(t *testing.T) {
-	evidence := newGrokReviewEvidence()
-	stream := strings.Join([]string{
-		`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"call-1","rawInput":{"target_file":"a.go"}}}}`,
-		`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"call-1","kind":"read","rawInput":{"variant":"ReadFile","target_file":"a.go"}}}}`,
-		`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"call-1","status":"completed"}}}`,
-		`{"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}`,
-		`{"type":"text","data":"done"}`,
-		`{"type":"end","stopReason":"EndTurn","sessionId":"session-1"}`,
-	}, "\n")
-
-	message, threadID, terminalError := parseJSONStreamInternalWithReview(
-		strings.NewReader(stream), nil, nil, nil, nil, nil, nil, nil, evidence,
-	)
-	if message != "done" || threadID != "session-1" || terminalError != "" {
-		t.Fatalf("parse result = (%q, %q, %q)", message, threadID, terminalError)
-	}
-	call := evidence.calls["call-1"]
-	if call == nil || call.variant != "ReadFile" || call.path != "a.go" || !call.completed {
-		t.Fatalf("evidence call = %+v", call)
-	}
-}
-
-func TestParseGrokReviewStreamingJSON(t *testing.T) {
-	evidence := newGrokReviewEvidence()
-	var warnings []string
-	stream := strings.Join([]string{
-		`{"type":"tool_call","toolCallId":"call-read","title":"read_file","toolName":"read_file","rawInput":{"target_file":"a.go"},"content":[]}`,
-		`{"type":"tool_call_update","toolCallId":"call-read","status":null,"content":[],"rawOutput":null}`,
-		`{"type":"tool_call_update","toolCallId":"call-read","status":"completed","content":[{"type":"content","content":{"type":"text","text":"package test"}}]}`,
-		`{"type":"tool_call","toolCallId":"call-grep","title":"grep","toolName":"grep","rawInput":{"pattern":"package","path":"b.go"},"content":[]}`,
-		`{"type":"tool_call_update","toolCallId":"call-grep","status":"completed","content":[{"type":"content","content":{"type":"text","text":"found 1 matches"}}]}`,
-		`{"type":"text","data":"done"}`,
-		`{"type":"end","stopReason":"end_turn","sessionId":"session-1"}`,
-	}, "\n")
-
-	message, threadID, terminalError := parseJSONStreamInternalWithReview(
-		strings.NewReader(stream), func(message string) { warnings = append(warnings, message) }, nil, nil, nil, nil, nil, nil, evidence,
-	)
-	if message != "done" || threadID != "session-1" || terminalError != "" || len(warnings) != 0 {
-		t.Fatalf("parse result = (%q, %q, %q), warnings = %v", message, threadID, terminalError, warnings)
-	}
-	for id, want := range map[string]grokToolCall{
-		"call-read": {variant: "ReadFile", path: "a.go", completed: true},
-		"call-grep": {variant: "Grep", path: "b.go", completed: true},
-	} {
-		call := evidence.calls[id]
-		if call == nil || *call != want {
-			t.Fatalf("%s = %+v, want %+v", id, call, want)
+	text := string(prompt)
+	for _, want := range []string{"find bugs", "package a", "package b", `path="a.go"`, `path="nested/b.go"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("prompt missing %q: %s", want, text)
 		}
 	}
-}
-
-func TestGrokReviewRejectsToolCallsWithoutID(t *testing.T) {
-	tests := map[string]string{
-		"ACP": strings.Join([]string{
-			`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","rawInput":{"variant":"ReadFile","target_file":"a.go"}}}}`,
-			`{"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}`,
-			`{"type":"text","data":"done"}`,
-			`{"type":"end","stopReason":"end_turn","sessionId":"session-1"}`,
-		}, "\n"),
-		"streaming-json": strings.Join([]string{
-			`{"type":"tool_call","toolName":"read_file","rawInput":{"target_file":"a.go"}}`,
-			`{"type":"text","data":"done"}`,
-			`{"type":"end","stopReason":"end_turn","sessionId":"session-1"}`,
-		}, "\n"),
+	if strings.Contains(text, "MUST_NOT_APPEAR") {
+		t.Fatalf("prompt disclosed unbound file: %s", text)
+	}
+	if strings.Join(snapshot.targets, ",") != "a.go,nested/b.go" {
+		t.Fatalf("targets = %v", snapshot.targets)
+	}
+	if filepath.Clean(snapshot.root) == filepath.Clean(workDir) || filepath.Dir(promptPath) != snapshot.root {
+		t.Fatalf("snapshot not isolated: root=%q prompt=%q workdir=%q", snapshot.root, promptPath, workDir)
+	}
+	if !isWindows() {
+		rootInfo, err := os.Stat(snapshot.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		promptInfo, err := os.Stat(promptPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rootInfo.Mode().Perm() != 0o700 || promptInfo.Mode().Perm() != 0o600 {
+			t.Fatalf("snapshot permissions = %o/%o", rootInfo.Mode().Perm(), promptInfo.Mode().Perm())
+		}
 	}
 
-	for name, stream := range tests {
+	snapshot.cleanup()
+	if _, err := os.Stat(promptPath); !os.IsNotExist(err) {
+		t.Fatalf("snapshot prompt still exists after cleanup: %v", err)
+	}
+}
+
+func TestPrepareGrokReviewSnapshotFailsClosed(t *testing.T) {
+	t.Run("non UTF-8", func(t *testing.T) {
+		workDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(workDir, "bad.txt"), []byte{0xff}, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := prepareGrokReviewSnapshot(workDir, "review", []string{"bad.txt"}); err == nil || !strings.Contains(err.Error(), "not UTF-8") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("identity change", func(t *testing.T) {
+		workDir := t.TempDir()
+		target := filepath.Join(workDir, "a.go")
+		if err := os.WriteFile(target, []byte("old\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		originalOpen := openGrokReviewTarget
+		openGrokReviewTarget = func(name string) (*os.File, error) {
+			if err := os.Remove(name); err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(name, []byte("replacement\n"), 0o600); err != nil {
+				return nil, err
+			}
+			return os.Open(name)
+		}
+		t.Cleanup(func() { openGrokReviewTarget = originalOpen })
+
+		if _, err := prepareGrokReviewSnapshot(workDir, "review", []string{"a.go"}); err == nil || !strings.Contains(err.Error(), "changed while snapshotting") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
+func TestFinalizeGrokReview(t *testing.T) {
+	complete := func() *grokReviewEvidence {
+		evidence := newGrokReviewEvidence()
+		evidence.observeStopReason("end_turn")
+		return evidence
+	}
+
+	got, err := finalizeGrokReview("review complete", []string{"a.go", "b.go"}, complete())
+	if err != nil {
+		t.Fatalf("finalize review: %v", err)
+	}
+	wantSuffix := `CCG_GROK_REVIEW_JSON:{"schemaVersion":1,"reviewedFiles":["a.go","b.go"],"findings":[]}`
+	if !strings.HasSuffix(got, wantSuffix) || strings.Count(got, grokReviewMarker) != 1 {
+		t.Fatalf("message = %q", got)
+	}
+
+	toolCall := complete()
+	toolCall.observeToolCall("read_file")
+	if _, err := finalizeGrokReview("review complete", []string{"a.go"}, toolCall); err == nil || !strings.Contains(err.Error(), "forbidden tool") {
+		t.Fatalf("tool-call error = %v", err)
+	}
+	if _, err := finalizeGrokReview("review complete\n"+grokReviewMarker+`{}`, []string{"a.go"}, complete()); err == nil || !strings.Contains(err.Error(), "must not contain") {
+		t.Fatalf("model-envelope error = %v", err)
+	}
+	if _, err := finalizeGrokReview("review complete", []string{"a.go"}, newGrokReviewEvidence()); err == nil || !strings.Contains(err.Error(), "terminal stop reason") {
+		t.Fatalf("missing-stop error = %v", err)
+	}
+	errorStop := complete()
+	errorStop.observeStopReason("error")
+	if _, err := finalizeGrokReview("review complete", []string{"a.go"}, errorStop); err == nil || !strings.Contains(err.Error(), "stop reason") {
+		t.Fatalf("error-stop error = %v", err)
+	}
+}
+
+func TestParseGrokReviewRejectsAnyToolCall(t *testing.T) {
+	for name, stream := range map[string]string{
+		"ACP": strings.Join([]string{
+			`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"call-1","rawInput":{"variant":"ReadFile","target_file":"a.go"}}}}`,
+			`{"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}`,
+			`{"type":"text","data":"done"}`,
+			`{"type":"end","stopReason":"EndTurn","sessionId":"session-1"}`,
+		}, "\n"),
+		"streaming JSON": strings.Join([]string{
+			`{"type":"tool_call","toolCallId":"call-read","title":"read_file","toolName":"read_file","rawInput":{"target_file":"a.go"},"content":[]}`,
+			`{"type":"text","data":"done"}`,
+			`{"type":"end","stopReason":"end_turn","sessionId":"session-1"}`,
+		}, "\n"),
+	} {
 		t.Run(name, func(t *testing.T) {
 			evidence := newGrokReviewEvidence()
-			message, _, terminalError := parseJSONStreamInternalWithReview(
+			message, threadID, terminalError := parseJSONStreamInternalWithReview(
 				strings.NewReader(stream), nil, nil, nil, nil, nil, nil, nil, evidence,
 			)
-			if message != "done" || terminalError != "" {
-				t.Fatalf("parse result = (%q, %q)", message, terminalError)
+			if message != "done" || threadID != "session-1" || terminalError != "" {
+				t.Fatalf("parse result = (%q, %q, %q)", message, threadID, terminalError)
 			}
-			if !evidence.toolCallSeen {
-				t.Fatal("tool call without ID must still be recorded")
-			}
-			if err := validateGrokReview("", message, []string{"a.go"}, evidence); err == nil || !strings.Contains(err.Error(), "attempted tool use") {
-				t.Fatalf("tool call without ID must fail closed, got %v", err)
-			}
-			if err := validateGrokReview("", message, nil, evidence); err != nil {
-				t.Fatalf("ordinary Grok mode must remain unaffected, got %v", err)
+			if evidence.forbiddenTool == "" || !evidence.stopReasonSeen {
+				t.Fatalf("evidence = %+v", evidence)
 			}
 		})
 	}
 }
 
-func TestRunGrokReviewUsesIsolatedSnapshotAndWrapperEnvelope(t *testing.T) {
+func TestRunGrokReviewUsesIsolatedPromptSnapshot(t *testing.T) {
 	workDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workDir, "a.go"), []byte("package test\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workDir, "a.go"), []byte("package allowed\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(workDir, "secret.txt"), []byte("MUST_NOT_APPEAR\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	fake := newFakeCmd(fakeCmdConfig{StdoutPlan: []fakeStdoutEvent{{Data: strings.Join([]string{
 		`{"type":"text","data":"review complete"}`,
 		`{"type":"end","stopReason":"EndTurn","sessionId":"session-1"}`,
 	}, "\n") + "\n"}}})
 	originalRunner := newCommandRunner
 	originalLite := liteMode
-	newCommandRunner = func(context.Context, string, ...string) commandRunner { return fake }
+	var capturedArgs []string
+	var capturedPromptPath string
+	var capturedPrompt string
+	newCommandRunner = func(_ context.Context, _ string, args ...string) commandRunner {
+		capturedArgs = append([]string(nil), args...)
+		capturedPromptPath = argValue(args, "--prompt-file")
+		data, err := os.ReadFile(capturedPromptPath)
+		if err != nil {
+			t.Fatalf("read prompt before launch: %v", err)
+		}
+		capturedPrompt = string(data)
+		return fake
+	}
 	liteMode = true
 	t.Cleanup(func() {
 		newCommandRunner = originalRunner
@@ -280,48 +301,81 @@ func TestRunGrokReviewUsesIsolatedSnapshotAndWrapperEnvelope(t *testing.T) {
 	})
 
 	result := runCodexTaskWithContext(context.Background(), TaskSpec{
-		Task:              "review",
+		Task:              "review this file",
 		WorkDir:           workDir,
 		Backend:           "grok",
+		UseStdin:          true,
 		GrokReviewTargets: []string{"a.go"},
 	}, GrokBackend{}, nil, false, true, 2)
 	if result.ExitCode != 0 {
 		t.Fatalf("result = %+v", result)
 	}
-	if fake.Dir() == workDir || filepath.Dir(fake.Dir()) != os.TempDir() {
-		t.Fatalf("Grok review dir = %q, want isolated temp dir outside %q", fake.Dir(), workDir)
+	if !strings.Contains(result.Message, "review complete\n"+grokReviewMarker) {
+		t.Fatalf("message = %q", result.Message)
 	}
-	if _, err := os.Stat(fake.Dir()); !os.IsNotExist(err) {
-		t.Fatalf("isolated review dir must be removed, stat error = %v", err)
+	if !strings.Contains(capturedPrompt, "package allowed") || strings.Contains(capturedPrompt, "MUST_NOT_APPEAR") {
+		t.Fatalf("prompt = %q", capturedPrompt)
 	}
-	wantSuffix := grokReviewMarker + `{"schemaVersion":1,"reviewedFiles":["a.go"],"findings":[]}`
-	if !strings.HasSuffix(result.Message, wantSuffix) {
-		t.Fatalf("message = %q, want wrapper envelope suffix %q", result.Message, wantSuffix)
+	if capturedPromptPath == "" || filepath.Dir(capturedPromptPath) != fake.Dir() || filepath.Clean(fake.Dir()) == filepath.Clean(workDir) {
+		t.Fatalf("args=%v prompt=%q dir=%q workdir=%q", capturedArgs, capturedPromptPath, fake.Dir(), workDir)
+	}
+	if fake.stdinClaim {
+		t.Fatal("snapshot review must not pipe the prompt through stdin")
+	}
+	for key, want := range grokReviewForcedEnv {
+		if got := fake.env[key]; got != want {
+			t.Fatalf("env %s = %q, want %q", key, got, want)
+		}
+	}
+	if _, err := os.Stat(capturedPromptPath); !os.IsNotExist(err) {
+		t.Fatalf("prompt snapshot still exists after run: %v", err)
 	}
 }
 
-func TestRunGrokReviewRejectsResumeBeforeProviderLaunch(t *testing.T) {
+func TestRunGrokReviewRejectsResumeBeforeLaunch(t *testing.T) {
 	workDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workDir, "a.go"), []byte("package test\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fake := newFakeCmd(fakeCmdConfig{})
+	runnerCalled := false
 	originalRunner := newCommandRunner
-	newCommandRunner = func(context.Context, string, ...string) commandRunner { return fake }
+	newCommandRunner = func(context.Context, string, ...string) commandRunner {
+		runnerCalled = true
+		return newFakeCmd(fakeCmdConfig{})
+	}
 	t.Cleanup(func() { newCommandRunner = originalRunner })
 
 	result := runCodexTaskWithContext(context.Background(), TaskSpec{
 		Task:              "review",
 		WorkDir:           workDir,
-		Mode:              "resume",
-		SessionID:         "old-session",
 		Backend:           "grok",
+		Mode:              "resume",
+		SessionID:         "session-1",
 		GrokReviewTargets: []string{"a.go"},
 	}, GrokBackend{}, nil, false, true, 2)
-	if result.ExitCode == 0 || !strings.Contains(result.Error, "fresh isolated session") {
-		t.Fatalf("resume review must fail closed, got %+v", result)
+	if result.ExitCode == 0 || !strings.Contains(result.Error, "fresh session") || runnerCalled {
+		t.Fatalf("result=%+v runnerCalled=%v", result, runnerCalled)
 	}
-	if fake.startCount.Load() != 0 {
-		t.Fatalf("provider started before resume rejection: %d", fake.startCount.Load())
+}
+
+func hasArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
 	}
+	return false
+}
+
+func hasArgPair(args []string, flag, value string) bool {
+	return argValue(args, flag) == value && hasArg(args, flag)
+}
+
+func argValue(args []string, flag string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag {
+			return args[i+1]
+		}
+	}
+	return ""
 }

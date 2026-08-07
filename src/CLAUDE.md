@@ -10,7 +10,7 @@
 
 ### 2026-07-22 (v3.3.0)
 - 新增 `commands/grok.ts`、Grok doctor 分层和 `external_intelligence` opt-in 配置迁移。
-- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 由 codeagent-wrapper v5.12.3 处理。
+- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 由 codeagent-wrapper v5.12.5 处理。
 - Grok 情报登录默认走浏览器 OAuth；无头 CI 可显式提供 `XAI_API_KEY`，live smoke 仅手动触发。
 
 ### 2026-07-24（v3.3.0 安全复审加固）

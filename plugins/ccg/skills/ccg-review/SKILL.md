@@ -33,11 +33,11 @@ When a selected provider is Grok, treat ordinary code review as local-only;
 do not run the external-intelligence route. Build the prompt from the bundled
 Grok reviewer template and an exact `CCG_REVIEW_TARGETS` list of the regular
 workspace-relative files being reviewed. Invoke the existing wrapper with one
-`--grok-review-target` per listed file. The wrapper must embed only those files
-in a fresh session with Provider filesystem and MCP tools unavailable. A zero
-exit and the wrapper-generated, validated final `CCG_GROK_REVIEW_JSON` scope
-envelope are required before claiming Grok reviewed the files. If no concrete target file can be bound, report missing Grok review
-evidence. Codex must independently verify every finding.
+`--grok-review-target` per listed file. The wrapper snapshots only those files,
+runs Grok without tools, and appends the exact scope envelope. A zero exit and
+the validated final `CCG_GROK_REVIEW_JSON` envelope are required before claiming
+Grok reviewed the files. If no concrete target file can be bound, report missing
+Grok review evidence. Codex must independently verify every finding.
 
 When a selected provider is Antigravity, bind the same concrete review files
 in the prompt and invoke `ccg wrapper --backend antigravity

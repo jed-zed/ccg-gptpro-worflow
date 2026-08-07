@@ -107,22 +107,14 @@ type UnifiedEvent struct {
 	Message json.RawMessage `json:"message,omitempty"`
 }
 
-type grokToolCall struct {
-	variant   string
-	path      string
-	completed bool
-}
-
 type grokReviewEvidence struct {
-	calls          map[string]*grokToolCall
-	toolCallSeen   bool
 	stopReasonSeen bool
 	terminalError  string
 	forbiddenTool  string
 }
 
 func newGrokReviewEvidence() *grokReviewEvidence {
-	return &grokReviewEvidence{calls: make(map[string]*grokToolCall)}
+	return &grokReviewEvidence{}
 }
 
 func (e *grokReviewEvidence) observeACP(raw json.RawMessage) {
@@ -131,13 +123,9 @@ func (e *grokReviewEvidence) observeACP(raw json.RawMessage) {
 	}
 	var update struct {
 		SessionUpdate string `json:"sessionUpdate"`
-		ToolCallID    string `json:"toolCallId"`
-		Status        string `json:"status"`
 		StopReason    string `json:"stop_reason"`
 		RawInput      struct {
-			Variant    string `json:"variant"`
-			TargetFile string `json:"target_file"`
-			Path       string `json:"path"`
+			Variant string `json:"variant"`
 		} `json:"rawInput"`
 	}
 	if json.Unmarshal(raw, &update) != nil {
@@ -150,11 +138,7 @@ func (e *grokReviewEvidence) observeACP(raw json.RawMessage) {
 	if update.SessionUpdate != "tool_call" && update.SessionUpdate != "tool_call_update" {
 		return
 	}
-	path := update.RawInput.TargetFile
-	if update.RawInput.Path != "" {
-		path = update.RawInput.Path
-	}
-	e.observeToolCall(update.ToolCallID, update.Status, update.RawInput.Variant, path)
+	e.observeToolCall(update.RawInput.Variant)
 }
 
 func (e *grokReviewEvidence) observeStreamingJSON(raw json.RawMessage) bool {
@@ -162,60 +146,25 @@ func (e *grokReviewEvidence) observeStreamingJSON(raw json.RawMessage) bool {
 		return false
 	}
 	var update struct {
-		Type       string `json:"type"`
-		ToolCallID string `json:"toolCallId"`
-		ToolName   string `json:"toolName"`
-		Status     string `json:"status"`
-		RawInput   struct {
-			TargetFile string `json:"target_file"`
-			Path       string `json:"path"`
-		} `json:"rawInput"`
+		Type     string `json:"type"`
+		ToolName string `json:"toolName"`
 	}
 	if json.Unmarshal(raw, &update) != nil || (update.Type != "tool_call" && update.Type != "tool_call_update") {
 		return false
 	}
-	path := update.RawInput.TargetFile
-	if update.RawInput.Path != "" {
-		path = update.RawInput.Path
-	}
-	e.observeToolCall(update.ToolCallID, update.Status, update.ToolName, path)
+	e.observeToolCall(update.ToolName)
 	return true
 }
 
-func (e *grokReviewEvidence) observeToolCall(id, status, variant, path string) {
-	if e == nil {
+func (e *grokReviewEvidence) observeToolCall(tool string) {
+	if e == nil || e.forbiddenTool != "" {
 		return
 	}
-	e.toolCallSeen = true
-	if id == "" {
-		return
+	tool = strings.TrimSpace(tool)
+	if tool == "" {
+		tool = "unknown"
 	}
-	call := e.calls[id]
-	if call == nil {
-		call = &grokToolCall{}
-		e.calls[id] = call
-	}
-	if path != "" {
-		call.path = path
-	}
-	if variant != "" {
-		switch strings.ToLower(variant) {
-		case "readfile", "read_file":
-			call.variant = "ReadFile"
-		case "grep":
-			call.variant = "Grep"
-		case "listdir", "list_dir":
-			call.variant = "ListDir"
-		default:
-			call.variant = variant
-			if e.forbiddenTool == "" {
-				e.forbiddenTool = variant
-			}
-		}
-	}
-	if strings.EqualFold(status, "completed") {
-		call.completed = true
-	}
+	e.forbiddenTool = tool
 }
 
 func (e *grokReviewEvidence) observeStopReason(reason string) {

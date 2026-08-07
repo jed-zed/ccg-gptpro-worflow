@@ -77,7 +77,7 @@
 - ✨ **Grok 外部情报层**：新增显式同意、自动路由、官方 Grok CLI ACP 隔离执行、Web/X 证据验证、缓存/保留/导出和 canonical task evidence。
 - ✨ **命令接入**：新增 `/ccg:grok-intel`、`/ccg:grok-verify` 与 GPT Pro plan/review/execute 证据入口；CLI 新增 `ccg grok login|status|logout` 和 Grok 本地/付费 doctor 分层。
 - 🔒 **安全边界**：Grok 情报层固定空 MCP、取消权限请求、禁用终端命令、严格禁止 provider fallback；CI 仅通过环境密钥运行手动 live smoke。
-- 🔄 **分发口径**：17 个 core + 18 个 legacy 命令，Codex 插件暴露 44 个入口；36 个专家提示词；通用 wrapper 升级到 v5.12.3。
+- 🔄 **分发口径**：17 个 core + 18 个 legacy 命令，Codex 插件暴露 44 个入口；36 个专家提示词；通用 wrapper 升级到 v5.12.5。
 
 ### 2026-07-15 (v3.2.2)
 - 🐛 **doctor/status ESM 修复**：改用静态 `node:child_process` import，恢复 binary 与 npm 版本探测。
