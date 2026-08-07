@@ -262,7 +262,7 @@ node bin/ccg.mjs doctor --grok-live       # 显式付费 Web/X 冒烟
 
 Codex 模式分别设置 `frontend`、`backend`、`search`、`product-manager`
 四个大角色。前三者可选择 `codeagent-wrapper` 已注册的 `codex`、`gemini`、
-`claude`、`antigravity` 或 `grok`；product-manager 仍受只读合同和项目
+`claude`、`antigravity`、`grok` 或 `pi`；product-manager 仍受只读合同和项目
 allowlist 限制。使用 frontend/backend 时会自动加入必需的 search 证据并
 评估 product-manager 授权门；实际 Provider 调用仍需逐次显式批准。Codex
 仍负责真实工作区的最终写入和验证。

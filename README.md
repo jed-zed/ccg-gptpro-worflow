@@ -263,7 +263,7 @@ node bin/ccg.mjs doctor --grok-live       # Explicit paid Web/X smoke
 
 Codex mode stores routing for `frontend`, `backend`, `search`, and
 `product-manager`. The first three may use any provider already registered by
-`codeagent-wrapper`: `codex`, `gemini`, `claude`, `antigravity`, or `grok`;
+`codeagent-wrapper`: `codex`, `gemini`, `claude`, `antigravity`, `grok`, or `pi`;
 product-manager remains limited by its read-only contract and project allowlist.
 Frontend or backend work automatically adds required search evidence and
 evaluates the product-manager authorization gate; the Provider call still
