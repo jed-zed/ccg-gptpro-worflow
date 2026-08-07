@@ -64,10 +64,11 @@ gate fields into Trellis `task.json`.
 
 1. Create the CCG bridge session and its bounded `prompt.md`.
 2. Use only the installed `chatgpt-pro-sidebar` Skill for browser status, new conversation,
-   prompt submission, response capture, and detached monitoring.
-3. Start the watcher with `-RootWait` and the exact current `CODEX_THREAD_ID`; model-driven polling is forbidden.
-4. Keep the same root turn active in `wait-root`; Stop Hook is not an active continuation path.
-5. Import only a completed watcher result:
+   prompt submission, response capture, and local monitoring.
+3. Invoke watcher `run-root` once with the prompt, empty evidence directory, unique idempotency key,
+   and exact current `CODEX_THREAD_ID`. It sends once, starts the watcher immediately, and keeps the
+   same root turn blocked until terminal evidence; model-driven polling and Stop Hook are forbidden.
+4. Import only a completed watcher result:
 
 ```text
 python gptpro_bridge.py \
@@ -76,7 +77,7 @@ python gptpro_bridge.py \
   --expected-codex-thread-id <CODEX_THREAD_ID>
 ```
 
-6. Continue only when `CCG_GPTPRO_SIDEBAR_IMPORTED=1`.
+5. Continue only when `CCG_GPTPRO_SIDEBAR_IMPORTED=1`.
 
 The importer validates:
 
@@ -99,8 +100,8 @@ connected external Chrome tabs are available, bind each conversation to its exac
 browser/profile/tab/session/URL identity. A single root task waits on one active RootWait at a time;
 use separate Codex tasks for concurrent workstreams or queue them sequentially.
 
-The detached watcher performs token-free local polling. The same root turn stays active in
-`wait-root` until terminal evidence is available; no Hook or model watcher resumes the task.
+The watcher performs local polling without invoking a model turn. The same root turn stays blocked
+inside `run-root` until terminal evidence is available; no Hook or model watcher resumes the task.
 
 ## Boundaries
 

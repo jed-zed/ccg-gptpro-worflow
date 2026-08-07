@@ -22,7 +22,7 @@ fall back to `~/.codex/skills/chatgpt-pro-sidebar/SKILL.md` only when no project
 - Fail closed if neither installed Skill location or its scripts are available.
 - Use `chatgpt-pro-sidebar.ps1` as the only ChatGPT browser entry point; its active transport must be
   `agent-browser-cli-v2`.
-- Use `chatgpt-pro-sidebar-watch.ps1` only for detached token-free RootWait monitoring.
+- Use `chatgpt-pro-sidebar-watch.ps1 run-root` for the atomic send and local RootWait lifecycle.
 - Do not copy browser automation or fixed DOM extraction logic into CCG.
 - Do not register Stop Hook or start a model watcher.
 - Do not use the legacy localhost preview page for a normal CCG handoff.
@@ -94,13 +94,13 @@ existing required/waived Grok external-intelligence flags and provenance.
 3. Set the Skill evidence directory to `<session-dir>/<round-name>/sidebar`; it must be new and empty.
 4. Run Skill `status` and preserve its exact browser/profile/tab/session/URL target binding. Exit `22`
    is the only normal user action barrier.
-5. For round 1, run Skill `new-chat`, then Skill `send -FreshConversation` with the bridge prompt,
-   sidebar evidence directory, selected target binding, and a unique opaque idempotency key.
-6. Immediately start the detached watcher with `-RootWait`, the same evidence directory, and exact
-   current `CODEX_THREAD_ID`; keep this root turn active through `wait-root` without model polling.
-7. After `wait-root` returns, inspect `watch-event.json`. Only `completed` may enter the import command;
+5. For round 1, run Skill `new-chat`, then invoke watcher `run-root -FreshConversation` once with the
+   bridge prompt, sidebar evidence directory, a unique opaque idempotency key, and the exact current
+   `CODEX_THREAD_ID`. The command performs one send, starts the local watcher immediately, and keeps
+   this root turn blocked until terminal evidence without model polling.
+6. After `run-root` returns, inspect `watch-event.json`. Only `completed` may enter the import command;
    all other terminal states require diagnosis and never automatic resend.
-8. Import the captured response:
+7. Import the captured response:
 
 ```text
 python scripts/gptpro_bridge.py \
@@ -109,10 +109,10 @@ python scripts/gptpro_bridge.py \
   --expected-codex-thread-id <CODEX_THREAD_ID>
 ```
 
-9. Require `CCG_GPTPRO_SIDEBAR_IMPORTED=1`, non-empty `response.md`, exact conversation URL,
+8. Require `CCG_GPTPRO_SIDEBAR_IMPORTED=1`, non-empty `response.md`, exact conversation URL,
    response/evidence hashes, `automaticResendAllowed=false`, and the untrusted-output/Codex-writer
    authority fields.
-10. Independently classify the response, adapt any useful proposal, run required tests, and decide
+9. Independently classify the response, adapt any useful proposal, run required tests, and decide
     the CCG workflow outcome.
 
 The import is exact-once. Re-importing the same response succeeds idempotently; a different response

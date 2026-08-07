@@ -69,8 +69,8 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Sidebar Handoff
 
 - Create the bridge artifacts without launching the legacy preview.
-- Use the installed sidebar Skill to create the ChatGPT conversation and submit `prompt.md`.
-- Start the detached watcher in `-RootWait` mode and keep the current root turn active through `wait-root`.
-- Continue only after `wait-root` returns completed evidence for the exact Codex task.
+- Use the installed sidebar Skill to validate the target and prepare the ChatGPT conversation.
+- Invoke watcher `run-root` once so send, watcher start, and local RootWait stay in the current root turn.
+- Continue only after `run-root` returns completed evidence for the exact Codex task.
 - Import the completed sidebar evidence through `--import-session`, `--import-sidebar-evidence`, and
   `--expected-codex-thread-id`; never ask the user to copy or save the response.

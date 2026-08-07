@@ -137,5 +137,6 @@ Use GPT Pro only through the installed `chatgpt-pro-sidebar` Skill and the bridg
 
 The bridge creates task-local artifacts under `.ccg/tasks/<task-id>/gptpro/<session-id>/` and writes
 canonical evidence to `.ccg/tasks/<task-id>/evidence.json`. Commands must pause at
-`gate=gptpro_sidebar_running` while the detached watcher is active. Continue only after the same-task
-`wait-root` returns completed evidence and `--import-sidebar-evidence` validates the response.
+`gate=gptpro_sidebar_running` while the atomic same-task `run-root` command sends once and waits on
+the local watcher. Continue only after it returns completed evidence and
+`--import-sidebar-evidence` validates the response.
