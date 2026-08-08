@@ -46,5 +46,6 @@ in the prompt and invoke `ccg wrapper --backend antigravity --read-only --progre
 Antigravity review evidence; otherwise report it as missing. This review mode
 is restricted to sandboxed plan execution with slash commands disabled.
 
-Claude is not a generic ordinary reviewer. It may participate only through an
-explicitly selected and authorized read-only `product-manager` contract.
+When frontend/backend routing selects Claude, use the generic managed read-only
+wrapper contract above. This role evidence is separate from any explicitly
+selected and authorized read-only `product-manager` contract.

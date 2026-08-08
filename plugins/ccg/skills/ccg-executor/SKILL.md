@@ -21,10 +21,10 @@ You are the Codex-side orchestrator for CCG workflow plans. Plans are produced b
 - Do not let any routed provider directly own the real workspace. External
   providers supply bounded analysis, Unified Diff Patch prototypes, tests, or
   review notes; Codex applies final edits and verifies them.
-- Claude is disabled for ordinary delegation. It may run only through an
-  explicitly authorized `ccg product-manager review` call when unified routing
-  selects Claude for `product-manager`; the call remains snapshot-bound,
-  Read/Glob/Grep-only, no-write evidence inside the existing Trellis lifecycle.
+- Claude may serve a configured frontend/backend role only through the managed
+  read-only wrapper contract below. A separately selected `product-manager`
+  Claude call still requires explicit authorization and remains snapshot-bound,
+  Read/Glob/Grep-only evidence inside the existing Trellis lifecycle.
 - Treat external diffs as dirty prototypes. Codex must refactor them into the
   repository's local style before applying, never paste them into the real
   workspace unchecked.
@@ -105,11 +105,11 @@ call.
 Use the configured role provider as a helper, not as the executor of record.
 When the selected provider is Gemini, every call must use the bundled preview
 helper and should open the browser preview automatically unless the user asked
-for headless execution. For `antigravity`, `grok`, or `pi`, use
+for headless execution. For `claude`, `antigravity`, `grok`, or `pi`, use
 `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"` and
 pass the prompt through stdin. Do not add `--lite`; this managed launcher
-validates the pinned wrapper and preserves its default Web UI. Ordinary Claude delegation is not
-allowed outside the product-manager contract.
+validates the pinned wrapper and preserves its default Web UI. A standalone
+Claude role call remains bounded evidence and is not a product-manager call.
 
 Codex-native trigger rules:
 

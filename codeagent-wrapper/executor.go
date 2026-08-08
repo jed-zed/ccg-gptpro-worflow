@@ -852,9 +852,11 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = defaultWorkdir
 	}
-	if cfg.ReadOnly && cfg.Backend != "antigravity" && cfg.Backend != "grok" && cfg.Backend != "pi" {
+	if cfg.ReadOnly &&
+		cfg.Backend != "claude" && cfg.Backend != "antigravity" &&
+		cfg.Backend != "grok" && cfg.Backend != "pi" {
 		result.ExitCode = 1
-		result.Error = "--read-only requires --backend antigravity, grok, or pi"
+		result.Error = "--read-only requires --backend claude, antigravity, grok, or pi"
 		return result
 	}
 	var grokSnapshot *grokReviewSnapshot
@@ -894,7 +896,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		targetArg = grokSnapshot.promptFile
 	}
 
-	// Gemini/Antigravity/Pi CLI does not support "-" as stdin marker for the prompt.
+	// Claude/Gemini/Antigravity/Pi CLI does not support "-" as stdin marker for the prompt.
 	// On macOS/Linux: pass the actual task text directly via -p (execve preserves
 	// multi-line args in argv). On Windows: npm's .cmd wrapper routes through
 	// cmd.exe which truncates multi-line args at the first newline (Issue #129).
@@ -906,7 +908,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// Pi JSON mode reads piped stdin on every platform; use it to avoid Windows
 	// npm shim argument truncation and keep multiline prompts intact.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "pi")
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || (cfg.Backend == "claude" && cfg.ReadOnly) || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -1027,7 +1029,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
-	env := buildBackendEnv(commandName)
+	env := buildBackendEnv(cfg.Backend)
 	if grokSnapshot != nil || (cfg.ReadOnly && cfg.Backend == "grok") {
 		for key, value := range grokReviewForcedEnv {
 			env[key] = value

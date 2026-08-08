@@ -1445,7 +1445,7 @@ do something`
 	}
 }
 
-func TestParallelParseConfig_ManagedRejectsClaude(t *testing.T) {
+func TestParallelParseConfig_ManagedRejectsClaudeWithoutReadOnlyContract(t *testing.T) {
 	input := `---TASK---
 id: task-1
 backend: claude
@@ -1453,8 +1453,8 @@ backend: claude
 do something`
 
 	t.Setenv("CCG_CODEX_MANAGED_WRAPPER", "1")
-	if _, err := parseParallelConfig([]byte(input)); err == nil || !strings.Contains(err.Error(), "product-manager") {
-		t.Fatalf("expected managed wrapper to reject Claude, got %v", err)
+	if _, err := parseParallelConfig([]byte(input)); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("managed parallel wrapper should reject Claude without a read-only contract: %v", err)
 	}
 
 	t.Setenv("CCG_CODEX_MANAGED_WRAPPER", "")
@@ -3385,7 +3385,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.7\n"
+	want := "codeagent-wrapper version 5.12.8\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3401,7 +3401,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.7\n"
+	want := "codeagent-wrapper version 5.12.8\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3417,7 +3417,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.12.7\n"
+	want := "codex-wrapper version 5.12.8\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)

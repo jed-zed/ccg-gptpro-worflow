@@ -22,6 +22,33 @@ func TestClaudeBuildArgs_ModesAndPermissions(t *testing.T) {
 		}
 	})
 
+	t.Run("read-only mode uses native safety controls and stdin", func(t *testing.T) {
+		cfg := &Config{Mode: "new", WorkDir: "/repo", ReadOnly: true}
+		got := backend.BuildArgs(cfg, "")
+		want := []string{
+			"-p",
+			"--safe-mode",
+			"--disable-slash-commands",
+			"--tools", "Read,Glob,Grep",
+			"--strict-mcp-config",
+			"--mcp-config", `{"mcpServers":{}}`,
+			"--setting-sources", "",
+			"--settings", "{}",
+			"--no-session-persistence",
+			"--no-chrome",
+			"--permission-mode", "plan",
+			"--input-format", "text",
+			"--output-format", "stream-json",
+			"--verbose",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+		if slices.Contains(got, "--dangerously-skip-permissions") {
+			t.Fatalf("read-only args must not bypass permissions: %v", got)
+		}
+	})
+
 	t.Run("new mode can opt-in skip-permissions", func(t *testing.T) {
 		cfg := &Config{Mode: "new", SkipPermissions: true}
 		got := backend.BuildArgs(cfg, "-")
@@ -210,6 +237,7 @@ func TestGeminiBuildArgs_WithModel_OmitsPFlagWhenTargetEmpty(t *testing.T) {
 }
 
 func TestClaudeBuildArgs_BackendMetadata(t *testing.T) {
+	t.Setenv("CCG_CLAUDE_EXECUTABLE", "")
 	tests := []struct {
 		backend Backend
 		name    string
@@ -227,6 +255,13 @@ func TestClaudeBuildArgs_BackendMetadata(t *testing.T) {
 		if got := tt.backend.Command(); got != tt.command {
 			t.Fatalf("Command() = %s, want %s", got, tt.command)
 		}
+	}
+}
+
+func TestClaudeBackend_CommandUsesValidatedOverride(t *testing.T) {
+	t.Setenv("CCG_CLAUDE_EXECUTABLE", "/trusted/claude")
+	if got := (ClaudeBackend{}).Command(); got != "/trusted/claude" {
+		t.Fatalf("Command() = %q, want validated override", got)
 	}
 }
 

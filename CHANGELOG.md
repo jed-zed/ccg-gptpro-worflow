@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.8] - 2026-08-08
+
+### Fixed
+
+- **Standalone Claude Provider** — Allow frontend/backend routing to select
+  Claude and launch it through the same non-lite wrapper Web UI used by other
+  external role Providers.
+
+### Security
+
+- **Managed Claude read-only boundary** — Reuse the trusted native executable
+  resolver and run standalone Claude with Read/Glob/Grep-only safe-mode flags,
+  empty MCP/settings sources, no browser or session persistence, and no
+  permission bypass.
+
+### Changed
+
+- **codeagent-wrapper 5.12.8** — Add read-only Claude stdin execution while
+  preserving the legacy direct non-read-only wrapper contract.
+
 ## [3.4.7] - 2026-08-08
 
 ### Added
