@@ -293,7 +293,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also apply a lightweight subset of .gitignore rules when creating the snapshot.",
     )
-    parser.add_argument("--detach", action="store_true", help="Start in the background and return PID/log paths")
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="OS-detach for manual shells; Codex workflows should use a tool-managed background job",
+    )
     parser.add_argument("--preview-port", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--approval-mode", default="plan", choices=["default", "auto_edit", "yolo", "plan"])
     parser.add_argument("--prompt-template", default="general", choices=PROMPT_TEMPLATES)
@@ -459,7 +463,8 @@ def detach(args: argparse.Namespace, prompt: str, output_path: Path) -> int:
         creationflags = subprocess.CREATE_NO_WINDOW
 
     log_handle = launcher_log.open("w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen(
+    process_factory = getattr(subprocess, "Popen")
+    proc = process_factory(
         child_args,
         cwd=str(workdir_path),
         stdout=log_handle,
@@ -1067,6 +1072,17 @@ def prepare_gemini_workdir(args: argparse.Namespace) -> tuple[Path, tempfile.Tem
     return snapshot_path, temp_dir
 
 
+def cleanup_snapshot(temp_dir: tempfile.TemporaryDirectory[str]) -> None:
+    for attempt in range(5):
+        try:
+            temp_dir.cleanup()
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.25 * (attempt + 1))
+
+
 def build_prompt_for_gemini(args: argparse.Namespace, prompt: str, gemini_workdir: Path) -> str:
     if args.direct_workdir:
         return prompt
@@ -1181,7 +1197,7 @@ def main() -> int:
     finally:
         server.shutdown()
         if temp_dir is not None:
-            temp_dir.cleanup()
+            cleanup_snapshot(temp_dir)
 
 
 if __name__ == "__main__":

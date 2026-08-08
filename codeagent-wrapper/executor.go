@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -832,6 +831,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		GrokModel:         taskSpec.GrokModel,
 		GrokReviewTargets: taskSpec.GrokReviewTargets,
 		AntigravityReview: taskSpec.AntigravityReview,
+		ReadOnly:          taskSpec.ReadOnly,
 	}
 
 	commandName := codexCommand
@@ -851,6 +851,11 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	}
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = defaultWorkdir
+	}
+	if cfg.ReadOnly && cfg.Backend != "antigravity" && cfg.Backend != "grok" && cfg.Backend != "pi" {
+		result.ExitCode = 1
+		result.Error = "--read-only requires --backend antigravity, grok, or pi"
+		return result
 	}
 	var grokSnapshot *grokReviewSnapshot
 	if len(cfg.GrokReviewTargets) > 0 {
@@ -1023,7 +1028,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
 	env := buildBackendEnv(commandName)
-	if grokSnapshot != nil {
+	if grokSnapshot != nil || (cfg.ReadOnly && cfg.Backend == "grok") {
 		for key, value := range grokReviewForcedEnv {
 			env[key] = value
 		}
@@ -1124,7 +1129,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		}
 	}
 	var grokReview *grokReviewEvidence
-	if len(cfg.GrokReviewTargets) > 0 {
+	if len(cfg.GrokReviewTargets) > 0 || (cfg.ReadOnly && cfg.Backend == "grok") {
 		grokReview = newGrokReviewEvidence()
 	}
 
@@ -1146,50 +1151,9 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		fmt.Fprintf(os.Stderr, "  Session-ID: %s\n", id)
 	}
 
-	// Antigravity CLI outputs plain text (no JSON streaming).
-	// Read stdout directly instead of parsing JSON events.
-	isPlainTextBackend := cfg.Backend == "antigravity"
-
 	go func() {
 		defer allowWait()
-		if isPlainTextBackend {
-			scanner := bufio.NewScanner(stdoutReader)
-			scanner.Buffer(make([]byte, 0, 256*1024), 10*1024*1024)
-			var sb strings.Builder
-			firstLine := true
-			for scanner.Scan() {
-				line := scanner.Text()
-				if firstLine {
-					firstLine = false
-					select {
-					case messageSeen <- struct{}{}:
-					default:
-					}
-				}
-				if sb.Len() > 0 {
-					sb.WriteByte('\n')
-				}
-				sb.WriteString(line)
-				if onContentCallback != nil {
-					onContentCallback(line+"\n", "text")
-				}
-				if onProgressCallback != nil {
-					onProgressCallback(line)
-				}
-			}
-			msg := strings.TrimSpace(sb.String())
-			select {
-			case completeSeen <- struct{}{}:
-			default:
-			}
-			if globalWebServer != nil && webSessionID != "" {
-				globalWebServer.EndSession(webSessionID, cfg.Backend)
-			}
-			parseCh <- parseResult{message: msg}
-			return
-		}
-
-		msg, tid, terminalError := parseJSONStreamInternalWithReview(stdoutReader, logWarnFn, logInfoFn, func() {
+		onMessage := func() {
 			// os/exec.Wait closes StdoutPipe after the process exits. Do not let a
 			// fast process win that race before the parser has captured its message.
 			allowWait()
@@ -1197,7 +1161,8 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			case messageSeen <- struct{}{}:
 			default:
 			}
-		}, func() {
+		}
+		onComplete := func() {
 			allowWait()
 			select {
 			case completeSeen <- struct{}{}:
@@ -1207,7 +1172,13 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			if globalWebServer != nil && webSessionID != "" {
 				globalWebServer.EndSession(webSessionID, cfg.Backend)
 			}
-		}, onContentCallback, onProgressCallback, onSessionStartedCallback, grokReview)
+		}
+		var msg, tid, terminalError string
+		if cfg.Backend == "antigravity" {
+			msg, tid, terminalError = parseAntigravityStream(stdoutReader, logWarnFn, logInfoFn, onMessage, onComplete, onContentCallback, onProgressCallback, onSessionStartedCallback)
+		} else {
+			msg, tid, terminalError = parseJSONStreamInternalWithReview(stdoutReader, logWarnFn, logInfoFn, onMessage, onComplete, onContentCallback, onProgressCallback, onSessionStartedCallback, grokReview)
+		}
 		select {
 		case completeSeen <- struct{}{}:
 		default:
@@ -1448,6 +1419,13 @@ waitLoop:
 		var err error
 		message, err = finalizeGrokReview(message, cfg.GrokReviewTargets, grokReview)
 		if err != nil {
+			logErrorFn(err.Error())
+			result.ExitCode = 1
+			result.Error = attachStderr(err.Error())
+			return result
+		}
+	} else if cfg.ReadOnly && cfg.Backend == "grok" {
+		if err := validateGrokReadOnly(grokReview); err != nil {
 			logErrorFn(err.Error())
 			result.ExitCode = 1
 			result.Error = attachStderr(err.Error())

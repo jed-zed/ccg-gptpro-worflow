@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.6"
+	version               = "5.12.7"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -374,6 +374,10 @@ func run() (exitCode int) {
 		return 1
 	}
 	cfg.Backend = backend.Name()
+	if cfg.ReadOnly && cfg.Backend != "antigravity" && cfg.Backend != "grok" && cfg.Backend != "pi" {
+		logError("--read-only requires --backend antigravity, grok, or pi")
+		return 1
+	}
 
 	cmdInjected := codexCommand != defaultCodexCommand
 	argsInjected := buildCodexArgsFn != nil && reflect.ValueOf(buildCodexArgsFn).Pointer() != reflect.ValueOf(defaultBuildArgsFn).Pointer()
@@ -523,6 +527,7 @@ func run() (exitCode int) {
 		GrokModel:         cfg.GrokModel,
 		GrokReviewTargets: cfg.GrokReviewTargets,
 		AntigravityReview: cfg.AntigravityReview,
+		ReadOnly:          cfg.ReadOnly,
 	}
 
 	result := runTaskFn(taskSpec, false, cfg.Timeout)
@@ -625,6 +630,7 @@ Options:
 	                          Embed this exact file in a fresh tool-less Grok review
 	                          Repeat once per workspace-relative regular file
 	    --antigravity-review  Run Antigravity in sandboxed plan mode for local review
+	    --read-only           Disable writes/tools for managed Antigravity, Grok, or Pi delegation
 	    --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:

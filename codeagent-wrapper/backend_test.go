@@ -384,11 +384,35 @@ func TestAntigravityBuildArgs_ReviewModeIsSandboxedPlan(t *testing.T) {
 		"--mode", "plan",
 		"--dangerously-skip-permissions",
 		"--disable-slash-commands",
+		"--output-format", "stream-json",
 		"--add-dir", "/tmp/project",
 		"-p", "review the task",
 	}
 	if got := buildAntigravityArgs(cfg, "review the task"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestAntigravityBuildArgs_ReadOnlyStreamsSandboxedPlanEvents(t *testing.T) {
+	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "antigravity", ReadOnly: true}
+	want := []string{
+		"--sandbox",
+		"--mode", "plan",
+		"--dangerously-skip-permissions",
+		"--disable-slash-commands",
+		"--output-format", "stream-json",
+		"--add-dir", "/tmp/project",
+		"-p", "analyze the task",
+	}
+	if got := buildAntigravityArgs(cfg, "analyze the task"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestAntigravityBuildArgs_DefaultStillUsesStreamJSON(t *testing.T) {
+	args := buildAntigravityArgs(&Config{Mode: "new", Backend: "antigravity"}, "task")
+	if !hasArgPair(args, "--output-format", "stream-json") {
+		t.Fatalf("args missing stream-json output: %v", args)
 	}
 }
 
@@ -402,6 +426,32 @@ func TestGrokBuildArgs_ResumeMode(t *testing.T) {
 	}
 	if !strings.Contains(joined, "-p continue") {
 		t.Fatalf("resume args missing -p prompt: %v", args)
+	}
+}
+
+func TestGrokBuildArgs_ReadOnlyIsToolless(t *testing.T) {
+	args := buildGrokArgs(&Config{Mode: "new", Backend: "grok", ReadOnly: true}, "inspect")
+	for _, pair := range [][2]string{
+		{"--tools", ""},
+		{"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool,search_replace"},
+		{"--permission-mode", "dontAsk"},
+		{"--deny", "mcp__*"},
+		{"--output-format", "streaming-json"},
+		{"-p", "inspect"},
+	} {
+		if !hasArgPair(args, pair[0], pair[1]) {
+			t.Fatalf("read-only args missing %q %q: %v", pair[0], pair[1], args)
+		}
+	}
+	for _, flag := range []string{"--disable-web-search", "--no-memory", "--no-plan", "--no-subagents"} {
+		if !hasArg(args, flag) {
+			t.Fatalf("read-only args missing %q: %v", flag, args)
+		}
+	}
+	for _, forbidden := range []string{"--always-approve", "--max-turns", "--system-prompt-override", "--prompt-file"} {
+		if hasArg(args, forbidden) {
+			t.Fatalf("read-only args must not contain %q: %v", forbidden, args)
+		}
 	}
 }
 

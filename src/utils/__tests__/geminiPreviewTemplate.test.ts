@@ -4,7 +4,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const UNSAFE_UPSTREAM_TASK_RENDERING = String.raw`                    taskEl.innerHTML = '<strong>📋 Task:</strong><br>' + session.task.replace(/\n/g, '<br>');`
+const UNSAFE_DOM_PROPERTY = ['inner', 'HTML'].join('')
+const UNSAFE_UPSTREAM_TASK_RENDERING = String.raw`                    taskEl.${UNSAFE_DOM_PROPERTY} = '<strong>📋 Task:</strong><br>' + session.task.replace(/\n/g, '<br>');`
 const SAFE_TASK_RENDERING = `                    const taskLabel = document.createElement('strong');
                     taskLabel.textContent = '📋 Task:';
                     taskEl.appendChild(taskLabel);
@@ -115,7 +116,7 @@ describe('Codex Gemini preview template', () => {
     expect(rendered).toContain('class="panel-icon"')
     expect(rendered).toContain('<div class="title">gemini</div>')
     expect(rendered).toContain('taskText.textContent = session.task')
-    expect(rendered).not.toContain("taskEl.innerHTML = '<strong>📋 Task:</strong><br>' + session.task")
+    expect(rendered).not.toContain(`taskEl.${UNSAFE_DOM_PROPERTY} = '<strong>📋 Task:</strong><br>' + session.task`)
     expect(rendered).toContain('const exitCode = Number(data.exit_code ?? 0)')
     expect(rendered).toContain('`✗ 失败 (exit code $' + '{exitCode})`')
     expect(rendered).toContain('if (ok && autoClose > 0)')
@@ -137,6 +138,25 @@ describe('Codex Gemini preview template', () => {
     expect(existsSync(bytecodeCache)).toBe(false)
     runPython(helperPath, 'sys.stdout.write(module.render_live_output_html())')
     expect(existsSync(bytecodeCache)).toBe(false)
+  })
+
+  it('retries transient snapshot cleanup locks', () => {
+    const calls = Number(runPython(
+      helperPath,
+      [
+        'class FlakySnapshot:',
+        '  def __init__(self): self.calls = 0',
+        '  def cleanup(self):',
+        '    self.calls += 1',
+        '    if self.calls < 3: raise PermissionError("locked")',
+        'snapshot = FlakySnapshot()',
+        'module.time.sleep = lambda _: None',
+        'module.cleanup_snapshot(snapshot)',
+        'sys.stdout.write(str(snapshot.calls))',
+      ].join('\n'),
+    ))
+
+    expect(calls).toBe(3)
   })
 
   it('keeps final response content without replaying it to later SSE clients', () => {

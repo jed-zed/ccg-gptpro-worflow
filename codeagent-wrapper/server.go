@@ -516,12 +516,21 @@ func (ws *WebServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	// Register client
 	ws.mu.Lock()
 	ws.clients[sessionID] = append(ws.clients[sessionID], ch)
-	// Only send done state if session is already complete (no historical content)
-	if session, ok := ws.sessions[sessionID]; ok && session.Done {
-		ch <- ContentEvent{
-			SessionID: sessionID,
-			Backend:   session.Backend,
-			Done:      true,
+	if session, ok := ws.sessions[sessionID]; ok {
+		if session.Content != "" {
+			ch <- ContentEvent{
+				SessionID:   sessionID,
+				Backend:     session.Backend,
+				Content:     session.Content,
+				ContentType: "message",
+			}
+		}
+		if session.Done {
+			ch <- ContentEvent{
+				SessionID: sessionID,
+				Backend:   session.Backend,
+				Done:      true,
+			}
 		}
 	}
 	ws.mu.Unlock()

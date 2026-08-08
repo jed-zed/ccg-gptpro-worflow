@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.7] - 2026-08-08
+
 ### Added
 
 - **Product-manager workspace snapshot** — Build a strict task-local snapshot
@@ -24,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routing so target path, digest, and byte changes invalidate prior evidence.
 - **Timeout unit consistency** — Interpret every positive integer
   `CODEX_TIMEOUT` as seconds and remove the magnitude-based unit switch.
+- **Automatic Provider previews** — Give Gemini a tool-managed background job
+  and give Antigravity, Grok, and Pi one explicit non-lite wrapper launch
+  contract; replay accumulated SSE output when the browser connects late.
+- **Antigravity intermediate output** — Consume the official `stream-json`
+  event stream so progress reaches the Web UI before the terminal response.
 
 ### Security
 
@@ -34,11 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bound local Grok reviews** — Snapshot only declared local files into a
   private prompt, remove Provider tools, and append the validated scope envelope
   without enabling Web search.
+- **Read-only workflow Providers** — Add an explicit wrapper `--read-only`
+  contract for automatic Antigravity, Grok, and Pi evidence calls.
 
 ### Changed
 
-- **codeagent-wrapper 5.12.6** — Run Grok local review from pre-opened UTF-8
-  snapshots in tool-less sessions and append deterministic scope evidence.
+- **codeagent-wrapper 5.12.7** — Add read-only Provider launch, structured
+  Antigravity streaming, and late-client Web UI history replay.
 - **Companion role routing** — Ordinary CCG and GPT Pro workflows now require
   configured search evidence whenever frontend or backend participates and
   automatically evaluate the mapped product-manager authorization gate without

@@ -1294,6 +1294,20 @@ func TestBackendParseArgs_AntigravityReview(t *testing.T) {
 	}
 }
 
+func TestBackendParseArgs_ReadOnly(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+
+	os.Args = []string{"codeagent-wrapper", "--backend", "antigravity", "--read-only", "task"}
+	cfg, err := parseArgs()
+	if err != nil {
+		t.Fatalf("parseArgs() unexpected error: %v", err)
+	}
+	if !cfg.ReadOnly {
+		t.Fatal("ReadOnly = false, want true")
+	}
+}
+
 func TestBackendParseArgs_SkipPermissions(t *testing.T) {
 	const envKey = "CODEAGENT_SKIP_PERMISSIONS"
 	t.Cleanup(func() { os.Unsetenv(envKey) })
@@ -3371,7 +3385,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.6\n"
+	want := "codeagent-wrapper version 5.12.7\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3387,7 +3401,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.6\n"
+	want := "codeagent-wrapper version 5.12.7\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3403,7 +3417,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.12.6\n"
+	want := "codex-wrapper version 5.12.7\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)

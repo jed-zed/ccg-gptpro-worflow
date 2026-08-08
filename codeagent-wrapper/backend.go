@@ -147,7 +147,7 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 
 	var args []string
 
-	if cfg.AntigravityReview {
+	if cfg.AntigravityReview || cfg.ReadOnly {
 		args = append(args,
 			"--sandbox",
 			"--mode", "plan",
@@ -157,6 +157,7 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 	} else if cfg.SkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
 	}
+	args = append(args, "--output-format", "stream-json")
 
 	if cfg.Mode == "resume" && cfg.SessionID != "" {
 		args = append(args, "--conversation", cfg.SessionID)
@@ -207,20 +208,24 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 	}
 
 	args := []string{"--always-approve", "--output-format", "streaming-json"}
-	if len(cfg.GrokReviewTargets) > 0 {
+	if cfg.ReadOnly || len(cfg.GrokReviewTargets) > 0 {
 		args = []string{
 			"--tools", "",
-			"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool",
+			"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool,search_replace",
 			"--disable-web-search",
 			"--no-memory",
 			"--no-plan",
 			"--no-subagents",
 			"--permission-mode", "dontAsk",
 			"--deny", "mcp__*",
-			"--max-turns", "1",
-			"--system-prompt-override", grokReviewSystemPrompt,
-			"--verbatim",
 			"--output-format", "streaming-json",
+		}
+		if len(cfg.GrokReviewTargets) > 0 {
+			args = append(args,
+				"--max-turns", "1",
+				"--system-prompt-override", grokReviewSystemPrompt,
+				"--verbatim",
+			)
 		}
 		if !isWindows() {
 			args = append(args, "--sandbox", "strict")

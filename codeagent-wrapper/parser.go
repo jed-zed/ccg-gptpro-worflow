@@ -568,6 +568,189 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 	return message, threadID, piError
 }
 
+type antigravityStreamEvent struct {
+	Event          string                     `json:"event"`
+	ConversationID string                     `json:"conversation_id,omitempty"`
+	Init           *antigravityInit           `json:"init,omitempty"`
+	StepUpdate     *antigravityStepUpdate     `json:"step_update,omitempty"`
+	Result         *antigravityTerminalResult `json:"result,omitempty"`
+}
+
+type antigravityInit struct {
+	ConversationID string `json:"conversation_id,omitempty"`
+}
+
+type antigravityStepUpdate struct {
+	ConversationID string          `json:"conversation_id"`
+	StepIndex      int             `json:"step_index"`
+	State          string          `json:"state"`
+	StepType       string          `json:"step_type"`
+	TextDelta      string          `json:"text_delta"`
+	ToolName       string          `json:"tool_name,omitempty"`
+	ToolInfo       json.RawMessage `json:"tool_info,omitempty"`
+	SubagentInfo   json.RawMessage `json:"subagent_info,omitempty"`
+}
+
+type antigravityTerminalResult struct {
+	ConversationID string          `json:"conversation_id"`
+	Status         string          `json:"status"`
+	Response       string          `json:"response"`
+	Error          json.RawMessage `json:"error,omitempty"`
+}
+
+func parseAntigravityStream(r io.Reader, warnFn func(string), infoFn func(string), onMessage func(), onComplete func(), onContent func(content, contentType string), onProgress func(line string), onSessionStarted func(id string)) (message, threadID, terminalError string) {
+	reader := bufio.NewReaderSize(r, jsonLineReaderSize)
+	if warnFn == nil {
+		warnFn = func(string) {}
+	}
+	if infoFn == nil {
+		infoFn = func(string) {}
+	}
+
+	recordSession := func(id string) {
+		if threadID != "" || strings.TrimSpace(id) == "" {
+			return
+		}
+		threadID = id
+		if onSessionStarted != nil {
+			onSessionStarted(id)
+		}
+	}
+	emitProgress := func(step *antigravityStepUpdate) {
+		if onProgress == nil || step == nil {
+			return
+		}
+		onProgress(fmt.Sprintf("[PROGRESS] step_update type=%s state=%s index=%d",
+			strconv.Quote(safeProgressSnippet(step.StepType, 40)),
+			strconv.Quote(safeProgressSnippet(step.State, 40)), step.StepIndex))
+	}
+
+	var streamed strings.Builder
+	resultSeen := 0
+	unknownWarnings := 0
+	for {
+		line, tooLong, err := readLineWithLimit(reader, jsonLineMaxBytes, jsonLinePreviewBytes)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return "", threadID, "read Antigravity stream: " + err.Error()
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		if tooLong {
+			return "", threadID, fmt.Sprintf("Antigravity event exceeds %d bytes", jsonLineMaxBytes)
+		}
+
+		var event antigravityStreamEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			return "", threadID, fmt.Sprintf("parse Antigravity event: %v", err)
+		}
+		switch event.Event {
+		case "init":
+			if event.Init == nil {
+				return "", threadID, "parse Antigravity init: missing init payload"
+			}
+			recordSession(event.ConversationID)
+		case "step_update":
+			if event.StepUpdate == nil {
+				return "", threadID, "parse Antigravity step_update: missing payload"
+			}
+			step := event.StepUpdate
+			recordSession(step.ConversationID)
+			emitProgress(step)
+			if step.TextDelta == "" {
+				if onContent != nil {
+					switch {
+					case step.StepType == "tool" && strings.TrimSpace(step.ToolName) != "":
+						onContent(fmt.Sprintf("tool %s: %s", safeProgressSnippet(step.State, 40), safeProgressSnippet(step.ToolName, 80)), "command")
+					case step.StepType == "checkpoint":
+						onContent("checkpoint: "+safeProgressSnippet(step.State, 40), "reasoning")
+					case len(step.SubagentInfo) > 0:
+						onContent("subagent: "+safeProgressSnippet(step.State, 40), "reasoning")
+					}
+				}
+				continue
+			}
+			switch step.StepType {
+			case "agent_response":
+				streamed.WriteString(step.TextDelta)
+				if onContent != nil {
+					onContent(step.TextDelta, "message")
+				}
+				if onMessage != nil {
+					onMessage()
+				}
+			case "tool":
+				if onContent != nil {
+					onContent(step.TextDelta, "command")
+				}
+			case "checkpoint", "subagent":
+				if onContent != nil {
+					onContent(step.TextDelta, "reasoning")
+				}
+			}
+		case "result":
+			resultSeen++
+			if resultSeen > 1 {
+				return "", threadID, "duplicate terminal result in Antigravity stream"
+			}
+			if event.Result == nil {
+				return "", threadID, "parse Antigravity result: missing payload"
+			}
+			recordSession(event.Result.ConversationID)
+			if !strings.EqualFold(strings.TrimSpace(event.Result.Status), "success") {
+				if onComplete != nil {
+					onComplete()
+				}
+				detail := strings.TrimSpace(strings.Trim(string(event.Result.Error), `"`))
+				if detail != "" && detail != "null" {
+					return "", threadID, fmt.Sprintf("Antigravity result status %q: %s", event.Result.Status, safeProgressSnippet(detail, 240))
+				}
+				return "", threadID, fmt.Sprintf("Antigravity result status %q", event.Result.Status)
+			}
+			if strings.TrimSpace(event.Result.Response) == "" {
+				if onComplete != nil {
+					onComplete()
+				}
+				return "", threadID, "Antigravity result missing response"
+			}
+			message = event.Result.Response
+			partial := streamed.String()
+			if partial == "" {
+				if onContent != nil {
+					onContent(message, "message")
+				}
+				if onMessage != nil {
+					onMessage()
+				}
+			} else if strings.HasPrefix(message, partial) {
+				if suffix := message[len(partial):]; suffix != "" && onContent != nil {
+					onContent(suffix, "message")
+				}
+			} else if message != partial {
+				warnFn("Antigravity result did not match streamed agent_response; using terminal result")
+			}
+			if onComplete != nil {
+				onComplete()
+			}
+		default:
+			if unknownWarnings < 3 {
+				warnFn("Ignored unknown Antigravity event: " + safeProgressSnippet(event.Event, 80))
+				unknownWarnings++
+			}
+		}
+	}
+
+	if resultSeen == 0 {
+		return "", threadID, "Antigravity stream missing terminal result"
+	}
+	infoFn(fmt.Sprintf("parseAntigravityStream completed: message_len=%d, conversation_id_found=%t", len(message), threadID != ""))
+	return message, threadID, ""
+}
+
 func extractPiAssistantMessage(raw json.RawMessage) (text, stopReason, errorMessage string) {
 	var message struct {
 		Role         string `json:"role"`
