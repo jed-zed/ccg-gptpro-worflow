@@ -28,8 +28,6 @@ export function parseWrapperBackend(args: readonly string[]): ModelType {
   const provider = providers[0]
   if (!isRegisteredModel(provider))
     throw new Error(`Unknown wrapper backend: ${provider}`)
-  if (provider === 'claude')
-    throw new Error('Claude is restricted to the read-only product-manager contract.')
   return provider
 }
 

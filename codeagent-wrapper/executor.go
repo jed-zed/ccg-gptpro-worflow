@@ -1023,11 +1023,6 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
 	env := buildBackendEnv(commandName)
-	if grokSnapshot != nil {
-		for key, value := range grokReviewForcedEnv {
-			env[key] = value
-		}
-	}
 	cmd.SetEnv(env) // SetEnv 会自动合并 os.Environ() (executor.go:122-161)
 
 	// Set working directory for backends that don't support -C flag.

@@ -27,12 +27,12 @@ describe('Codex wrapper command', () => {
     expect(invocation?.args).not.toContain('--lite')
   })
 
-  it('rejects ambiguous, unknown, and ordinary Claude backends', () => {
+  it('accepts registered providers and rejects ambiguous or unknown backends', () => {
     expect(parseWrapperBackend(['--backend=codex'])).toBe('codex')
     expect(parseWrapperBackend(['--backend=gemini'])).toBe('gemini')
     expect(() => parseWrapperBackend([])).toThrow('exactly one explicit')
     expect(() => parseWrapperBackend(['--backend', 'codex', '--backend=grok'])).toThrow('exactly one explicit')
     expect(() => parseWrapperBackend(['--backend=unknown'])).toThrow('Unknown wrapper backend')
-    expect(() => parseWrapperBackend(['--backend', 'claude'])).toThrow('product-manager')
+    expect(parseWrapperBackend(['--backend', 'claude'])).toBe('claude')
   })
 })

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.6"
+	version               = "5.12.7"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -622,9 +622,9 @@ Options:
                           CLI parameter takes precedence over environment variable
                           Examples: grok-4.5, grok-composer-2.5-fast
 	    --grok-review-target <path>
-	                          Embed this exact file in a fresh tool-less Grok review
+	                          Embed this exact file in a fresh Grok review
 	                          Repeat once per workspace-relative regular file
-	    --antigravity-review  Run Antigravity in sandboxed plan mode for local review
+	    --antigravity-review  Run a fresh Antigravity local review
 	    --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:

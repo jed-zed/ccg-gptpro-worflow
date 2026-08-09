@@ -251,7 +251,7 @@ describe('Codex mode ownership and reversibility', () => {
     const hook = await readFile(join(codexHome, 'hooks', 'ccg-workflow.py'), 'utf8')
     expect(hook).not.toContain('--backend claude')
     expect(hook).toContain('applicable frontend/backend/search providers')
-    expect(hook).toContain('Claude may run only through an explicitly selected read-only product-manager contract')
+    expect(hook).toContain('Claude may be explicitly selected for frontend, backend, or product-manager, but not search')
     const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
     expect(config).not.toContain('[mcp_servers')
   })

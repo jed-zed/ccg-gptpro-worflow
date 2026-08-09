@@ -147,14 +147,7 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 
 	var args []string
 
-	if cfg.AntigravityReview {
-		args = append(args,
-			"--sandbox",
-			"--mode", "plan",
-			"--dangerously-skip-permissions",
-			"--disable-slash-commands",
-		)
-	} else if cfg.SkipPermissions {
+	if cfg.SkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 
@@ -208,23 +201,10 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 
 	args := []string{"--always-approve", "--output-format", "streaming-json"}
 	if len(cfg.GrokReviewTargets) > 0 {
-		args = []string{
-			"--tools", "",
-			"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool",
-			"--disable-web-search",
-			"--no-memory",
-			"--no-plan",
-			"--no-subagents",
-			"--permission-mode", "dontAsk",
-			"--deny", "mcp__*",
-			"--max-turns", "1",
+		args = append(args,
 			"--system-prompt-override", grokReviewSystemPrompt,
 			"--verbatim",
-			"--output-format", "streaming-json",
-		}
-		if !isWindows() {
-			args = append(args, "--sandbox", "strict")
-		}
+		)
 	}
 
 	if model := strings.TrimSpace(cfg.GrokModel); model != "" {
@@ -259,13 +239,7 @@ func buildPiArgs(cfg *Config, _ string) []string {
 
 	args := []string{
 		"--mode", "json",
-		"--no-approve",
-		"--no-extensions",
-		"--no-skills",
-		"--no-prompt-templates",
-		"--no-themes",
-		"--no-context-files",
-		"--tools", "read,grep,find,ls",
+		"--approve",
 	}
 	if cfg.Mode == "resume" && cfg.SessionID != "" {
 		args = append(args, "--session", cfg.SessionID)

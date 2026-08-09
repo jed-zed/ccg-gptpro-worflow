@@ -31,9 +31,9 @@ This command is Codex-native:
   with `ccg routing get <frontend|backend|search|product-manager> --json`.
 - Use the selected provider for bounded drafting, analysis, prototypes, or
   review; Codex applies and verifies all changes.
-- Claude is disabled for ordinary delegation. It may run only when unified CCG
-  routing selects Claude for the read-only `product-manager` role and the
-  project allows the explicit provider call.
+- Claude may be explicitly selected for `frontend`, `backend`, or
+  `product-manager`. It is not eligible for `search`; defaults and no-fallback
+  behavior remain unchanged.
 - Any Gemini delegation must use the bundled browser preview helper automatically; do not ask the user to run `/ccg:gemini-preview` first and do not call the raw Gemini CLI directly.
 - For M+ or risky work, apply the active project quality gates and ask the
   applicable top-level provider to perform its analysis or review phase when

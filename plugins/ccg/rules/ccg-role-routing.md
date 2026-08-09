@@ -12,7 +12,7 @@ CCG has four formal top-level routing roles:
 | `frontend` | Frontend analysis, planning, implementation drafts, and review |
 | `backend` | Backend analysis, planning, implementation drafts, and review |
 | `search` | External lookup planning, evidence gathering, analysis, and review |
-| `product-manager` | Read-only intake, milestone, and final product review evidence |
+| `product-manager` | Intake, milestone, and final product review evidence |
 
 `analysis`, `planning`, and `review` are workflow phases inside these roles.
 They are not independently configurable provider roles.
@@ -33,16 +33,16 @@ provider:
 
 | Role | Allowed providers |
 | --- | --- |
-| `frontend` | `codex`, `gemini`, `antigravity`, `grok`, `pi` |
-| `backend` | `codex`, `gemini`, `antigravity`, `grok`, `pi` |
+| `frontend` | `codex`, `gemini`, `claude`, `antigravity`, `grok`, `pi` |
+| `backend` | `codex`, `gemini`, `claude`, `antigravity`, `grok`, `pi` |
 | `search` | `codex`, `grok` |
 | `product-manager` | `codex`, `gemini`, `claude` |
 
 Use `ccg wrapper --backend <provider> ...` for managed Antigravity, Grok, or
 Pi delegation. The launcher keeps the wrapper Web UI enabled unless `--lite`
 is explicit. Direct Codex and Gemini wrapper invocations are also accepted but
-do not change role routing; ordinary Claude is always rejected. Claude remains
-restricted to the read-only product-manager contract. Codex remains the
+do not change role routing. Claude may be explicitly selected for `frontend`,
+`backend`, or `product-manager`, but not `search`. Codex remains the
 orchestrator, sole real-workspace writer, final verifier, and delivery owner
 regardless of the selected role provider.
 
@@ -53,8 +53,8 @@ projects, and Trellis tasks may restrict allowed Providers but must not select
 one or introduce fallback.
 
 Routing changes never install, authenticate, invoke, or grant permissions to a
-Provider. Product-manager calls remain read-only and require explicit per-call
-authorization.
+Provider. Provider launch permissions follow the upstream CCG baseline;
+product-manager calls still require explicit per-call authorization.
 
 ## Companion Role Contract
 

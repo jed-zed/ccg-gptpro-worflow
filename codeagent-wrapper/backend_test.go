@@ -372,7 +372,7 @@ func TestGrokBuildArgs_NewMode(t *testing.T) {
 	t.Fatalf("args missing -p: %v", args)
 }
 
-func TestAntigravityBuildArgs_ReviewModeIsSandboxedPlan(t *testing.T) {
+func TestAntigravityBuildArgs_ReviewModeInheritsBackendPermissions(t *testing.T) {
 	cfg := &Config{
 		Mode:              "new",
 		WorkDir:           "/tmp/project",
@@ -380,15 +380,16 @@ func TestAntigravityBuildArgs_ReviewModeIsSandboxedPlan(t *testing.T) {
 		AntigravityReview: true,
 	}
 	want := []string{
-		"--sandbox",
-		"--mode", "plan",
-		"--dangerously-skip-permissions",
-		"--disable-slash-commands",
 		"--add-dir", "/tmp/project",
 		"-p", "review the task",
 	}
 	if got := buildAntigravityArgs(cfg, "review the task"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+	cfg.SkipPermissions = true
+	want = append([]string{"--dangerously-skip-permissions"}, want...)
+	if got := buildAntigravityArgs(cfg, "review the task"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("permission bypass got %v, want %v", got, want)
 	}
 }
 
@@ -469,17 +470,11 @@ func TestParseJSONStream_GrokThoughtsExcludedFromMessage(t *testing.T) {
 	}
 }
 
-func TestPiBuildArgs_ReadOnlyJSONMode(t *testing.T) {
+func TestPiBuildArgs_ApprovedJSONMode(t *testing.T) {
 	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "pi"}
 	want := []string{
 		"--mode", "json",
-		"--no-approve",
-		"--no-extensions",
-		"--no-skills",
-		"--no-prompt-templates",
-		"--no-themes",
-		"--no-context-files",
-		"--tools", "read,grep,find,ls",
+		"--approve",
 	}
 	if got := buildPiArgs(cfg, ""); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)

@@ -28,9 +28,9 @@ revised.
 - Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
   Contract**, classify plan slices as frontend, backend, and/or search, then
   resolve the required top-level roles before assigning planning analysis.
-- Claude is disabled for ordinary delegation. It may run only when unified CCG
-  routing selects Claude for the read-only `product-manager` role and the
-  project allows the explicit provider call.
+- Claude may be explicitly selected for `frontend`, `backend`, or
+  `product-manager`. It is not eligible for `search`; defaults and no-fallback
+  behavior remain unchanged.
 - Do not call `/ccg:execute` automatically and do not ask for a Y/N execution handoff.
 - If no user requirement is provided, answer in Chinese with usage examples and do not write files.
 - If the user explicitly asks to revise an existing plan file, update only that plan file. Otherwise create a new plan and never overwrite an existing plan; use `-v2`, `-v3`, and so on.
