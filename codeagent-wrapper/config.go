@@ -42,6 +42,7 @@ type TaskSpec struct {
 	Dependencies      []string        `json:"dependencies,omitempty"`
 	SessionID         string          `json:"session_id,omitempty"`
 	Backend           string          `json:"backend,omitempty"`
+	SkipPermissions   bool            `json:"-"`
 	Progress          bool            `json:"-"`
 	Mode              string          `json:"-"`
 	UseStdin          bool            `json:"-"`

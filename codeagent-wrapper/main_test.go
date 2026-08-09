@@ -3366,7 +3366,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.7\n"
+	want := "codeagent-wrapper version 5.12.8\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3382,7 +3382,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.7\n"
+	want := "codeagent-wrapper version 5.12.8\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3398,7 +3398,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.12.7\n"
+	want := "codex-wrapper version 5.12.8\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3688,6 +3688,44 @@ task`)
 			t.Fatalf("run exit = %d, want error for invalid DAG", code)
 		}
 	})
+}
+
+func TestRun_AntigravitySkipPermissionsReachesBackend(t *testing.T) {
+	defer resetTestHooks()
+	cleanupLogsFn = func() (CleanupStats, error) { return CleanupStats{}, nil }
+	isTerminalFn = func() bool { return true }
+
+	originalLite := liteMode
+	liteMode = true
+	t.Cleanup(func() { liteMode = originalLite })
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{{Data: "review complete\n"}},
+	})
+	var capturedName string
+	var capturedArgs []string
+	newCommandRunner = func(_ context.Context, name string, args ...string) commandRunner {
+		capturedName = name
+		capturedArgs = append([]string(nil), args...)
+		return fake
+	}
+
+	os.Args = []string{
+		"codeagent-wrapper",
+		"--backend", "antigravity",
+		"--antigravity-review",
+		"--skip-permissions",
+		"review",
+	}
+	if code := run(); code != 0 {
+		t.Fatalf("run exit = %d, want 0", code)
+	}
+	if capturedName != "agy" {
+		t.Fatalf("command = %q, want agy", capturedName)
+	}
+	if !slices.Contains(capturedArgs, "--dangerously-skip-permissions") {
+		t.Fatalf("final Antigravity args lost permission bypass: %v", capturedArgs)
+	}
 }
 
 func TestVersionMainWrapper(t *testing.T) {

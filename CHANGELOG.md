@@ -48,8 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evidence, output, retry, no-fallback, and user-gate contracts unchanged. Claude
   may be explicitly selected for frontend, backend, or product-manager, but not
   search. GPT Pro permissions are unchanged.
-- **codeagent-wrapper 5.12.7** — Run Grok local review from pre-opened UTF-8
-  snapshots with its inherited permissions and append deterministic scope evidence.
+- **codeagent-wrapper 5.12.8** — Run Grok local review from pre-opened UTF-8
+  snapshots with its inherited permissions, append deterministic scope evidence,
+  and preserve Antigravity's explicit permission bypass through task execution.
 - **Companion role routing** — Ordinary CCG and GPT Pro workflows now require
   configured search evidence whenever frontend or backend participates and
   automatically evaluate the mapped product-manager authorization gate without

@@ -827,6 +827,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		SessionID:         taskSpec.SessionID,
 		WorkDir:           taskSpec.WorkDir,
 		Backend:           defaultBackendName,
+		SkipPermissions:   taskSpec.SkipPermissions,
 		Progress:          taskSpec.Progress,
 		GeminiModel:       taskSpec.GeminiModel,
 		GrokModel:         taskSpec.GrokModel,

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.7"
+	version               = "5.12.8"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -519,6 +519,7 @@ func run() (exitCode int) {
 		UseStdin:          useStdin,
 		Progress:          cfg.Progress,
 		Backend:           cfg.Backend,
+		SkipPermissions:   cfg.SkipPermissions,
 		GeminiModel:       cfg.GeminiModel,
 		GrokModel:         cfg.GrokModel,
 		GrokReviewTargets: cfg.GrokReviewTargets,
