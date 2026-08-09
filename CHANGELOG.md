@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Grok receipt states** — Separate invocation failure, received-but-unverified,
+  and verified results; keep usable unverified responses instead of blocking or
+  reporting them as failed calls, and stop forcing preferred X search in incident
+  mode.
 - **Route target binding** — Forward the CLI `--target` value into workflow
   routing so target path, digest, and byte changes invalidate prior evidence.
 - **Timeout unit consistency** — Interpret every positive integer
@@ -68,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **codeagent-wrapper 5.12.7** — Add read-only Provider launch, structured
   Antigravity streaming, and late-client Web UI history replay.
+- **Product-manager timeout** — Give each Provider attempt the original CCG
+  two-hour limit by setting the default and accepted maximum to 7200000 ms.
+- **codeagent-wrapper 5.12.6** — Run Grok local review from pre-opened UTF-8
+  snapshots in tool-less sessions and append deterministic scope evidence.
 - **Companion role routing** — Ordinary CCG and GPT Pro workflows now require
   configured search evidence whenever frontend or backend participates and
   automatically evaluate the mapped product-manager authorization gate without

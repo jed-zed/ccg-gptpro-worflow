@@ -1,7 +1,7 @@
 {
   "name": "ccg",
   "version": "3.4.8+codex.1",
-  "description": "Codex-native CCG workflow with unified role-to-provider routing, managed read-only Claude role evidence, an optional snapshot-bound Claude product-manager Provider, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
+  "description": "Codex-native CCG workflow with unified role-to-provider routing, managed read-only Claude role evidence, an optional snapshot-bound read-only Claude product-manager Provider with local or explicit SSH transport, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
   "author": {
     "name": "jed-zed",
     "email": "noreply@example.com",
