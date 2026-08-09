@@ -1,6 +1,8 @@
 package main
 
 import (
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -71,6 +73,22 @@ func TestParseAntigravityStreamBoundsUnknownEventWarnings(t *testing.T) {
 	}, nil, nil, nil, nil, nil, nil)
 	if terminalError != "" || message != "done" || warnings != 3 {
 		t.Fatalf("message=%q terminalError=%q warnings=%d", message, terminalError, warnings)
+	}
+}
+
+func TestParseAntigravityStreamHandlesClosedPipeOnlyAfterResult(t *testing.T) {
+	terminal := `{"event":"result","result":{"conversation_id":"c","status":"success","response":"done"}}` + "\n"
+	message, threadID, terminalError := parseAntigravityStream(
+		io.MultiReader(strings.NewReader(terminal), errReader{err: os.ErrClosed}),
+		nil, nil, nil, nil, nil, nil, nil,
+	)
+	if terminalError != "" || message != "done" || threadID != "c" {
+		t.Fatalf("message=%q threadID=%q terminalError=%q", message, threadID, terminalError)
+	}
+
+	message, _, terminalError = parseAntigravityStream(errReader{err: os.ErrClosed}, nil, nil, nil, nil, nil, nil, nil)
+	if message != "" || !strings.Contains(terminalError, "read Antigravity stream") {
+		t.Fatalf("message=%q terminalError=%q", message, terminalError)
 	}
 }
 

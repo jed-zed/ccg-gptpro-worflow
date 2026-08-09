@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -835,7 +836,7 @@ func parseAntigravityStream(r io.Reader, warnFn func(string), infoFn func(string
 	for {
 		line, tooLong, err := readLineWithLimit(reader, jsonLineMaxBytes, jsonLinePreviewBytes)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) || (resultSeen > 0 && errors.Is(err, os.ErrClosed)) {
 				break
 			}
 			return "", threadID, "read Antigravity stream: " + err.Error()
