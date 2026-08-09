@@ -60,6 +60,7 @@ class State:
         self.prompt_preview = ""
         self.session_id = ""
         self.content = ""
+        self.response = ""
         self.raw = ""
         self.clients: list[queue.Queue[dict[str, object]]] = []
         self.events: list[dict[str, str]] = []
@@ -72,6 +73,8 @@ class State:
         self.snapshot_path = ""
         self.snapshot_excludes = ""
         self.stream_events = 0
+        self.result_seen = False
+        self.result_status = ""
         self.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
     def update(self, **kwargs: object) -> None:
@@ -96,18 +99,22 @@ class State:
             self.stream_events += 1
             return self.stream_events
 
-    def append_content(self, text: str) -> None:
+    def append_content(
+        self, text: str, content_type: str = "message", response_text: bool = True
+    ) -> None:
         if not text:
             return
         event = {
             "session_id": self.preview_session_id,
             "backend": self.backend,
             "content": text,
-            "content_type": "message",
+            "content_type": content_type,
         }
         clients: list[queue.Queue[dict[str, object]]]
         with self.lock:
             self.content += text
+            if response_text:
+                self.response += text
             clients = list(self.clients)
         for client in clients:
             self._put_client_event(client, event)
@@ -185,6 +192,7 @@ class State:
                 "preview_session_id": self.preview_session_id,
                 "session_id": self.session_id,
                 "content": self.content,
+                "response": self.response,
                 "raw": self.raw,
                 "events": list(self.events),
                 "status": self.status,
@@ -196,6 +204,8 @@ class State:
                 "snapshot_path": self.snapshot_path,
                 "snapshot_excludes": self.snapshot_excludes,
                 "stream_events": self.stream_events,
+                "result_seen": self.result_seen,
+                "result_status": self.result_status,
                 "started_at": self.started_at,
             }
 
@@ -799,7 +809,23 @@ def extract_event_text(event: object) -> str:
     return ""
 
 
+def safe_status_label(value: object, fallback: str) -> str:
+    if not isinstance(value, str):
+        return fallback
+    text = " ".join(value.split())
+    return (text[:120] if text else fallback)
+
+
+def validated_gemini_exit_code(process_code: int, result_seen: bool, result_status: str) -> int:
+    if process_code != 0:
+        return process_code
+    if not result_seen or result_status.lower() not in {"success", "complete"}:
+        return 1
+    return 0
+
+
 def stream_output(pipe, output_file, is_stderr: bool = False) -> None:
+    assistant_text = ""
     for line in pipe:
         if not line:
             continue
@@ -831,16 +857,56 @@ def stream_output(pipe, output_file, is_stderr: bool = False) -> None:
             STATE.add_event("Gemini stream initialized")
             continue
 
+        if event_type == "tool_use":
+            tool_name = safe_status_label(event.get("tool_name"), "tool")
+            STATE.append_content(
+                f"tool started: {tool_name}", "command", response_text=False
+            )
+        elif event_type == "tool_result":
+            status = safe_status_label(event.get("status"), "unknown")
+            if status not in {"success", "error"}:
+                status = "unknown"
+            STATE.append_content(
+                f"tool result: {status}", "command", response_text=False
+            )
+        elif event_type == "error":
+            severity = safe_status_label(event.get("severity"), "error").lower()
+            if severity not in {"warning", "error"}:
+                severity = "error"
+            STATE.append_content(
+                f"Gemini {severity}", "reasoning", response_text=False
+            )
+
+        if event_type == "result":
+            status = str(event.get("status", "")).lower()
+            final_response = extract_event_text(event)
+            if final_response:
+                if not assistant_text:
+                    STATE.append_content(final_response)
+                elif final_response.startswith(assistant_text):
+                    suffix = final_response[len(assistant_text) :]
+                    if suffix:
+                        STATE.append_content(suffix)
+                elif final_response != assistant_text:
+                    STATE.add_event(
+                        "Gemini terminal response did not match streamed assistant text; using terminal response"
+                    )
+            authoritative_response = final_response or assistant_text
+            STATE.update(
+                response=authoritative_response,
+                result_seen=True,
+                result_status=status,
+                status=status or "error",
+            )
+            STATE.add_event(f"Gemini result status: {status or 'missing'}")
+            continue
+
         extracted = extract_event_text(event)
         if extracted:
+            assistant_text += extracted
             STATE.update(status="streaming")
             STATE.append_content(extracted)
             STATE.add_event(f"parsed assistant text chunk: {len(extracted)} chars")
-
-        if event_type == "result":
-            status = str(event.get("status", "complete"))
-            STATE.update(status=status)
-            STATE.add_event(f"Gemini result status: {status}")
 
 
 def is_snapshot_ignored(name: str) -> bool:
@@ -1146,7 +1212,15 @@ def run_gemini(args: argparse.Namespace, prompt: str, output_path: Path, gemini_
         stdout_thread.join(timeout=2)
         stderr_thread.join(timeout=2)
         STATE.add_event(f"Gemini process exited with code {code}")
-        return int(code)
+        snapshot = STATE.snapshot()
+        validated_code = validated_gemini_exit_code(
+            int(code),
+            bool(snapshot.get("result_seen")),
+            str(snapshot.get("result_status", "")),
+        )
+        if validated_code != int(code):
+            STATE.add_event("Gemini stream missing a successful terminal result")
+        return validated_code
 
 
 def main() -> int:
@@ -1181,7 +1255,7 @@ def main() -> int:
         code = run_gemini(args, gemini_prompt, output_path, gemini_workdir)
         STATE.update(status="writing-response")
         STATE.add_event("Writing parsed Gemini response file")
-        response = str(STATE.snapshot().get("content", ""))
+        response = str(STATE.snapshot().get("response", ""))
         response_path.write_text(response, encoding="utf-8", errors="replace")
         STATE.add_event(f"Response file written: {response_path}")
         STATE.complete(code, "complete" if code == 0 else "failed")

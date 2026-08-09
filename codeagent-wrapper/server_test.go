@@ -107,6 +107,7 @@ func TestWebServerReplaysHistoryToLateSubscribers(t *testing.T) {
 			server := NewWebServer("antigravity")
 			server.StartSession("session-1", "antigravity", "task")
 			server.SendContentWithType("session-1", "antigravity", "early output", "reasoning")
+			server.SendContentWithType("session-1", "antigravity", "tool status", "command")
 			if completed {
 				server.EndSession("session-1", "antigravity")
 			}
@@ -142,7 +143,8 @@ func TestWebServerReplaysHistoryToLateSubscribers(t *testing.T) {
 			cancel()
 
 			body := recorder.Body.String()
-			if !strings.Contains(body, `"content":"early output"`) || !strings.Contains(body, `"content_type":"message"`) {
+			if !strings.Contains(body, `"content":"early output"`) || !strings.Contains(body, `"content_type":"reasoning"`) ||
+				!strings.Contains(body, `"content":"tool status"`) || !strings.Contains(body, `"content_type":"command"`) {
 				t.Fatalf("history replay missing from %q", body)
 			}
 			if strings.Count(body, `"content":"early output"`) != 1 {
@@ -150,7 +152,8 @@ func TestWebServerReplaysHistoryToLateSubscribers(t *testing.T) {
 			}
 			if completed {
 				contentAt, doneAt := strings.Index(body, `"content":"early output"`), strings.Index(body, `"done":true`)
-				if doneAt < 0 || contentAt > doneAt {
+				toolAt := strings.Index(body, `"content":"tool status"`)
+				if doneAt < 0 || contentAt > toolAt || toolAt > doneAt {
 					t.Fatalf("completed replay did not send history before done: %q", body)
 				}
 			} else if liveAt := strings.Index(body, `"content":" live output"`); liveAt < 0 || strings.Index(body, `"content":"early output"`) > liveAt {

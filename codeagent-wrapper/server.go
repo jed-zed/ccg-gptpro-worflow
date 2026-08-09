@@ -29,12 +29,13 @@ type WebServer struct {
 
 // SessionState tracks a running session
 type SessionState struct {
-	ID        string    `json:"id"`
-	Backend   string    `json:"backend"`
-	Task      string    `json:"task"`
-	StartTime time.Time `json:"start_time"`
-	Content   string    `json:"content"`
-	Done      bool      `json:"done"`
+	ID        string         `json:"id"`
+	Backend   string         `json:"backend"`
+	Task      string         `json:"task"`
+	StartTime time.Time      `json:"start_time"`
+	Content   string         `json:"content"`
+	Done      bool           `json:"done"`
+	History   []ContentEvent `json:"-"`
 }
 
 // ContentEvent is sent to SSE clients
@@ -176,12 +177,6 @@ func (ws *WebServer) SendContentWithType(sessionID, backend, content, contentTyp
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 
-	// Update session state
-	if session, ok := ws.sessions[sessionID]; ok {
-		session.Content += content
-	}
-
-	// Send to all subscribers
 	event := ContentEvent{
 		SessionID:   sessionID,
 		Backend:     backend,
@@ -189,6 +184,13 @@ func (ws *WebServer) SendContentWithType(sessionID, backend, content, contentTyp
 		ContentType: contentType,
 	}
 
+	// Update session state
+	if session, ok := ws.sessions[sessionID]; ok {
+		session.Content += content
+		session.History = append(session.History, event)
+	}
+
+	// Send to all subscribers
 	for _, ch := range ws.clients[sessionID] {
 		select {
 		case ch <- event:
@@ -510,20 +512,18 @@ func (ws *WebServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create channel for this client
-	ch := make(chan ContentEvent, 100)
-
-	// Register client
+	// Register the client and enqueue history under the same lock so live
+	// events cannot overtake replayed events.
 	ws.mu.Lock()
+	bufferSize := 100
+	if session, ok := ws.sessions[sessionID]; ok && len(session.History)+1 > bufferSize {
+		bufferSize = len(session.History) + 1
+	}
+	ch := make(chan ContentEvent, bufferSize)
 	ws.clients[sessionID] = append(ws.clients[sessionID], ch)
 	if session, ok := ws.sessions[sessionID]; ok {
-		if session.Content != "" {
-			ch <- ContentEvent{
-				SessionID:   sessionID,
-				Backend:     session.Backend,
-				Content:     session.Content,
-				ContentType: "message",
-			}
+		for _, event := range session.History {
+			ch <- event
 		}
 		if session.Done {
 			ch <- ContentEvent{

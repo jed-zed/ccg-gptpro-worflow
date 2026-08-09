@@ -84,9 +84,17 @@ type UnifiedEvent struct {
 	Item     json.RawMessage `json:"item,omitempty"` // Lazy parse
 
 	// Claude-specific fields
-	Subtype   string `json:"subtype,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Result    string `json:"result,omitempty"`
+	Subtype            string          `json:"subtype,omitempty"`
+	SessionID          string          `json:"session_id,omitempty"`
+	Result             string          `json:"result,omitempty"`
+	Event              json.RawMessage `json:"event,omitempty"`
+	IsError            bool            `json:"is_error,omitempty"`
+	IsErrorCamel       bool            `json:"isError,omitempty"`
+	Attempt            int             `json:"attempt,omitempty"`
+	MaxRetries         int             `json:"max_retries,omitempty"`
+	RetryDelayMS       int             `json:"retry_delay_ms,omitempty"`
+	ToolName           string          `json:"tool_name,omitempty"`
+	ElapsedTimeSeconds float64         `json:"elapsed_time_seconds,omitempty"`
 
 	// Gemini-specific fields
 	// Gemini CLI uses camelCase "sessionId" instead of snake_case "session_id"
@@ -100,11 +108,18 @@ type UnifiedEvent struct {
 	//   {"type":"thought","data":"..."}  — reasoning token deltas
 	//   {"type":"text","data":"..."}     — response token deltas
 	//   {"type":"end","stopReason":"EndTurn","sessionId":"...","requestId":"..."}
-	Data       string `json:"data,omitempty"`
-	StopReason string `json:"stopReason,omitempty"`
+	Data          string          `json:"data,omitempty"`
+	StopReason    string          `json:"stopReason,omitempty"`
+	ToolNameCamel string          `json:"toolName,omitempty"`
+	Title         string          `json:"title,omitempty"`
+	Entries       json.RawMessage `json:"entries,omitempty"`
 
 	// Pi-specific fields (pi --mode json)
-	Message json.RawMessage `json:"message,omitempty"`
+	Message               json.RawMessage `json:"message,omitempty"`
+	AssistantMessageEvent *struct {
+		Type  string `json:"type,omitempty"`
+		Delta string `json:"delta,omitempty"`
+	} `json:"assistantMessageEvent,omitempty"`
 }
 
 type grokReviewEvidence struct {
@@ -218,7 +233,12 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 		}
 	}
 
+	completeNotified := false
 	notifyComplete := func() {
+		if completeNotified {
+			return
+		}
+		completeNotified = true
 		if onComplete != nil {
 			onComplete()
 		}
@@ -234,13 +254,37 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 	totalEvents := 0
 
 	var (
-		codexMessage  string
-		claudeMessage string
-		geminiBuffer  strings.Builder
-		grokBuffer    strings.Builder
-		piMessage     string
-		piError       string
+		codexMessage     string
+		claudeMessage    string
+		geminiBuffer     strings.Builder
+		grokBuffer       strings.Builder
+		piMessage        string
+		piError          string
+		claudeStreamed   strings.Builder
+		piStreamed       strings.Builder
+		claudeActiveTool string
+		provider         string
+		claudeResultSeen bool
+		geminiResultSeen bool
+		grokEndSeen      bool
+		piAgentEndSeen   bool
+		unknownWarnings  int
 	)
+	emitTerminalText := func(final string, streamed *strings.Builder, backend string) {
+		partial := streamed.String()
+		switch {
+		case partial == "":
+			if onContent != nil {
+				onContent(final, "message")
+			}
+		case strings.HasPrefix(final, partial):
+			if suffix := final[len(partial):]; suffix != "" && onContent != nil {
+				onContent(suffix, "message")
+			}
+		case final != partial:
+			warnFn(backend + " terminal response did not match streamed assistant text; using terminal response")
+		}
+	}
 
 	for {
 		line, tooLong, err := readLineWithLimit(reader, jsonLineMaxBytes, jsonLinePreviewBytes)
@@ -262,9 +306,7 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 			warnFn(fmt.Sprintf("Skipped overlong JSON line (> %d bytes): %s", jsonLineMaxBytes, truncateBytes(line, 100)))
 			continue
 		}
-		if grokReview.observeStreamingJSON(line) {
-			continue
-		}
+		grokReview.observeStreamingJSON(line)
 
 		// Single unmarshal for all backend types
 		var event UnifiedEvent
@@ -304,23 +346,25 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 				isCodex = true
 			}
 		}
-		isClaude := event.Subtype != "" || event.Result != ""
+		isPiType := event.Type == "session" || event.Type == "message_start" || event.Type == "message_update" ||
+			event.Type == "message_end" || event.Type == "turn_end" || event.Type == "agent_end" ||
+			event.Type == "tool_execution_start" || event.Type == "tool_execution_update" || event.Type == "tool_execution_end"
+		isGrokType := event.Type == "thought" || event.Type == "text" || event.Type == "tool_call" ||
+			event.Type == "tool_call_update" || event.Type == "plan" || event.Type == "usage" || event.Type == "end"
+		isClaude := !isPiType && !isGrokType && (event.Subtype != "" || event.Result != "" ||
+			event.Type == "stream_event" || event.Type == "tool_progress")
 		if !isClaude && event.Type == "result" && event.GetSessionID() != "" && event.Status == "" {
 			isClaude = true
 		}
-		isGemini := event.Role != "" || event.Delta != nil || event.Status != "" ||
-			(event.Type == "init" && event.GetSessionID() != "")
-			// Grok streaming-json: token deltas carry "data"; the terminal "end"
-			// event carries stopReason + camelCase sessionId (no role/status).
-		isGrok := !isCodex && !isClaude && !isGemini &&
-			(((event.Type == "thought" || event.Type == "text") && event.Data != "") ||
-				(event.Type == "end" && (event.StopReason != "" || event.SessionIDCamel != "")))
-		isPi := !isCodex && !isClaude && !isGemini && !isGrok &&
-			((event.Type == "session" && event.ID != "") ||
-				((event.Type == "message_end" || event.Type == "turn_end") && len(event.Message) > 0) ||
-				event.Type == "agent_end")
+		isGemini := !isPiType && !isGrokType && !isClaude && (event.Role != "" || event.Delta != nil || event.Status != "" ||
+			(event.Type == "init" && event.GetSessionID() != ""))
+		// Grok streaming-json: token deltas carry "data"; the terminal "end"
+		// event carries stopReason + camelCase sessionId (no role/status).
+		isGrok := !isCodex && !isClaude && !isGemini && isGrokType
+		isPi := !isCodex && !isClaude && !isGemini && !isGrok && isPiType
 
 		if isPi {
+			provider = "pi"
 			switch event.Type {
 			case "session":
 				threadID = event.ID
@@ -328,6 +372,33 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 					onSessionStarted(threadID)
 				}
 				emitProgress(formatProgressLine("session_started", map[string]string{"id": threadID}))
+			case "message_start":
+				piStreamed.Reset()
+			case "message_update":
+				if update := event.AssistantMessageEvent; update != nil && update.Type == "text_delta" && update.Delta != "" {
+					piStreamed.WriteString(update.Delta)
+					if onContent != nil {
+						onContent(update.Delta, "message")
+					}
+					notifyMessage()
+				}
+			case "tool_execution_start", "tool_execution_update", "tool_execution_end":
+				name := strings.TrimSpace(event.ToolNameCamel)
+				if name == "" {
+					name = "tool"
+				}
+				status := "running"
+				if event.Type == "tool_execution_start" {
+					status = "started"
+				} else if event.Type == "tool_execution_end" {
+					status = "completed"
+					if event.IsErrorCamel {
+						status = "failed"
+					}
+				}
+				if onContent != nil {
+					onContent(fmt.Sprintf("tool %s: %s", status, safeProgressSnippet(name, 80)), "command")
+				}
 			case "message_end", "turn_end":
 				text, stopReason, errorMessage := extractPiAssistantMessage(event.Message)
 				switch strings.ToLower(stopReason) {
@@ -348,12 +419,11 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 				if text != "" && text != piMessage {
 					piMessage = text
 					notifyMessage()
-					if onContent != nil {
-						onContent(text, "message")
-					}
+					emitTerminalText(text, &piStreamed, "Pi")
 					emitProgress(formatProgressLine("message", map[string]string{"text": strconv.Quote(safeProgressSnippet(text, 120))}))
 				}
 			case "agent_end":
+				piAgentEndSeen = true
 				emitProgress(formatProgressLine("session_completed", map[string]string{"total_events": strconv.Itoa(totalEvents)}))
 				notifyComplete()
 			}
@@ -470,29 +540,73 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 
 		// Handle Claude events
 		if isClaude {
+			provider = "claude"
 			if event.GetSessionID() != "" && threadID == "" {
 				threadID = event.GetSessionID()
 			}
 
 			infoFn(fmt.Sprintf("Parsed Claude event #%d type=%s subtype=%s result_len=%d", totalEvents, event.Type, event.Subtype, len(event.Result)))
 
-			if event.Result != "" {
-				claudeMessage = event.Result
-				notifyMessage()
-				// Stream content to callback
-				if onContent != nil {
-					onContent(event.Result, "message")
+			if event.Type == "stream_event" && len(event.Event) > 0 {
+				var partial struct {
+					Type  string `json:"type"`
+					Delta struct {
+						Type string `json:"type"`
+						Text string `json:"text"`
+					} `json:"delta"`
+					ContentBlock struct {
+						Type string `json:"type"`
+						Name string `json:"name"`
+					} `json:"content_block"`
 				}
+				if json.Unmarshal(event.Event, &partial) == nil {
+					switch {
+					case partial.Type == "message_start":
+						claudeStreamed.Reset()
+					case partial.Type == "content_block_delta" && partial.Delta.Type == "text_delta" && partial.Delta.Text != "":
+						claudeStreamed.WriteString(partial.Delta.Text)
+						if onContent != nil {
+							onContent(partial.Delta.Text, "message")
+						}
+						notifyMessage()
+					case partial.Type == "content_block_start" && partial.ContentBlock.Type == "tool_use" && strings.TrimSpace(partial.ContentBlock.Name) != "":
+						claudeActiveTool = safeProgressSnippet(partial.ContentBlock.Name, 80)
+						if onContent != nil {
+							onContent("tool started: "+claudeActiveTool, "command")
+						}
+					case partial.Type == "content_block_stop" && claudeActiveTool != "":
+						if onContent != nil {
+							onContent("tool request ready: "+claudeActiveTool, "command")
+						}
+						claudeActiveTool = ""
+					}
+				}
+			}
+			if event.Type == "tool_progress" && strings.TrimSpace(event.ToolName) != "" && onContent != nil {
+				onContent(fmt.Sprintf("tool running: %s (%.1fs)", safeProgressSnippet(event.ToolName, 80), event.ElapsedTimeSeconds), "command")
+			}
+			if event.Subtype == "api_retry" && onContent != nil {
+				onContent(fmt.Sprintf("API retry %d/%d in %dms", event.Attempt, event.MaxRetries, event.RetryDelayMS), "reasoning")
 			}
 
 			if event.Type == "result" {
-				notifyComplete()
+				claudeResultSeen = true
+				if event.IsError || strings.HasPrefix(strings.ToLower(event.Subtype), "error") {
+					terminalError = fmt.Sprintf("Claude result status %q", event.Subtype)
+				} else if strings.TrimSpace(event.Result) == "" {
+					terminalError = "Claude result missing response"
+				} else {
+					claudeMessage = event.Result
+					emitTerminalText(event.Result, &claudeStreamed, "Claude")
+					notifyMessage()
+				}
 			}
 			continue
 		}
 
 		// Handle Gemini events
 		if isGemini {
+			provider = "gemini"
 			if event.GetSessionID() != "" && threadID == "" {
 				threadID = event.GetSessionID()
 			}
@@ -509,6 +623,10 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 				notifyMessage()
 
 				if event.Type == "result" && (event.Status == "success" || event.Status == "error" || event.Status == "complete" || event.Status == "failed") {
+					geminiResultSeen = true
+					if event.Status == "error" || event.Status == "failed" {
+						terminalError = fmt.Sprintf("Gemini result status %q", event.Status)
+					}
 					notifyComplete()
 				}
 			}
@@ -524,6 +642,7 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 
 		// Handle Grok events
 		if isGrok {
+			provider = "grok"
 			switch event.Type {
 			case "text":
 				grokBuffer.WriteString(event.Data)
@@ -531,11 +650,69 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 					onContent(event.Data, "message")
 				}
 			case "thought":
-			// Reasoning token deltas — not part of the final message.
-			// Skip per-token logging: a single turn can emit thousands of
-			// thought events and flood the log line limit.
+				// Reasoning token deltas — not part of the final message.
+				// Skip per-token logging: a single turn can emit thousands of
+				// thought events and flood the log line limit.
+			case "tool_call", "tool_call_update":
+				name := strings.TrimSpace(event.ToolNameCamel)
+				if name == "" {
+					name = "tool"
+				}
+				status := "started"
+				if event.Type == "tool_call_update" {
+					status = strings.TrimSpace(event.Status)
+					if status == "" {
+						status = "updated"
+					}
+				}
+				summary := fmt.Sprintf("tool %s: %s", safeProgressSnippet(status, 40), safeProgressSnippet(name, 80))
+				if title := strings.TrimSpace(event.Title); title != "" {
+					summary += " (" + safeProgressSnippet(title, 100) + ")"
+				}
+				if onContent != nil {
+					onContent(summary, "command")
+				}
+			case "plan":
+				var entries []struct {
+					Title  string `json:"title"`
+					Status string `json:"status"`
+				}
+				if json.Unmarshal(event.Entries, &entries) == nil && onContent != nil {
+					var summaries []string
+					// ponytail: cap UI-only plan summaries; the provider protocol remains authoritative.
+					for index, entry := range entries {
+						if index == 8 {
+							break
+						}
+						title := safeProgressSnippet(entry.Title, 100)
+						status := safeProgressSnippet(entry.Status, 40)
+						if title == "" {
+							continue
+						}
+						if status != "" {
+							title += " [" + status + "]"
+						}
+						summaries = append(summaries, title)
+					}
+					if len(summaries) > 0 {
+						onContent("plan: "+strings.Join(summaries, "; "), "reasoning")
+					} else {
+						label := "entries"
+						if len(entries) == 1 {
+							label = "entry"
+						}
+						onContent(fmt.Sprintf("plan updated: %d %s", len(entries), label), "reasoning")
+					}
+				}
+			case "usage":
+				emitProgress("usage")
 			case "end":
+				grokEndSeen = true
 				grokReview.observeStopReason(event.StopReason)
+				normalized := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(strings.TrimSpace(event.StopReason)))
+				if normalized != "endturn" {
+					terminalError = fmt.Sprintf("Grok stop reason %q", event.StopReason)
+				}
 				infoFn(fmt.Sprintf("Parsed Grok end event #%d stop_reason=%s session_id=%s message_len=%d", totalEvents, event.StopReason, event.SessionIDCamel, grokBuffer.Len()))
 				if grokBuffer.Len() > 0 {
 					notifyMessage()
@@ -548,7 +725,34 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 		}
 
 		// Unknown event format from other backends (turn.started/assistant/user); ignore.
+		if provider != "" && unknownWarnings < 3 {
+			warnFn(fmt.Sprintf("Ignored unknown %s event: %s", provider, safeProgressSnippet(event.Type, 80)))
+			unknownWarnings++
+		}
 		continue
+	}
+
+	if piError != "" {
+		terminalError = piError
+	}
+	if terminalError == "" {
+		switch {
+		case provider == "claude" && !claudeResultSeen:
+			terminalError = "Claude stream missing terminal result"
+		case provider == "gemini" && !geminiResultSeen:
+			terminalError = "Gemini stream missing terminal result"
+		case provider == "gemini" && geminiBuffer.Len() == 0:
+			terminalError = "Gemini result missing response"
+		case provider == "grok" && !grokEndSeen:
+			terminalError = "Grok stream missing terminal end"
+		case provider == "pi" && !piAgentEndSeen:
+			terminalError = "Pi stream missing terminal agent_end"
+		case provider == "pi" && piMessage == "":
+			terminalError = "Pi stream missing assistant response"
+		}
+	}
+	if provider != "" {
+		notifyComplete()
 	}
 
 	switch {
@@ -565,7 +769,7 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 	}
 
 	infoFn(fmt.Sprintf("parseJSONStream completed: events=%d, message_len=%d, thread_id_found=%t", totalEvents, len(message), threadID != ""))
-	return message, threadID, piError
+	return message, threadID, terminalError
 }
 
 type antigravityStreamEvent struct {

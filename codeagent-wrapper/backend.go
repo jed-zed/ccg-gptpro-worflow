@@ -137,7 +137,7 @@ func buildClaudeArgs(cfg *Config, targetArg string) []string {
 	}
 	// Note: claude CLI doesn't support -C flag; workdir set via cmd.Dir
 
-	args = append(args, "--output-format", "stream-json", "--verbose")
+	args = append(args, "--output-format", "stream-json", "--verbose", "--include-partial-messages")
 	if targetArg != "" {
 		args = append(args, targetArg)
 	}

@@ -192,6 +192,48 @@ describe('Codex Gemini preview template', () => {
     })
   })
 
+  it('streams safe Gemini tool and error status without polluting the final response', () => {
+    const state = JSON.parse(runPython(
+      helperPath,
+      [
+        'import io, json',
+        'module.STATE = module.State()',
+        'events = [',
+        '  {"type":"init","session_id":"gemini-session"},',
+        '  {"type":"message","role":"assistant","content":"Hel","delta":True},',
+        '  {"type":"tool_use","tool_name":"read_file","tool_id":"tool-1","parameters":{"path":"secret.txt"}},',
+        '  {"type":"tool_result","tool_id":"tool-1","status":"success","output":"secret output"},',
+        '  {"type":"error","severity":"warning","message":"secret warning detail"},',
+        '  {"type":"result","status":"success","response":"Hello"},',
+        ']',
+        'pipe = io.StringIO("".join(json.dumps(event) + "\\n" for event in events))',
+        'output = io.StringIO()',
+        'module.stream_output(pipe, output)',
+        'snapshot = module.STATE.snapshot()',
+        'sys.stdout.write(json.dumps({"content": snapshot["content"], "response": snapshot["response"], "result_seen": snapshot["result_seen"], "result_status": snapshot["result_status"]}))',
+      ].join('\n'),
+    ))
+    expect(state.content).toContain('Hel')
+    expect(state.content).toContain('lo')
+    expect(state.content).toContain('tool started: read_file')
+    expect(state.content).toContain('tool result: success')
+    expect(state.content).toContain('Gemini warning')
+    expect(state.content).not.toContain('secret.txt')
+    expect(state.content).not.toContain('secret output')
+    expect(state.content).not.toContain('secret warning detail')
+    expect(state.response).toBe('Hello')
+    expect(state.result_seen).toBe(true)
+    expect(state.result_status).toBe('success')
+  })
+
+  it('fails closed without a successful Gemini terminal result', () => {
+    const exitCodes = JSON.parse(runPython(
+      helperPath,
+      'import json; sys.stdout.write(json.dumps([module.validated_gemini_exit_code(0, False, ""), module.validated_gemini_exit_code(0, True, "error"), module.validated_gemini_exit_code(0, True, "success"), module.validated_gemini_exit_code(7, True, "success")]))',
+    ))
+    expect(exitCodes).toEqual([1, 1, 0, 7])
+  })
+
   it('keeps the raw-log and response-file contracts outside the page template', () => {
     const helper = readFileSync(
       helperPath,

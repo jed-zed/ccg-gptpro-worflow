@@ -1737,7 +1737,7 @@ func TestBackendBuildArgs_ClaudeBackend(t *testing.T) {
 	backend := ClaudeBackend{}
 	cfg := &Config{Mode: "new", WorkDir: defaultWorkdir}
 	got := backend.BuildArgs(cfg, "todo")
-	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "todo"}
+	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "todo"}
 	if len(got) != len(want) {
 		t.Fatalf("args length=%d, want %d: %v", len(got), len(want), got)
 	}
@@ -1758,7 +1758,7 @@ func TestClaudeBackendBuildArgs_OutputValidation(t *testing.T) {
 	target := "ensure-flags"
 
 	args := backend.BuildArgs(cfg, target)
-	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", target}
+	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages", target}
 	if len(args) != len(want) {
 		t.Fatalf("args length=%d, want %d: %v", len(args), len(want), args)
 	}
@@ -1934,6 +1934,71 @@ func TestBackendParseJSONStream_ClaudeEvents(t *testing.T) {
 	}
 	if threadID != "abc123" {
 		t.Fatalf("threadID=%q, want %q", threadID, "abc123")
+	}
+}
+
+func TestBackendParseJSONStream_ClaudeStreamsSafeIntermediateEventsWithoutDuplicatingFinal(t *testing.T) {
+	input := `{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"stream_event","session_id":"abc123","event":{"type":"message_start"}}
+{"type":"stream_event","session_id":"abc123","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hel"}}}
+{"type":"stream_event","session_id":"abc123","event":{"type":"content_block_start","content_block":{"type":"tool_use","name":"Read","input":{"file_path":"secret.txt"}}}}
+{"type":"stream_event","session_id":"abc123","event":{"type":"content_block_stop"}}
+{"type":"tool_progress","session_id":"abc123","tool_name":"Read","elapsed_time_seconds":2.5}
+{"type":"system","subtype":"api_retry","session_id":"abc123","attempt":1,"max_retries":3,"retry_delay_ms":250,"error":"secret upstream error"}
+{"type":"result","subtype":"success","result":"Hello","session_id":"abc123","is_error":false}`
+
+	var content []string
+	complete := 0
+	message, threadID, terminalError := parseJSONStreamInternalWithContent(
+		strings.NewReader(input), nil, nil, nil, func() { complete++ },
+		func(text, kind string) { content = append(content, kind+":"+text) }, nil, nil,
+	)
+	joined := strings.Join(content, "\n")
+	if message != "Hello" || threadID != "abc123" || terminalError != "" || complete != 1 {
+		t.Fatalf("got message=%q thread=%q error=%q complete=%d", message, threadID, terminalError, complete)
+	}
+	for _, want := range []string{"message:Hel", "message:lo", "command:tool started: Read", "command:tool request ready: Read", "command:tool running: Read (2.5s)", "reasoning:API retry 1/3 in 250ms"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("content missing %q: %q", want, joined)
+		}
+	}
+	if strings.Count(joined, "Hel") != 1 || strings.Count(joined, "lo") != 1 {
+		t.Fatalf("final text was duplicated: %q", joined)
+	}
+	for _, secret := range []string{"secret.txt", "secret upstream error"} {
+		if strings.Contains(joined, secret) {
+			t.Fatalf("content leaked %q: %q", secret, joined)
+		}
+	}
+}
+
+func TestBackendParseJSONStream_ClaudeMissingTerminalFails(t *testing.T) {
+	input := `{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"stream_event","session_id":"abc123","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}}`
+	_, _, terminalError := parseJSONStreamInternalWithContent(strings.NewReader(input), nil, nil, nil, nil, nil, nil, nil)
+	if !strings.Contains(strings.ToLower(terminalError), "missing terminal") {
+		t.Fatalf("terminalError = %q, want missing terminal", terminalError)
+	}
+}
+
+func TestBackendParseJSONStream_ClaudeFailureAndUnknownWarningsAreBounded(t *testing.T) {
+	input := `{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"future_one"}
+{"type":"future_two"}
+{"type":"future_three"}
+{"type":"future_four"}
+{"type":"result","subtype":"error_during_execution","session_id":"abc123","is_error":true}`
+	var warnings []string
+	complete := 0
+	message, _, terminalError := parseJSONStreamInternalWithContent(
+		strings.NewReader(input), func(warning string) { warnings = append(warnings, warning) }, nil, nil,
+		func() { complete++ }, nil, nil, nil,
+	)
+	if message != "" || !strings.Contains(terminalError, "error_during_execution") || complete != 1 {
+		t.Fatalf("got message=%q error=%q complete=%d", message, terminalError, complete)
+	}
+	if len(warnings) != 3 {
+		t.Fatalf("warnings=%v, want exactly three bounded unknown-event warnings", warnings)
 	}
 }
 
