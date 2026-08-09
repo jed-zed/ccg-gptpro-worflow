@@ -124,6 +124,7 @@ describe('Codex plugin unified role-routing parity', () => {
       expect(content, `${relativePath} must state the isolated product-manager boundary`).toContain('product-manager')
       expect(content, `${relativePath} must allow explicit Claude routing`).toContain('Claude may be explicitly selected for')
       expect(content, `${relativePath} must keep Claude out of search`).toContain('not eligible for `search`')
+      expect(content, `${relativePath} must not keep the removed Claude rejection`).not.toMatch(/Claude is disabled|Claude is not a generic|Ordinary Claude delegation is not/)
     }
   })
 

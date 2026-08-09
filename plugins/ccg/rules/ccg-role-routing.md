@@ -38,13 +38,18 @@ provider:
 | `search` | `codex`, `grok` |
 | `product-manager` | `codex`, `gemini`, `claude` |
 
-Use `ccg wrapper --backend <provider> ...` for managed Antigravity, Grok, or
-Pi delegation. The launcher keeps the wrapper Web UI enabled unless `--lite`
-is explicit. Direct Codex and Gemini wrapper invocations are also accepted but
-do not change role routing. Claude may be explicitly selected for `frontend`,
-`backend`, or `product-manager`, but not `search`. Codex remains the
-orchestrator, sole real-workspace writer, final verifier, and delivery owner
-regardless of the selected role provider.
+Use `ccg wrapper --backend <provider> --progress - "<workdir>"` for managed
+Claude, Antigravity, Grok, or Pi delegation. Pass the prompt through stdin.
+Do not add `--lite`; the launcher keeps the wrapper Web UI enabled. When a role
+resolves to Gemini, run the bundled `ccg-executor/scripts/invoke_gemini_preview.py`
+foreground command in a tool-managed background job. Do not pass `--detach`
+from a Codex workflow because the tool runner owns the process lifetime. Do not
+replace the helper with a raw Gemini CLI call. Claude may be explicitly selected
+for `frontend`, `backend`, or `product-manager`, but not `search`; standalone
+frontend/backend delegation does not become a product-manager call or inherit
+product-manager task authority or authorization.
+Codex remains the orchestrator, sole real-workspace writer, final verifier, and
+delivery owner regardless of the selected role provider.
 
 The product-manager Provider selection exists only at
 `routing.product-manager`. `[product_manager]` stores behavior parameters such

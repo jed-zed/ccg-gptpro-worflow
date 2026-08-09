@@ -1294,6 +1294,20 @@ func TestBackendParseArgs_AntigravityReview(t *testing.T) {
 	}
 }
 
+func TestBackendParseArgs_ReadOnly(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+
+	os.Args = []string{"codeagent-wrapper", "--backend", "antigravity", "--read-only", "task"}
+	cfg, err := parseArgs()
+	if err != nil {
+		t.Fatalf("parseArgs() unexpected error: %v", err)
+	}
+	if !cfg.ReadOnly {
+		t.Fatal("ReadOnly = false, want true")
+	}
+}
+
 func TestBackendParseArgs_SkipPermissions(t *testing.T) {
 	const envKey = "CODEAGENT_SKIP_PERMISSIONS"
 	t.Cleanup(func() { os.Unsetenv(envKey) })
@@ -1718,7 +1732,7 @@ func TestBackendBuildArgs_ClaudeBackend(t *testing.T) {
 	backend := ClaudeBackend{}
 	cfg := &Config{Mode: "new", WorkDir: defaultWorkdir}
 	got := backend.BuildArgs(cfg, "todo")
-	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "todo"}
+	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "todo"}
 	if len(got) != len(want) {
 		t.Fatalf("args length=%d, want %d: %v", len(got), len(want), got)
 	}
@@ -1739,7 +1753,7 @@ func TestClaudeBackendBuildArgs_OutputValidation(t *testing.T) {
 	target := "ensure-flags"
 
 	args := backend.BuildArgs(cfg, target)
-	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", target}
+	want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages", target}
 	if len(args) != len(want) {
 		t.Fatalf("args length=%d, want %d: %v", len(args), len(want), args)
 	}
@@ -1915,6 +1929,100 @@ func TestBackendParseJSONStream_ClaudeEvents(t *testing.T) {
 	}
 	if threadID != "abc123" {
 		t.Fatalf("threadID=%q, want %q", threadID, "abc123")
+	}
+}
+
+func TestBackendParseJSONStream_ClaudeStreamsSafeIntermediateEventsWithoutDuplicatingFinal(t *testing.T) {
+	input := `{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"stream_event","session_id":"abc123","event":{"type":"message_start"}}
+{"type":"stream_event","session_id":"abc123","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hel"}}}
+{"type":"stream_event","session_id":"abc123","event":{"type":"content_block_start","content_block":{"type":"tool_use","name":"Read","input":{"file_path":"secret.txt"}}}}
+{"type":"stream_event","session_id":"abc123","event":{"type":"content_block_stop"}}
+{"type":"tool_progress","session_id":"abc123","tool_name":"Read","elapsed_time_seconds":2.5}
+{"type":"system","subtype":"api_retry","session_id":"abc123","attempt":1,"max_retries":3,"retry_delay_ms":250,"error":"secret upstream error"}
+{"type":"result","subtype":"success","result":"Hello","session_id":"abc123","is_error":false}`
+
+	var content []string
+	complete := 0
+	message, threadID, terminalError := parseJSONStreamInternalWithContent(
+		strings.NewReader(input), nil, nil, nil, func() { complete++ },
+		func(text, kind string) { content = append(content, kind+":"+text) }, nil, nil,
+	)
+	joined := strings.Join(content, "\n")
+	if message != "Hello" || threadID != "abc123" || terminalError != "" || complete != 1 {
+		t.Fatalf("got message=%q thread=%q error=%q complete=%d", message, threadID, terminalError, complete)
+	}
+	for _, want := range []string{"message:Hel", "message:lo", "command:tool started: Read", "command:tool request ready: Read", "command:tool running: Read (2.5s)", "reasoning:API retry 1/3 in 250ms"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("content missing %q: %q", want, joined)
+		}
+	}
+	if strings.Count(joined, "Hel") != 1 || strings.Count(joined, "lo") != 1 {
+		t.Fatalf("final text was duplicated: %q", joined)
+	}
+	for _, secret := range []string{"secret.txt", "secret upstream error"} {
+		if strings.Contains(joined, secret) {
+			t.Fatalf("content leaked %q: %q", secret, joined)
+		}
+	}
+}
+
+func TestBackendParseJSONStream_ClaudeMissingTerminalFails(t *testing.T) {
+	input := `{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"stream_event","session_id":"abc123","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}}`
+	_, _, terminalError := parseJSONStreamInternalWithContent(strings.NewReader(input), nil, nil, nil, nil, nil, nil, nil)
+	if !strings.Contains(strings.ToLower(terminalError), "missing terminal") {
+		t.Fatalf("terminalError = %q, want missing terminal", terminalError)
+	}
+}
+
+func TestBackendParseJSONStream_ReplacesDivergentClaudeAndPiTerminalText(t *testing.T) {
+	tests := map[string]string{
+		"claude": `{"type":"system","subtype":"init","session_id":"c"}
+{"type":"stream_event","session_id":"c","event":{"type":"message_start"}}
+{"type":"stream_event","session_id":"c","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"draft"}}}
+{"type":"result","subtype":"success","result":"authoritative","session_id":"c"}`,
+		"pi": `{"type":"session","id":"p"}
+{"type":"message_start"}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"draft"}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"authoritative"}],"stopReason":"stop"}}
+{"type":"agent_end"}`,
+	}
+	for name, input := range tests {
+		t.Run(name, func(t *testing.T) {
+			var content []string
+			message, _, terminalError := parseJSONStreamInternalWithContent(
+				strings.NewReader(input), nil, nil, nil, nil,
+				func(text, kind string) { content = append(content, kind+":"+text) }, nil, nil,
+			)
+			if terminalError != "" || message != "authoritative" {
+				t.Fatalf("message=%q terminalError=%q", message, terminalError)
+			}
+			if got := strings.Join(content, "|"); got != "message:draft|replace_message:authoritative" {
+				t.Fatalf("content=%q", got)
+			}
+		})
+	}
+}
+
+func TestBackendParseJSONStream_ClaudeFailureAndUnknownWarningsAreBounded(t *testing.T) {
+	input := `{"type":"system","subtype":"init","session_id":"abc123"}
+{"type":"future_one"}
+{"type":"future_two"}
+{"type":"future_three"}
+{"type":"future_four"}
+{"type":"result","subtype":"error_during_execution","session_id":"abc123","is_error":true}`
+	var warnings []string
+	complete := 0
+	message, _, terminalError := parseJSONStreamInternalWithContent(
+		strings.NewReader(input), func(warning string) { warnings = append(warnings, warning) }, nil, nil,
+		func() { complete++ }, nil, nil, nil,
+	)
+	if message != "" || !strings.Contains(terminalError, "error_during_execution") || complete != 1 {
+		t.Fatalf("got message=%q error=%q complete=%d", message, terminalError, complete)
+	}
+	if len(warnings) != 3 {
+		t.Fatalf("warnings=%v, want exactly three bounded unknown-event warnings", warnings)
 	}
 }
 
@@ -2579,6 +2687,45 @@ func TestRunCodexTaskFn_PiTerminalFailureReturnsNoPartialMessage(t *testing.T) {
 				t.Fatalf("error = %q, want stop reason and provider error", res.Error)
 			}
 		})
+	}
+}
+
+func TestRunCodexTaskFn_WebSessionUsesAuthoritativeFailureResult(t *testing.T) {
+	defer resetTestHooks()
+	previousServer := globalWebServer
+	previousLite := liteMode
+	server := NewWebServer("pi")
+	globalWebServer = server
+	liteMode = false
+	defer func() {
+		globalWebServer = previousServer
+		liteMode = previousLite
+	}()
+
+	fake := newFakeCmd(fakeCmdConfig{StdoutPlan: []fakeStdoutEvent{
+		{Data: `{"type":"session","version":3,"id":"pi-thread"}` + "\n"},
+		{Data: `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"partial"}],"stopReason":"error","errorMessage":"provider failed"}}` + "\n"},
+		{Data: `{"type":"agent_end"}` + "\n"},
+	}})
+	newCommandRunner = func(context.Context, string, ...string) commandRunner { return fake }
+
+	result := runCodexTaskFn(TaskSpec{Task: "review", Backend: "pi"}, 5)
+	if result.ExitCode == 0 {
+		t.Fatalf("expected provider failure, got %+v", result)
+	}
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+	if len(server.sessions) != 1 {
+		t.Fatalf("web sessions = %d, want 1", len(server.sessions))
+	}
+	for _, session := range server.sessions {
+		if !session.Done || len(session.History) == 0 {
+			t.Fatalf("web session was not completed: %+v", session)
+		}
+		terminal := session.History[len(session.History)-1]
+		if !terminal.Done || terminal.Status != "failed" || terminal.ExitCode == nil || *terminal.ExitCode != result.ExitCode {
+			t.Fatalf("terminal event = %+v, result = %+v", terminal, result)
+		}
 	}
 }
 
@@ -3366,7 +3513,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.8\n"
+	want := "codeagent-wrapper version 5.12.9\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3382,7 +3529,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.8\n"
+	want := "codeagent-wrapper version 5.12.9\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3398,7 +3545,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.12.8\n"
+	want := "codex-wrapper version 5.12.9\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3700,7 +3847,7 @@ func TestRun_AntigravitySkipPermissionsReachesBackend(t *testing.T) {
 	t.Cleanup(func() { liteMode = originalLite })
 
 	fake := newFakeCmd(fakeCmdConfig{
-		StdoutPlan: []fakeStdoutEvent{{Data: "review complete\n"}},
+		StdoutPlan: []fakeStdoutEvent{{Data: `{"event":"result","result":{"conversation_id":"review-1","status":"success","response":"review complete"}}` + "\n"}},
 	})
 	var capturedName string
 	var capturedArgs []string

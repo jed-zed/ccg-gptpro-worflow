@@ -102,10 +102,8 @@ This gate does not apply to empty-input usage/help responses.
    - Classify the task as frontend, backend, search, or a combination and
      resolve those roles.
    - If a selected role uses `codex`, perform that role's analysis directly.
-   - If a selected role uses `gemini`, use the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py` with `--approval-mode plan --detach --prompt-template plan`, default model `gemini-3.1-pro-preview`, and no `--direct-workdir`.
-   - For another external provider, use the existing adapter described by
-     `../../rules/ccg-role-routing.md` for bounded read-only analysis of that
-     role's slice.
+   - If a selected role uses `gemini`, run the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py` as a foreground command inside a tool-managed background job with `--approval-mode plan --prompt-template plan`, default model `gemini-3.1-pro-preview`, and no `--direct-workdir`. Do not pass `--detach`; monitor the background job until the helper exits and then read its non-empty response file.
+   - For another external provider, run `ccg wrapper --backend <provider> --progress - "<workdir>"` for bounded analysis of that role's slice. Pass the prompt through stdin and do not add `--lite`.
    - Include the enhanced requirement, context evidence, and a request for concise analysis: alternative approaches, edge cases, UI/UX concerns when relevant, tests, risks, and recommended plan steps.
    - Make at most two total attempts for a failed external provider call, using
      the same configured Provider and stable operation/evidence identity, then

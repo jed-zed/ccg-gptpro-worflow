@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.8"
+	version               = "5.12.9"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -374,7 +374,6 @@ func run() (exitCode int) {
 		return 1
 	}
 	cfg.Backend = backend.Name()
-
 	cmdInjected := codexCommand != defaultCodexCommand
 	argsInjected := buildCodexArgsFn != nil && reflect.ValueOf(buildCodexArgsFn).Pointer() != reflect.ValueOf(defaultBuildArgsFn).Pointer()
 
@@ -451,11 +450,11 @@ func run() (exitCode int) {
 	useStdin := cfg.Backend == "pi" || cfg.ExplicitStdin || shouldUseStdin(taskText, piped)
 
 	targetArg := taskText
-	// Gemini/Antigravity/Grok/Pi CLI doesn't support "-" as stdin marker.
+	// Claude/Gemini/Antigravity/Grok/Pi CLI doesn't support "-" as stdin marker.
 	// Keep in sync with runCodexTaskWithContext (executor.go): Pi always uses
 	// stdin; Gemini uses it on Windows.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "pi")
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "claude" || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -524,6 +523,7 @@ func run() (exitCode int) {
 		GrokModel:         cfg.GrokModel,
 		GrokReviewTargets: cfg.GrokReviewTargets,
 		AntigravityReview: cfg.AntigravityReview,
+		ReadOnly:          cfg.ReadOnly,
 	}
 
 	result := runTaskFn(taskSpec, false, cfg.Timeout)

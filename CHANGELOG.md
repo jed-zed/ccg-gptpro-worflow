@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.9] - 2026-08-09
+
+### Changed
+
+- **Integrated Provider behavior** — Preserve the automatic preview and
+  Antigravity streaming work from 3.4.8 while restoring the official Provider
+  permission behavior for ordinary Claude, Grok, Gemini, Antigravity, Codex,
+  and Pi execution. GPT Pro remains unchanged.
+- **codeagent-wrapper 5.12.9** — Preserve Antigravity's explicit permission
+  bypass through task execution without reintroducing the fork-only read-only
+  Provider overlay.
+
+## [3.4.8] - 2026-08-08
+
+### Fixed
+
+- **Standalone Claude Provider** — Allow frontend/backend routing to select
+  Claude and launch it through the same non-lite wrapper Web UI used by other
+  external role Providers.
+
+### Security
+
+- **Managed Claude read-only boundary** — Reuse the trusted native executable
+  resolver and run standalone Claude with Read/Glob/Grep-only safe-mode flags,
+  empty MCP/settings sources, no browser or session persistence, and no
+  permission bypass.
+
+### Changed
+
+- **codeagent-wrapper 5.12.8** — Add read-only Claude stdin execution while
+  preserving the legacy direct non-read-only wrapper contract.
+
+## [3.4.7] - 2026-08-08
+
 ### Added
 
 - **Product-manager workspace snapshot** — Build a strict task-local snapshot
@@ -28,6 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routing so target path, digest, and byte changes invalidate prior evidence.
 - **Timeout unit consistency** — Interpret every positive integer
   `CODEX_TIMEOUT` as seconds and remove the magnitude-based unit switch.
+- **Automatic Provider previews** — Give Gemini a tool-managed background job
+  and give Antigravity, Grok, and Pi one explicit non-lite wrapper launch
+  contract; replay accumulated SSE output when the browser connects late.
+- **Antigravity intermediate output** — Consume the official `stream-json`
+  event stream so progress reaches the Web UI before the terminal response.
 
 ### Security
 
@@ -41,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **codeagent-wrapper 5.12.7** — Add read-only Provider launch, structured
+  Antigravity streaming, and late-client Web UI history replay.
 - **Product-manager timeout** — Give each Provider attempt the original CCG
   two-hour limit by setting the default and accepted maximum to 7200000 ms.
 - **Provider permission parity** — Restore the official CCG permission behavior

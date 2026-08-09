@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -833,6 +832,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		GrokModel:         taskSpec.GrokModel,
 		GrokReviewTargets: taskSpec.GrokReviewTargets,
 		AntigravityReview: taskSpec.AntigravityReview,
+		ReadOnly:          taskSpec.ReadOnly,
 	}
 
 	commandName := codexCommand
@@ -890,7 +890,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		targetArg = grokSnapshot.promptFile
 	}
 
-	// Gemini/Antigravity/Pi CLI does not support "-" as stdin marker for the prompt.
+	// Claude/Gemini/Antigravity/Pi CLI does not support "-" as stdin marker for the prompt.
 	// On macOS/Linux: pass the actual task text directly via -p (execve preserves
 	// multi-line args in argv). On Windows: npm's .cmd wrapper routes through
 	// cmd.exe which truncates multi-line args at the first newline (Issue #129).
@@ -902,7 +902,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// Pi JSON mode reads piped stdin on every platform; use it to avoid Windows
 	// npm shim argument truncation and keep multiline prompts intact.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "pi")
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "claude" || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -920,6 +920,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// Start WebServer for this task (single-panel, random port, short-lived)
 	// Skip in lite mode for better performance
 	var webSessionID string
+	var webServer *WebServer
 	if !liteMode && globalWebServer == nil {
 		globalWebServer = newWebServerForExecution(cfg.Backend)
 		if err := globalWebServer.Start(); err != nil {
@@ -929,10 +930,18 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	// Generate a unique session ID for WebServer tracking
 	if !liteMode && globalWebServer != nil {
+		webServer = globalWebServer
 		randBytes := make([]byte, 4)
 		rand.Read(randBytes)
 		webSessionID = fmt.Sprintf("%s-%d-%s", cfg.Backend, time.Now().UnixMilli(), hex.EncodeToString(randBytes))
-		globalWebServer.StartSession(webSessionID, cfg.Backend, taskSpec.Task)
+		webServer.StartSession(webSessionID, cfg.Backend, taskSpec.Task)
+		defer func() {
+			status := "success"
+			if result.ExitCode != 0 {
+				status = "failed"
+			}
+			webServer.EndSessionWithStatus(webSessionID, cfg.Backend, result.ExitCode, status)
+		}()
 	}
 
 	prefixMsg := func(msg string) string {
@@ -1023,7 +1032,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
-	env := buildBackendEnv(commandName)
+	env := buildBackendEnv(cfg.Backend)
 	cmd.SetEnv(env) // SetEnv 会自动合并 os.Environ() (executor.go:122-161)
 
 	// Set working directory for backends that don't support -C flag.
@@ -1105,11 +1114,11 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	// Create onContent callback for streaming to WebServer
 	var onContentCallback func(content, contentType string)
-	if globalWebServer != nil && webSessionID != "" {
+	if webServer != nil && webSessionID != "" {
 		sessionID := webSessionID
 		backendName := cfg.Backend
 		onContentCallback = func(content, contentType string) {
-			globalWebServer.SendContentWithType(sessionID, backendName, content, contentType)
+			webServer.SendContentWithType(sessionID, backendName, content, contentType)
 		}
 	}
 
@@ -1142,50 +1151,9 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		fmt.Fprintf(os.Stderr, "  Session-ID: %s\n", id)
 	}
 
-	// Antigravity CLI outputs plain text (no JSON streaming).
-	// Read stdout directly instead of parsing JSON events.
-	isPlainTextBackend := cfg.Backend == "antigravity"
-
 	go func() {
 		defer allowWait()
-		if isPlainTextBackend {
-			scanner := bufio.NewScanner(stdoutReader)
-			scanner.Buffer(make([]byte, 0, 256*1024), 10*1024*1024)
-			var sb strings.Builder
-			firstLine := true
-			for scanner.Scan() {
-				line := scanner.Text()
-				if firstLine {
-					firstLine = false
-					select {
-					case messageSeen <- struct{}{}:
-					default:
-					}
-				}
-				if sb.Len() > 0 {
-					sb.WriteByte('\n')
-				}
-				sb.WriteString(line)
-				if onContentCallback != nil {
-					onContentCallback(line+"\n", "text")
-				}
-				if onProgressCallback != nil {
-					onProgressCallback(line)
-				}
-			}
-			msg := strings.TrimSpace(sb.String())
-			select {
-			case completeSeen <- struct{}{}:
-			default:
-			}
-			if globalWebServer != nil && webSessionID != "" {
-				globalWebServer.EndSession(webSessionID, cfg.Backend)
-			}
-			parseCh <- parseResult{message: msg}
-			return
-		}
-
-		msg, tid, terminalError := parseJSONStreamInternalWithReview(stdoutReader, logWarnFn, logInfoFn, func() {
+		onMessage := func() {
 			// os/exec.Wait closes StdoutPipe after the process exits. Do not let a
 			// fast process win that race before the parser has captured its message.
 			allowWait()
@@ -1193,17 +1161,20 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			case messageSeen <- struct{}{}:
 			default:
 			}
-		}, func() {
+		}
+		onComplete := func() {
 			allowWait()
 			select {
 			case completeSeen <- struct{}{}:
 			default:
 			}
-			// Notify WebServer that session is complete
-			if globalWebServer != nil && webSessionID != "" {
-				globalWebServer.EndSession(webSessionID, cfg.Backend)
-			}
-		}, onContentCallback, onProgressCallback, onSessionStartedCallback, grokReview)
+		}
+		var msg, tid, terminalError string
+		if cfg.Backend == "antigravity" {
+			msg, tid, terminalError = parseAntigravityStream(stdoutReader, logWarnFn, logInfoFn, onMessage, onComplete, onContentCallback, onProgressCallback, onSessionStartedCallback)
+		} else {
+			msg, tid, terminalError = parseJSONStreamInternalWithReview(stdoutReader, logWarnFn, logInfoFn, onMessage, onComplete, onContentCallback, onProgressCallback, onSessionStartedCallback, grokReview)
+		}
 		select {
 		case completeSeen <- struct{}{}:
 		default:
