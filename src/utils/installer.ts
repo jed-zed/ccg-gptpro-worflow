@@ -77,12 +77,12 @@ export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
  * CGO disabled, and `-buildvcs=false -trimpath -ldflags="-s -w"`.
  */
 export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
-  'codeagent-wrapper-darwin-amd64': '44012dbd6260ce9b2d4c91e1440b186be3a2d9be12e79b4ae46e9c846cbb8c03',
-  'codeagent-wrapper-darwin-arm64': '9fa9702cd009e2866d84f78b02e7d48eb322a7e2d6dec8c1b66dbd537e4ac136',
-  'codeagent-wrapper-linux-amd64': 'f329a1fbfe86f5fe900115c667f5c81862af36568ee78898b9d4ede8d2cb486f',
-  'codeagent-wrapper-linux-arm64': 'a1cfa28fb4623c397e8639200220f354240e05974846a2a5dd4b5aec69ddc3f1',
-  'codeagent-wrapper-windows-amd64.exe': '7bd6d5c9c00dcae5507b3546481c5b22914c2f4eb04968ef69a24c5590de469f',
-  'codeagent-wrapper-windows-arm64.exe': '91d4370544e6f5bbf944fd041b86e7e4cf6e70c56ea29130d6174f341757ab03',
+  'codeagent-wrapper-darwin-amd64': 'f0c240027e68cd73f10a2215cc8a970e6df0afd98ab5f416fa26ba04138e4b12',
+  'codeagent-wrapper-darwin-arm64': '9d7d51905cd9185701915dfe4bd902eee7efbec97daa3228d22702837cec4238',
+  'codeagent-wrapper-linux-amd64': '8f98c5a244f7198766789081c7fcc961854bc9054483914372bde60a5b568b2a',
+  'codeagent-wrapper-linux-arm64': '74912bb1a8536d83cde84916a57b9106a7271a856d48771c473f57c5084babb2',
+  'codeagent-wrapper-windows-amd64.exe': 'b1faeaf9cc76598d462e24b988daa4fb554ca54880792d93a4d673218f941ce5',
+  'codeagent-wrapper-windows-arm64.exe': '77b8fd3a7aceff014785677c2357d7373cb9d11e0e1983a360564b6848e43489',
 })
 
 // ═══════════════════════════════════════════════════════
