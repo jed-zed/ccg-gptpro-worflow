@@ -926,6 +926,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// Start WebServer for this task (single-panel, random port, short-lived)
 	// Skip in lite mode for better performance
 	var webSessionID string
+	var webServer *WebServer
 	if !liteMode && globalWebServer == nil {
 		globalWebServer = newWebServerForExecution(cfg.Backend)
 		if err := globalWebServer.Start(); err != nil {
@@ -935,10 +936,18 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	// Generate a unique session ID for WebServer tracking
 	if !liteMode && globalWebServer != nil {
+		webServer = globalWebServer
 		randBytes := make([]byte, 4)
 		rand.Read(randBytes)
 		webSessionID = fmt.Sprintf("%s-%d-%s", cfg.Backend, time.Now().UnixMilli(), hex.EncodeToString(randBytes))
-		globalWebServer.StartSession(webSessionID, cfg.Backend, taskSpec.Task)
+		webServer.StartSession(webSessionID, cfg.Backend, taskSpec.Task)
+		defer func() {
+			status := "success"
+			if result.ExitCode != 0 {
+				status = "failed"
+			}
+			webServer.EndSessionWithStatus(webSessionID, cfg.Backend, result.ExitCode, status)
+		}()
 	}
 
 	prefixMsg := func(msg string) string {
@@ -1116,11 +1125,11 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	// Create onContent callback for streaming to WebServer
 	var onContentCallback func(content, contentType string)
-	if globalWebServer != nil && webSessionID != "" {
+	if webServer != nil && webSessionID != "" {
 		sessionID := webSessionID
 		backendName := cfg.Backend
 		onContentCallback = func(content, contentType string) {
-			globalWebServer.SendContentWithType(sessionID, backendName, content, contentType)
+			webServer.SendContentWithType(sessionID, backendName, content, contentType)
 		}
 	}
 
@@ -1169,10 +1178,6 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			select {
 			case completeSeen <- struct{}{}:
 			default:
-			}
-			// Notify WebServer that session is complete
-			if globalWebServer != nil && webSessionID != "" {
-				globalWebServer.EndSession(webSessionID, cfg.Backend)
 			}
 		}
 		var msg, tid, terminalError string

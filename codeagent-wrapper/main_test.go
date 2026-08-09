@@ -1981,6 +1981,35 @@ func TestBackendParseJSONStream_ClaudeMissingTerminalFails(t *testing.T) {
 	}
 }
 
+func TestBackendParseJSONStream_ReplacesDivergentClaudeAndPiTerminalText(t *testing.T) {
+	tests := map[string]string{
+		"claude": `{"type":"system","subtype":"init","session_id":"c"}
+{"type":"stream_event","session_id":"c","event":{"type":"message_start"}}
+{"type":"stream_event","session_id":"c","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"draft"}}}
+{"type":"result","subtype":"success","result":"authoritative","session_id":"c"}`,
+		"pi": `{"type":"session","id":"p"}
+{"type":"message_start"}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"draft"}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"authoritative"}],"stopReason":"stop"}}
+{"type":"agent_end"}`,
+	}
+	for name, input := range tests {
+		t.Run(name, func(t *testing.T) {
+			var content []string
+			message, _, terminalError := parseJSONStreamInternalWithContent(
+				strings.NewReader(input), nil, nil, nil, nil,
+				func(text, kind string) { content = append(content, kind+":"+text) }, nil, nil,
+			)
+			if terminalError != "" || message != "authoritative" {
+				t.Fatalf("message=%q terminalError=%q", message, terminalError)
+			}
+			if got := strings.Join(content, "|"); got != "message:draft|replace_message:authoritative" {
+				t.Fatalf("content=%q", got)
+			}
+		})
+	}
+}
+
 func TestBackendParseJSONStream_ClaudeFailureAndUnknownWarningsAreBounded(t *testing.T) {
 	input := `{"type":"system","subtype":"init","session_id":"abc123"}
 {"type":"future_one"}
@@ -2663,6 +2692,45 @@ func TestRunCodexTaskFn_PiTerminalFailureReturnsNoPartialMessage(t *testing.T) {
 				t.Fatalf("error = %q, want stop reason and provider error", res.Error)
 			}
 		})
+	}
+}
+
+func TestRunCodexTaskFn_WebSessionUsesAuthoritativeFailureResult(t *testing.T) {
+	defer resetTestHooks()
+	previousServer := globalWebServer
+	previousLite := liteMode
+	server := NewWebServer("pi")
+	globalWebServer = server
+	liteMode = false
+	defer func() {
+		globalWebServer = previousServer
+		liteMode = previousLite
+	}()
+
+	fake := newFakeCmd(fakeCmdConfig{StdoutPlan: []fakeStdoutEvent{
+		{Data: `{"type":"session","version":3,"id":"pi-thread"}` + "\n"},
+		{Data: `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"partial"}],"stopReason":"error","errorMessage":"provider failed"}}` + "\n"},
+		{Data: `{"type":"agent_end"}` + "\n"},
+	}})
+	newCommandRunner = func(context.Context, string, ...string) commandRunner { return fake }
+
+	result := runCodexTaskFn(TaskSpec{Task: "review", Backend: "pi"}, 5)
+	if result.ExitCode == 0 {
+		t.Fatalf("expected provider failure, got %+v", result)
+	}
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+	if len(server.sessions) != 1 {
+		t.Fatalf("web sessions = %d, want 1", len(server.sessions))
+	}
+	for _, session := range server.sessions {
+		if !session.Done || len(session.History) == 0 {
+			t.Fatalf("web session was not completed: %+v", session)
+		}
+		terminal := session.History[len(session.History)-1]
+		if !terminal.Done || terminal.Status != "failed" || terminal.ExitCode == nil || *terminal.ExitCode != result.ExitCode {
+			t.Fatalf("terminal event = %+v, result = %+v", terminal, result)
+		}
 	}
 }
 

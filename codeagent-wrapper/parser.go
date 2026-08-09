@@ -284,6 +284,9 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 			}
 		case final != partial:
 			warnFn(backend + " terminal response did not match streamed assistant text; using terminal response")
+			if onContent != nil {
+				onContent(final, "replace_message")
+			}
 		}
 	}
 
@@ -937,6 +940,9 @@ func parseAntigravityStream(r io.Reader, warnFn func(string), infoFn func(string
 				}
 			} else if message != partial {
 				warnFn("Antigravity result did not match streamed agent_response; using terminal result")
+				if onContent != nil {
+					onContent(message, "replace_message")
+				}
 			}
 			if onComplete != nil {
 				onComplete()

@@ -63,6 +63,8 @@ class State:
         self.response = ""
         self.raw = ""
         self.clients: list[queue.Queue[dict[str, object]]] = []
+        self.content_events: list[dict[str, object]] = []
+        self.next_event_id = 0
         self.events: list[dict[str, str]] = []
         self.status = "starting"
         self.done = False
@@ -114,41 +116,47 @@ class State:
         with self.lock:
             self.content += text
             if response_text:
-                self.response += text
-            clients = list(self.clients)
+                if content_type == "replace_message":
+                    self.response = text
+                else:
+                    self.response += text
+            event, clients = self._record_client_event_locked(event)
         for client in clients:
             self._put_client_event(client, event)
 
     def complete(self, exit_code: int, status: str) -> None:
-        event = {
-            "session_id": self.preview_session_id,
-            "backend": self.backend,
-            "done": True,
-            "exit_code": exit_code,
-            "status": status,
-            "auto_close_browser_seconds": self.auto_close_browser_seconds,
-        }
         clients: list[queue.Queue[dict[str, object]]]
         with self.lock:
+            if self.done:
+                return
             self.done = True
             self.exit_code = exit_code
             self.status = status
-            clients = list(self.clients)
+            event, clients = self._record_client_event_locked(
+                {
+                    "session_id": self.preview_session_id,
+                    "backend": self.backend,
+                    "done": True,
+                    "exit_code": exit_code,
+                    "status": status,
+                    "auto_close_browser_seconds": self.auto_close_browser_seconds,
+                }
+            )
         for client in clients:
             self._put_client_event(client, event)
 
-    def _put_client_event(self, client: queue.Queue[dict[str, object]], event: dict[str, object]) -> None:
-        try:
-            client.put_nowait(event)
-        except queue.Full:
-            try:
-                client.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                client.put_nowait(event)
-            except queue.Full:
-                pass
+    def _record_client_event_locked(
+        self, event: dict[str, object]
+    ) -> tuple[dict[str, object], list[queue.Queue[dict[str, object]]]]:
+        self.next_event_id += 1
+        recorded = {**event, "_event_id": self.next_event_id}
+        self.content_events.append(recorded)
+        return recorded, list(self.clients)
+
+    def _put_client_event(
+        self, client: queue.Queue[dict[str, object]], event: dict[str, object]
+    ) -> None:
+        client.put_nowait(event)
 
     def sessions(self) -> list[dict[str, object]]:
         with self.lock:
@@ -162,12 +170,15 @@ class State:
             ]
 
     def register_client(
-        self, session_id: str
+        self, session_id: str, last_event_id: int = 0
     ) -> tuple[queue.Queue[dict[str, object]], bool, int | None]:
         if session_id != self.preview_session_id:
             raise KeyError(session_id)
-        client: queue.Queue[dict[str, object]] = queue.Queue(maxsize=200)
+        client: queue.Queue[dict[str, object]] = queue.Queue()
         with self.lock:
+            for event in self.content_events:
+                if int(event.get("_event_id", 0)) > last_event_id:
+                    client.put_nowait(event)
             self.clients.append(client)
             done = self.done
             exit_code = self.exit_code
@@ -511,6 +522,26 @@ SAFE_TASK_RENDERING = """                    const taskLabel = document.createEl
 
 PREVIEW_PATCHES = (
     (
+        "authoritative assistant replacement",
+        """                            case 'message':
+                            default:
+                                contentEl.style.cssText = 'color: #c9d1d9;';
+                                contentEl.textContent = data.content;
+                                break;""",
+        """                            case 'replace_message':
+                                output.querySelectorAll('.assistant-output').forEach((element) => element.remove());
+                                contentEl.className = 'assistant-output';
+                                contentEl.style.cssText = 'color: #c9d1d9;';
+                                contentEl.textContent = data.content;
+                                break;
+                            case 'message':
+                            default:
+                                contentEl.className = 'assistant-output';
+                                contentEl.style.cssText = 'color: #c9d1d9;';
+                                contentEl.textContent = data.content;
+                                break;""",
+    ),
+    (
         "failure status color",
         """        .done-indicator {
             color: #8b949e;
@@ -651,7 +682,11 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
 
         def stream_session(self, session_id: str) -> None:
             try:
-                client, done, exit_code = STATE.register_client(session_id)
+                last_event_id = int(self.headers.get("Last-Event-ID", "0"))
+            except ValueError:
+                last_event_id = 0
+            try:
+                client, done, _ = STATE.register_client(session_id, last_event_id)
             except KeyError:
                 self.send_response(404)
                 self.end_headers()
@@ -665,7 +700,13 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
 
             def send_event(event: dict[str, object]) -> bool:
                 try:
-                    data = json.dumps(event, ensure_ascii=False).encode("utf-8")
+                    event_id = int(event.get("_event_id", 0))
+                    public_event = {
+                        key: value for key, value in event.items() if not key.startswith("_")
+                    }
+                    data = json.dumps(public_event, ensure_ascii=False).encode("utf-8")
+                    if event_id:
+                        self.wfile.write(f"id: {event_id}\n".encode("ascii"))
                     self.wfile.write(b"data: " + data + b"\n\n")
                     self.wfile.flush()
                     return True
@@ -673,16 +714,7 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
                     return False
 
             try:
-                if done:
-                    send_event(
-                        {
-                            "session_id": STATE.preview_session_id,
-                            "backend": STATE.backend,
-                            "done": True,
-                            "exit_code": exit_code,
-                            "auto_close_browser_seconds": STATE.auto_close_browser_seconds,
-                        }
-                    )
+                if done and client.empty():
                     return
                 while True:
                     try:
@@ -891,6 +923,7 @@ def stream_output(pipe, output_file, is_stderr: bool = False) -> None:
                     STATE.add_event(
                         "Gemini terminal response did not match streamed assistant text; using terminal response"
                     )
+                    STATE.append_content(final_response, "replace_message")
             authoritative_response = final_response or assistant_text
             STATE.update(
                 response=authoritative_response,

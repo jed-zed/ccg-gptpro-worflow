@@ -64,6 +64,20 @@ func TestParseAntigravityStreamPublishesPublicToolMetadata(t *testing.T) {
 	}
 }
 
+func TestParseAntigravityStreamReplacesDivergentTerminalText(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"event":"step_update","step_update":{"conversation_id":"c","step_index":0,"state":"ACTIVE","step_type":"agent_response","text_delta":"draft"}}`,
+		`{"event":"result","result":{"conversation_id":"c","status":"success","response":"authoritative"}}`,
+	}, "\n")
+	var content []string
+	message, _, terminalError := parseAntigravityStream(strings.NewReader(stream), nil, nil, nil, nil, func(text, contentType string) {
+		content = append(content, contentType+":"+text)
+	}, nil, nil)
+	if terminalError != "" || message != "authoritative" || strings.Join(content, "|") != "message:draft|replace_message:authoritative" {
+		t.Fatalf("message=%q terminalError=%q content=%v", message, terminalError, content)
+	}
+}
+
 func TestParseAntigravityStreamBoundsUnknownEventWarnings(t *testing.T) {
 	stream := strings.Repeat("{\"event\":\"future_event\"}\n", 5) +
 		`{"event":"result","result":{"conversation_id":"c","status":"SUCCESS","response":"done"}}`
