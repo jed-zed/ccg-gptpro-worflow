@@ -971,6 +971,41 @@ def is_snapshot_link(path: Path) -> bool:
         return True
 
 
+def copy_snapshot_file(source: Path, target: Path, expected: os.stat_result) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(source, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(expected, opened):
+            raise OSError(f"snapshot source identity changed before open: {source}")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with (
+                os.fdopen(descriptor, "rb", closefd=False) as source_file,
+                target.open("wb") as target_file,
+            ):
+                shutil.copyfileobj(source_file, target_file)
+
+            final = os.fstat(descriptor)
+            stable = (
+                os.path.samestat(opened, final)
+                and opened.st_size == final.st_size
+                and opened.st_mtime_ns == final.st_mtime_ns
+                and opened.st_ctime_ns == final.st_ctime_ns
+            )
+            if not stable:
+                raise OSError(f"snapshot source changed while copying: {source}")
+            os.chmod(target, stat.S_IMODE(opened.st_mode))
+            os.utime(target, ns=(opened.st_atime_ns, opened.st_mtime_ns))
+            return int(final.st_size)
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+    finally:
+        os.close(descriptor)
+
+
 def normalize_relative_path(value: str) -> str:
     return value.replace("\\", "/").strip("/")
 
@@ -1054,6 +1089,7 @@ def copy_snapshot_tree(source: Path, target: Path, args: argparse.Namespace) -> 
     includes = load_include_paths(str(getattr(args, "files_from", "") or ""), source)
     max_bytes = max(0, int(getattr(args, "max_snapshot_bytes", 0) or 0))
     max_files = max(0, int(getattr(args, "max_snapshot_files", 0) or 0))
+    max_file_bytes = max(0, int(getattr(args, "max_snapshot_file_bytes", 0) or 0))
     stats: dict[str, object] = {
         "files": 0,
         "dirs": 0,
@@ -1096,16 +1132,19 @@ def copy_snapshot_tree(source: Path, target: Path, args: argparse.Namespace) -> 
             if is_dir:
                 copy_dir(entry, dst / entry.name, entry_rel)
                 continue
-            if not entry.is_file():
-                bump("skipped_error")
-                continue
-
             try:
-                size = entry.stat().st_size
+                source_stat = entry.lstat()
             except OSError:
                 bump("skipped_error")
                 continue
+            if not stat.S_ISREG(source_stat.st_mode):
+                bump("skipped_secret_or_link")
+                continue
+            size = source_stat.st_size
             if max_files and int(stats["files"]) + 1 > max_files:
+                bump("skipped_cap")
+                continue
+            if max_file_bytes and size > max_file_bytes:
                 bump("skipped_cap")
                 continue
             if max_bytes and int(stats["bytes"]) + size > max_bytes:
@@ -1114,10 +1153,9 @@ def copy_snapshot_tree(source: Path, target: Path, args: argparse.Namespace) -> 
 
             try:
                 target_file = dst / entry.name
-                target_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(entry, target_file)
+                copied_size = copy_snapshot_file(entry, target_file, source_stat)
                 bump("files")
-                bump("bytes", int(size))
+                bump("bytes", copied_size)
             except OSError:
                 bump("skipped_error")
 
