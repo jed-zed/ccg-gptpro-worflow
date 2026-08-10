@@ -1499,7 +1499,7 @@ describe('GPT Pro sidebar bridge', () => {
     expect(gptproEvidence.artifactBytes).toBeGreaterThan(gptproEvidence.artifactChars)
   })
 
-  maybeIt('inherits required routing evidence for follow-up sessions without fresh routing files', () => {
+  maybeIt('inherits required routing evidence across sequential follow-ups without a fixed round limit', () => {
     const root = join(TMP_ROOT, 'routing-followup-session')
     const taskDir = join(root, '.ccg', 'tasks', 'followup-task')
     const evidenceDir = join(taskDir, 'evidence')
@@ -1577,6 +1577,34 @@ describe('GPT Pro sidebar bridge', () => {
     expect(promptText).toContain('Routing evidence file: .ccg/tasks/followup-task/evidence/routing.md')
     expect(promptText).toContain('Claude evidence status: automatic')
     expect(promptText).toContain(routing.summary)
+
+    const roundThreeOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/followup-task',
+      '--prompt',
+      'Review round three without fresh routing files.',
+      '--followup-session',
+      sessionDir,
+      '--followup-reason',
+      'Re-check the remaining blocker.',
+      '--require-routing-evidence',
+      '--require-claude-evidence',
+    ], root)
+    const roundThreeStatusFile = parseOutputPath(roundThreeOutput, 'CCG_GPTPRO_STATUS_FILE')
+    const roundThreePromptFile = parseOutputPath(roundThreeOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const roundThreeStatus = fs.readJsonSync(roundThreeStatusFile)
+
+    expect(roundThreeStatus.current_round).toBe(3)
+    expect(roundThreeStatus.rounds['round-3']).toBeDefined()
+    expect(roundThreeStatus.manual_questions_max).toBeUndefined()
+    expect(readFileSync(roundThreePromptFile, 'utf-8')).toContain(
+      'This is a sequential follow-up round in a GPT Pro sidebar bridge session.',
+    )
   })
 
   maybeIt('rejects required Claude evidence when routing evidence lacks a valid status', () => {
