@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,6 +22,7 @@ SPEC = importlib.util.spec_from_file_location("invoke_provider_review", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+SNAPSHOT_MODULE = sys.modules[MODULE.copy_snapshot_tree.__module__]
 
 
 class ProviderReviewSnapshotTest(unittest.TestCase):
@@ -110,6 +112,87 @@ class ProviderReviewSnapshotTest(unittest.TestCase):
             with patch.object(MODULE, "MAX_REVIEW_FILE_BYTES", 4):
                 with self.assertRaisesRegex(ValueError, "safe snapshot"):
                     MODULE.build_snapshot(workdir, ["large.py"], temp_root)
+
+    def test_snapshot_rejects_parent_directory_swap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workdir = root / "repo"
+            approved = workdir / "approved"
+            approved.mkdir(parents=True)
+            (approved / "review.py").write_text("safe\n", encoding="utf-8")
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "review.py").write_text("outside\n", encoding="utf-8")
+            targets = MODULE.normalize_targets(workdir, ["approved/review.py"])
+            temp_root = root / "tmp"
+            temp_root.mkdir()
+            original = workdir / "approved-original"
+            original_link_check = SNAPSHOT_MODULE.is_snapshot_link
+            checks = 0
+
+            def swap_after_directory_checks(path: Path) -> bool:
+                nonlocal checks
+                result = original_link_check(path)
+                if path == approved:
+                    checks += 1
+                    if checks == 2:
+                        approved.rename(original)
+                        if os.name == "nt":
+                            subprocess.run(
+                                ["cmd.exe", "/d", "/c", "mklink", "/J", str(approved), str(outside)],
+                                check=True,
+                                capture_output=True,
+                            )
+                        else:
+                            approved.symlink_to(outside, target_is_directory=True)
+                return result
+
+            try:
+                with patch.object(
+                    SNAPSHOT_MODULE,
+                    "is_snapshot_link",
+                    side_effect=swap_after_directory_checks,
+                ):
+                    with self.assertRaisesRegex(ValueError, "safe snapshot"):
+                        MODULE.build_snapshot(workdir, targets, temp_root)
+            finally:
+                if approved.is_symlink() or getattr(approved, "is_junction", lambda: False)():
+                    if os.name == "nt":
+                        os.rmdir(approved)
+                    else:
+                        approved.unlink()
+                if original.exists():
+                    original.rename(approved)
+
+            self.assertFalse((temp_root / workdir.name / "approved" / "review.py").exists())
+
+    def test_snapshot_rejects_growth_between_lstat_and_open(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workdir = root / "repo"
+            workdir.mkdir()
+            source = workdir / "review.py"
+            source.write_bytes(b"123")
+            temp_root = root / "tmp"
+            temp_root.mkdir()
+            real_open = os.open
+            grown = False
+
+            def grow_then_open(path, flags, *args, **kwargs):
+                nonlocal grown
+                if Path(path) == source and not grown:
+                    source.write_bytes(b"12345")
+                    grown = True
+                return real_open(path, flags, *args, **kwargs)
+
+            with (
+                patch.object(MODULE, "MAX_REVIEW_FILE_BYTES", 4),
+                patch.object(SNAPSHOT_MODULE.os, "open", side_effect=grow_then_open),
+            ):
+                with self.assertRaisesRegex(ValueError, "safe snapshot"):
+                    MODULE.build_snapshot(workdir, ["review.py"], temp_root)
+
+            self.assertFalse((temp_root / workdir.name / "review.py").exists())
 
     def test_snapshot_rejects_target_count_and_total_size_over_bounds(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

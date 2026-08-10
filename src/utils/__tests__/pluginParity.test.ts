@@ -72,12 +72,18 @@ describe('Codex plugin release parity', () => {
       join(root, 'templates', 'prompts', 'product-manager', 'base.md'),
       'utf8',
     )
+    const antigravityReviewer = fs.readFileSync(
+      join(root, 'templates', 'prompts', 'antigravity', 'reviewer.md'),
+      'utf8',
+    )
     expect(review).toContain('invoke_provider_review.py')
     expect(review).toContain('disposable snapshot')
     expect(reviewHelper).toContain('copy_snapshot_tree')
     expect(reviewHelper).toContain('choices=("claude", "antigravity")')
     expect(productManagerPrompt).toContain('complete review input')
     expect(productManagerPrompt).not.toContain('Never execute commands')
+    expect(antigravityReviewer).toContain('disposable snapshot is writable and is not an OS sandbox')
+    expect(antigravityReviewer).not.toContain('ZERO file system write permission')
   })
 
   it('keeps Gemini previews alive in a tool-managed background job', () => {
