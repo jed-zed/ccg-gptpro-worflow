@@ -2,11 +2,15 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-07-24 (v3.3.0)
+**Last Updated**: 2026-08-10 (v3.4.11)
 
 ---
 
 ## 变更记录
+
+### 2026-08-10 (v3.4.11)
+- 安装器固定 codeagent-wrapper v5.12.11 及其六平台摘要。
+- Grok 失败日志保留保持显式 opt-in；AGY 默认权限绕过仅用于无人值守的一次性快照审查。
 
 ### 2026-07-22 (v3.3.0)
 - 新增 `commands/grok.ts`、Grok doctor 分层和 `external_intelligence` opt-in 配置迁移。
@@ -168,7 +172,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.10'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.11'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [
