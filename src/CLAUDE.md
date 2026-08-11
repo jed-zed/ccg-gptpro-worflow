@@ -2,15 +2,16 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-08-10 (v3.4.11)
+**Last Updated**: 2026-08-10 (v3.4.12)
 
 ---
 
 ## 变更记录
 
-### 2026-08-10 (v3.4.11)
+### 2026-08-10 (v3.4.12)
 - 安装器固定 codeagent-wrapper v5.12.11 及其六平台摘要。
 - Grok 失败日志保留保持显式 opt-in；AGY 默认权限绕过仅用于无人值守的一次性快照审查。
+- GPT Pro URL-first bridge、batch 和 bounded product-manager snapshot 已并入同一正式源码版本。
 
 ### 2026-07-22 (v3.3.0)
 - 新增 `commands/grok.ts`、Grok doctor 分层和 `external_intelligence` opt-in 配置迁移。

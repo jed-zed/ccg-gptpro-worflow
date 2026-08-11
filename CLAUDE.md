@@ -2,9 +2,9 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-08-10 (v3.4.11)
+**Last Updated**: 2026-08-10 (v3.4.12)
 
-> 本文档已同步 v3.4.11 的 Grok 失败日志保留与 AGY 快照审查权限传递；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.12 的 GPT Pro URL-first 恢复与原子持久化，并保留 v3.4.11 的 Grok 失败日志和 AGY 快照审查修复；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
@@ -12,8 +12,10 @@
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
 
-### 2026-08-10 (v3.4.11)
+### 2026-08-10 (v3.4.12)
 
+- GPT Pro 自动侧栏桥接绑定精确会话 URL 和 Codex task identity，并对
+  RootWait、follow-up 与并发 batch 结果执行 exact-once 原子持久化；
 - Grok 本地审查可显式保留非零退出时的完整 wrapper 日志，默认清理行为不变；
 - 无人值守的一次性快照 AGY 审查默认传递 `--skip-permissions`，普通 AGY
   frontend/backend/resume 调用保持不变；wrapper 固定到 v5.12.11。
