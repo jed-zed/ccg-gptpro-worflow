@@ -329,7 +329,7 @@ describe('Grok intelligence ACP transport', () => {
       fs: { readTextFile: false, writeTextFile: false },
       terminal: false,
     })
-    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd) })
+    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd), mcpServers: [] })
     expect(result.promptResult.permissionResponse).toEqual({ outcome: { outcome: 'selected', optionId: 'always' } })
     expect(result.authMethod).toBe('cached_token')
     expect(result.promptResult.receivedArgs).toEqual(buildGrokAcpArgs({ maxTurns: 6 }))

@@ -832,7 +832,7 @@ export function createGrokAcpClient({
           fatal.promise,
         ])
         const sessionResult = await Promise.race([
-          request('session/new', { cwd }),
+          request('session/new', { cwd, mcpServers: [] }),
           fatal.promise,
         ])
         if (typeof sessionResult.sessionId !== 'string' || sessionResult.sessionId.length === 0)
