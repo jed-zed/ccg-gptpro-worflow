@@ -41,7 +41,6 @@ export function buildGrokAcpArgs({ maxTurns = 6, model = 'grok-4.5' } = {}) {
 
   const args = [
     '--always-approve',
-    '--no-auto-update',
     '--verbatim',
     '--system-prompt-override',
     GROK_INTELLIGENCE_SYSTEM_PROMPT,
