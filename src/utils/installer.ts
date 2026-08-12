@@ -67,7 +67,7 @@ export type { SkillMeta } from './skill-registry'
  * Must match the `version` constant in codeagent-wrapper/main.go.
  * When this differs from the installed binary, update triggers re-download.
  */
-export const EXPECTED_BINARY_VERSION = '5.12.11'
+export const EXPECTED_BINARY_VERSION = '5.12.12'
 export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
 
 /**
@@ -77,12 +77,12 @@ export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
  * CGO disabled, and `-buildvcs=false -trimpath -ldflags="-s -w"`.
  */
 export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
-  'codeagent-wrapper-darwin-amd64': 'b720cf718d071ab159acf35ae7626bf212919e74dd108265edf1f2b5e30a7c7a',
-  'codeagent-wrapper-darwin-arm64': '46c37ea3ad77a95a425dfeaff74d28dd3a519bf5fa43bcb7ebb548b267264375',
-  'codeagent-wrapper-linux-amd64': '2a5501e733ff51c20db1acfe26bc4df3c80a983b249c7888aeaf087d9c4409be',
-  'codeagent-wrapper-linux-arm64': '83a5cab9273b2b7e5d348ca425af2239f813205147c00d66f25412d90d8ded06',
-  'codeagent-wrapper-windows-amd64.exe': '24e163c8b696f0ffc83c9459dfe1dc104ba7997492a0c28ab607d36354ec8d46',
-  'codeagent-wrapper-windows-arm64.exe': '80467b9742d8db0a67c9e6ce205133b824efaa7ec5b66ff8db4ca7da96ee11a4',
+  'codeagent-wrapper-darwin-amd64': '83bd23fa3fb84820b11bc7879c77ff6908c597feb3fdad8a10d33456970a48d2',
+  'codeagent-wrapper-darwin-arm64': '4cec1a312f709158e3d4177507c7dbf7e665b7b35ce5d6b10b167618d466bcee',
+  'codeagent-wrapper-linux-amd64': '194dafebb287bd51d749b12676942be4091b0b0e164df9cd4158bdf9533b0b02',
+  'codeagent-wrapper-linux-arm64': '3d7cdfd26b21d9af791d4b1943341491093da69635a322a7f9bab528519c54ed',
+  'codeagent-wrapper-windows-amd64.exe': '50a135d76ddae73cebc02b7f25b8bef4ffb407c861642eb48d4a7bfd285ba60e',
+  'codeagent-wrapper-windows-arm64.exe': 'a9afd41d79209bfa198bf9242a41cd8e55f8211433745e8447e18dec5067c397',
 })
 
 // ═══════════════════════════════════════════════════════
