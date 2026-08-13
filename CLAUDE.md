@@ -507,8 +507,8 @@ npx ccg-workflow menu
 | 语言 | 中文 | ✗ | 所有模板为中文 |
 | 前端模型 | Antigravity | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6，可选 gemini/codex/grok |
 | 后端模型 | Codex | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6，可选 gemini/antigravity/grok |
-| Gemini 型号 | gemini-3.1-pro-preview | ✓ (v2.1.0+) | 选 gemini 时可配 |
-| Grok 型号 | grok-4.5 | ✓ (v3.2.0+) | 选 grok 时可配，代码任务可选 grok-composer-2.5-fast |
+| Gemini 型号 | CLI 默认 | ✓ (v2.1.0+) | 选 gemini 时可显式固定 |
+| Grok 型号 | CLI 默认 | ✓ (v3.2.0+) | 选 grok 时可显式固定 |
 | 协作模式 | smart | ✗ | 最佳实践 |
 | 命令数量 | 17 core + 18 legacy | ✓ | core 默认安装；legacy 可选；Codex 插件提供 44 个入口 |
 

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -369,9 +369,24 @@ describe('versioned Grok evidence cache', () => {
       markLocked()
     }))
     await locked
+    expect((await lstat(join(cacheRoot, '.locks', `${key}.lock`))).isFile()).toBe(true)
     await expect(withCacheLock({ cacheRoot, key }, async () => 'second')).rejects.toThrow(/lock|busy/i)
     release()
     await held
+  })
+
+  it('reclaims a cache lock whose owner process has exited', async () => {
+    const key = createCacheFingerprint(fingerprintInput()).key
+    const lockPath = join(cacheRoot, '.locks', `${key}.lock`)
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(join(lockPath, 'owner.json'), `${JSON.stringify({
+      owner: 'dead-owner',
+      created_at: NOW,
+      pid: 2147483647,
+    })}\n`)
+
+    await expect(withCacheLock({ cacheRoot, key }, async () => 'recovered')).resolves.toBe('recovered')
+    await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('uses atomic entry creation and validates time, quality, TTL, and force refresh', async () => {

@@ -15,11 +15,11 @@ import { pathsShareIdentity } from '../../../templates/engine/tools/grok-intelli
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { runGrokIntelligence } from '../../../templates/engine/tools/grok-intelligence/runner.mjs'
 
-function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', finalText?: string) {
+function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', finalText?: string, model = 'grok-4.5') {
   return [
     {
       method: 'session/update',
-      params: { update: { sessionUpdate: 'user_message_chunk', content: { text: 'Verify.' }, _meta: { modelId: 'grok-4.5' } } },
+      params: { update: { sessionUpdate: 'user_message_chunk', content: { text: 'Verify.' }, _meta: { modelId: model } } },
     },
     {
       method: 'session/update',
@@ -35,7 +35,7 @@ function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', fina
     },
     {
       method: 'session/update',
-      params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn', usage: { modelUsage: { 'grok-4.5-build': { modelCalls: 1 } } } } },
+      params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn', usage: { modelUsage: { [`${model}-build`]: { modelCalls: 1 } } } } },
     },
   ]
 }
@@ -425,9 +425,10 @@ describe('isolated Grok runner lifecycle', () => {
     expect(seenAcpOptions.prompt).toContain('only when it is useful')
     expect(seenAcpOptions.prompt).toContain('Predeclared official domains: docs.x.ai')
     expect(seenAcpOptions.prompt).toContain('provider-native tools')
+    expect(seenAcpOptions).not.toHaveProperty('model')
     expect(result).toMatchObject({ exitCode: 0, status: 'verified' })
     expect(result.evidence.model).toEqual({
-      requested: 'grok-4.5',
+      requested: null,
       actual: 'grok-4.5',
       provenance: 'ACP session/update user_message_chunk _meta.modelId',
       usage_models: ['grok-4.5-build'],
@@ -437,6 +438,21 @@ describe('isolated Grok runner lifecycle', () => {
     expect(result.evidence.registry.sources[0].canonical_url).toBe('https://docs.x.ai/build/cli/reference')
     expect(JSON.stringify(result.raw)).not.toContain('USER_SECRET')
     await expect(stat(result.runRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('strictly rejects an ACP model mismatch only when a model was explicitly configured', async () => {
+    const result = await runGrokIntelligence(baseOptions({
+      config: {
+        ...baseOptions().config,
+        default_model: 'grok-4.5',
+      },
+      runAcp: async () => ({ notifications: searchNotifications(undefined, undefined, 'grok-4.6') }),
+    }))
+    expect(result).toMatchObject({
+      exitCode: 2,
+      status: 'invocation_failed',
+      reason: 'ACP session model grok-4.6 does not match requested model grok-4.5',
+    })
   })
 
   it('keeps a required verify response when its claims remain unresolved', async () => {

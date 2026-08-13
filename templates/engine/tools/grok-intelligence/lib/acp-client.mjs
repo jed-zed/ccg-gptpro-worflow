@@ -33,11 +33,12 @@ export const GROK_INTELLIGENCE_SYSTEM_PROMPT = [
   'Return source-backed findings in the requested output envelope.',
 ].join(' ')
 
-export function buildGrokAcpArgs({ maxTurns = 6, model = 'grok-4.5' } = {}) {
+export function buildGrokAcpArgs({ maxTurns = 6, model } = {}) {
   if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 6)
     throw new Error('maxTurns must be an integer between 1 and 6')
-  if (typeof model !== 'string' || !model.trim() || /[\u0000-\u001f\u007f]/.test(model))
-    throw new Error('model must be a non-empty single-line Grok model id')
+  if (model != null && (typeof model !== 'string' || /[\u0000-\u001f\u007f]/.test(model)))
+    throw new Error('model must be a single-line Grok model id')
+  const requestedModel = model?.trim() || ''
 
   const args = [
     '--always-approve',
@@ -47,7 +48,10 @@ export function buildGrokAcpArgs({ maxTurns = 6, model = 'grok-4.5' } = {}) {
     '--max-turns',
     String(maxTurns),
   ]
-  args.push('agent', '--model', model.trim(), 'stdio')
+  args.push('agent')
+  if (requestedModel)
+    args.push('--model', requestedModel)
+  args.push('stdio')
   return args
 }
 
@@ -512,7 +516,7 @@ function validateRunOptions(options) {
     throw new Error('authMode must be browser_oauth or api_key')
   if (options.authMode === 'api_key' && (typeof options.apiKey !== 'string' || options.apiKey.trim().length === 0))
     throw new Error('API key authentication requires an explicitly configured API key')
-  buildGrokAcpArgs({ maxTurns: options.maxTurns ?? 6, model: options.model ?? 'grok-4.5' })
+  buildGrokAcpArgs({ maxTurns: options.maxTurns ?? 6, model: options.model })
 }
 
 function supportsSessionClose(initializeResult) {
@@ -582,7 +586,7 @@ export function createGrokAcpClient({
         grokHome,
         apiKey: options.authMode === 'api_key' ? options.apiKey : undefined,
       })
-      const acpArgs = buildGrokAcpArgs({ maxTurns: options.maxTurns ?? 6, model: options.model ?? 'grok-4.5' })
+      const acpArgs = buildGrokAcpArgs({ maxTurns: options.maxTurns ?? 6, model: options.model })
       const credentialSnapshot = await snapshotCredentialHome(grokHome)
       const capture = await createExclusiveCapture(options.rawEventsDir, {
         randomName,

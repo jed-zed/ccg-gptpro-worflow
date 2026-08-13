@@ -331,7 +331,6 @@ async function liveDoctor(options = {}) {
       config: {
         enabled: true,
         auth_mode: authentication.authMode,
-        default_model: 'grok-4.5',
         require_web_search: true,
         x_search_policy: 'required',
         max_retries: 0,
