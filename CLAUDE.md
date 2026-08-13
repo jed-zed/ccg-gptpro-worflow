@@ -2,15 +2,21 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-08-12 (v3.4.13)
+**Last Updated**: 2026-08-13 (v3.4.14)
 
-> 本文档已同步 v3.4.13 的 Grok 宽容结果接收与原生自动更新，并保留 GPT Pro URL-first 恢复、Grok 失败日志和 AGY 快照审查修复；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.14 的 Provider 原生模型默认、非阻塞伴随搜索与 Grok 缓存锁恢复，并保留 GPT Pro URL-first 恢复、Grok 宽容结果接收和原生自动更新；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-08-13 (v3.4.14)
+
+- 未配置 Gemini/Grok 模型时不再传固定模型参数，保留 Provider 实际返回的模型身份；产品经理 Claude 继续固定 `opus`。
+- frontend/backend 伴随搜索改为建议项，只有显式语义证据请求仍可阻塞。
+- Grok 缓存死锁回收绑定唯一 owner，并保持 live replacement 与第三竞争者互斥；wrapper 保持 v5.12.12。
 
 ### 2026-08-12 (v3.4.13)
 
