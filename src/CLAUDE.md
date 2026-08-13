@@ -2,11 +2,16 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-08-12 (v3.4.13)
+**Last Updated**: 2026-08-13 (v3.4.14)
 
 ---
 
 ## 变更记录
+
+### 2026-08-13 (v3.4.14)
+- 未配置 Gemini/Grok 模型时省略模型参数，记录 Provider 实际返回身份，并保留产品经理 Claude `opus`。
+- frontend/backend 伴随搜索改为建议项；Grok 缓存锁回收绑定唯一 owner 且不提前空出规范锁路径。
+- wrapper 无 Go 变更，继续固定 v5.12.12。
 
 ### 2026-08-12 (v3.4.13)
 - Grok 未关联的搜索更新保留为 `received_unverified`，由 Codex 判断是否采用，不再中断结果接收。
