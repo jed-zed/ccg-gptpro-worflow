@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { link, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { assertExistingPathWithoutLinks } from './path-safety.mjs'
 
@@ -133,48 +133,43 @@ function processIsAlive(pid) {
 
 async function readCacheLockOwner(lockPath) {
   const lockMetadata = await lstat(lockPath)
-  if (lockMetadata.isSymbolicLink() || (!lockMetadata.isFile() && !lockMetadata.isDirectory()))
-    throw new Error('Cache lock is not a regular file or directory')
-  const ownerPath = lockMetadata.isDirectory() ? resolve(lockPath, 'owner.json') : lockPath
+  if (!lockMetadata.isDirectory() || lockMetadata.isSymbolicLink())
+    throw new Error('Cache lock is not a regular directory')
+  const ownerPath = resolve(lockPath, 'owner.json')
   const metadata = await lstat(ownerPath)
   if (!metadata.isFile() || metadata.isSymbolicLink())
     throw new Error('Cache lock owner is not a regular file')
   const value = JSON.parse(await readFile(ownerPath, 'utf8'))
-  if (typeof value?.owner !== 'string' || !Number.isInteger(value?.pid) || value.pid < 1)
+  if (!Number.isInteger(value?.pid) || value.pid < 1 || typeof value?.created_at !== 'string' || !value.created_at)
     throw new Error('Cache lock owner metadata is invalid')
-  return value
+  return {
+    ...value,
+    owner: typeof value.owner === 'string' && value.owner ? value.owner : `legacy:${value.pid}:${value.created_at}`,
+  }
 }
 
 async function publishCacheLock(lockRoot, lockPath, owner, clock) {
-  const staging = resolve(lockRoot, `.${owner}.tmp`)
+  await mkdir(lockPath, { mode: 0o700 })
   try {
-    await writeFile(staging, `${JSON.stringify({ owner, created_at: clock().toISOString(), pid: process.pid })}\n`, {
+    await writeFile(resolve(lockPath, 'owner.json'), `${JSON.stringify({ owner, created_at: clock().toISOString(), pid: process.pid })}\n`, {
       flag: 'wx',
       mode: 0o600,
     })
-    await link(staging, lockPath)
   }
-  finally {
-    await rm(staging, { force: true })
+  catch (error) {
+    await removeContainedDirectory(lockRoot, lockPath).catch(() => {})
+    throw error
   }
 }
 
 async function removeCacheLock(lockRoot, lockPath) {
   const metadata = await lstat(lockPath)
-  if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
-    await removeContainedDirectory(lockRoot, lockPath)
-    return
-  }
-  if (!metadata.isFile() || metadata.isSymbolicLink())
-    throw new Error('Cache lock is not a regular file or directory')
-  const canonicalRoot = await realpath(lockRoot)
-  const canonicalLock = await realpath(lockPath)
-  if (!isWithin(canonicalRoot, canonicalLock))
-    throw new Error('Cache lock escaped its root')
-  await rm(canonicalLock, { force: true })
+  if (!metadata.isDirectory() || metadata.isSymbolicLink())
+    throw new Error('Cache lock is not a regular directory')
+  await removeContainedDirectory(lockRoot, lockPath)
 }
 
-async function reclaimAbandonedCacheLock(lockRoot, lockPath, fingerprint) {
+async function reclaimAbandonedCacheLock(lockRoot, lockPath) {
   let observed
   try {
     observed = await readCacheLockOwner(lockPath)
@@ -184,16 +179,28 @@ async function reclaimAbandonedCacheLock(lockRoot, lockPath, fingerprint) {
   }
   if (processIsAlive(observed.pid)) return false
 
-  const tombstone = resolve(lockRoot, `.${fingerprint}.stale-${randomUUID()}`)
+  const claimPath = resolve(lockPath, '.reclaim')
   try {
-    await rename(lockPath, tombstone)
+    await mkdir(claimPath, { mode: 0o700 })
   }
   catch (error) {
     if (error?.code === 'ENOENT') return true
+    if (error?.code === 'EEXIST') return false
     throw error
   }
-  await removeCacheLock(lockRoot, tombstone)
-  return true
+  let reclaimed = false
+  try {
+    const current = await readCacheLockOwner(lockPath)
+    if (current.owner !== observed.owner || processIsAlive(current.pid))
+      return false
+    await removeCacheLock(lockRoot, lockPath)
+    reclaimed = true
+    return true
+  }
+  finally {
+    if (!reclaimed)
+      await removeContainedDirectory(lockPath, claimPath).catch(() => {})
+  }
 }
 
 export async function withCacheLock({ cacheRoot, key, clock = () => new Date() }, action) {
@@ -219,9 +226,9 @@ export async function withCacheLock({ cacheRoot, key, clock = () => new Date() }
         if (metadataError?.code === 'ENOENT') continue
         throw metadataError
       }
-      if (metadata.isSymbolicLink() || (!metadata.isFile() && !metadata.isDirectory()))
-        throw new Error('Cache lock path is not a regular file or directory')
-      if (attempt === 0 && await reclaimAbandonedCacheLock(lockRoot, lockPath, fingerprint))
+      if (!metadata.isDirectory() || metadata.isSymbolicLink())
+        throw new Error('Cache lock path is not a regular directory')
+      if (attempt === 0 && await reclaimAbandonedCacheLock(lockRoot, lockPath))
         continue
       throw new Error(`Cache lock is busy for ${fingerprint}`)
     }
