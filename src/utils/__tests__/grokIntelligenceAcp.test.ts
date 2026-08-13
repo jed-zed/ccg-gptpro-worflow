@@ -242,8 +242,10 @@ describe('Grok intelligence ACP transport', () => {
   })
 
   it('builds the native-permission agent-stdio command and never uses one-shot prompt mode', () => {
-    const args = buildGrokAcpArgs({ maxTurns: 6, model: 'grok-4.5' })
-    expect(args.slice(-4)).toEqual(['agent', '--model', 'grok-4.5', 'stdio'])
+    const args = buildGrokAcpArgs({ maxTurns: 6 })
+    expect(args.slice(-2)).toEqual(['agent', 'stdio'])
+    expect(args).not.toContain('--model')
+    expect(buildGrokAcpArgs({ maxTurns: 6, model: 'grok-4.5' }).slice(-4)).toEqual(['agent', '--model', 'grok-4.5', 'stdio'])
     expect(args).not.toContain('-p')
     expect(args).toContain('--always-approve')
     expect(args).not.toContain('--no-auto-update')
