@@ -115,6 +115,20 @@ inside `run-root` until terminal evidence is available; no Hook or model watcher
 - The legacy localhost preview remains only for backward-compatible diagnostics; CCG GPT Pro Skills
   do not use it for normal handoffs.
 
+## Scorecard Output Contracts
+
+Each GPT Pro mode requires scoring in the same automated sidebar response, within its existing output sections:
+
+| Mode | Required score output |
+| --- | --- |
+| `plan` | `Requirement Completeness` with `需求完整性评分（0-10）` using the 3/3/2/2 dimensions and `Planning Readiness Scorecard` with five 20-point dimensions, inside `Go-NoGo`. |
+| `review` | `VALIDATION REPORT` with `TOTAL SCORE: XX/100` inside `Required Tests`; frontend/UI-heavy reviews also require `FRONTEND VALIDATION REPORT`. |
+| `exc` | Mandatory `Implementation Readiness Scorecard` inside `Verification` for plan fit, implementation completeness, verification readiness, risk handling, and adoption recommendation, each out of 20 with a total out of 100, even for weak evidence. |
+
+Scores cite visible task context, actual routed evidence, diffs, and verification summaries. Missing evidence lowers scores. GPT Pro cross-scores ordinary Codex findings and available routed provider findings; Gemini is included only when it actually ran. Codex uses the more conservative score and blocker judgment when evidence disagrees.
+
+Requirement completeness below 7 asks for missing details before plan creation or revision; 7 or above continues planning only. GPT Pro scores remain read-only advisory second-opinion evidence and do not authorize execution or Provider calls, override Codex verification, or bypass existing approval gates.
+
 ## Evidence Item
 
 Successful import appends:

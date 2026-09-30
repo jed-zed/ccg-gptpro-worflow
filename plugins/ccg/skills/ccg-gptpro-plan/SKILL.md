@@ -54,6 +54,9 @@ Run this potentially long route with the host's tool-managed background executio
 - Ask GPT Pro to focus on requirement ambiguity, wrong assumptions, architecture risk, missing
   constraints, test gaps, and whether the plan is worth continuing.
 - Require output sections: `Blockers`, `Risks`, `Missing Evidence`, `Plan Adjustments`, `Go-NoGo`.
+- Require `Requirement Completeness` and `Planning Readiness Scorecard` as mandatory parts of `Go-NoGo` in the same response. Completeness uses `需求完整性评分（0-10）` with `目标明确性（0-3）`, `预期结果（0-3）`, `边界范围（0-2）`, `约束条件（0-2）`, `总分：X/10`, and `判定：>=7 继续；<7 停止并提出补充问题`.
+- Score planning readiness across requirement clarity, scope boundaries, implementation sequencing, risk handling, and verification strategy, each out of 20 with evidence and `TOTAL SCORE` out of 100. Missing evidence lowers scores; disagreements use the more conservative score and blocker judgment.
+- If completeness is `<7`, ask for missing details instead of creating or revising a plan. Readiness scores preserve the Plan-only Boundary and do not authorize execution or Provider calls.
 - Build a single-round planning prompt by default.
 - Expected questions: 1.
 - Additional sequential follow-up questions have no fixed bridge limit.

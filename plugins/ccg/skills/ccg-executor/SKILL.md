@@ -1,6 +1,6 @@
 ---
 name: executor
-description: Run the CCG workflow inside Codex. Use when the user invokes /ccg, /ccg:workflow, /ccg:execute, /ccg:excute, /ccg:codex-exec, asks Codex to execute a .codex/ccg/plans/*.md file, or wants Codex to orchestrate allowed evidence while implementing a CCG plan.
+description: Run the CCG workflow inside Codex. Use when the user invokes /ccg, /ccg:workflow, /ccg:execute, /ccg:excute, /ccg:codex-exec, asks Codex to execute a Trellis task directory, its implement.md, or a standalone .codex/ccg/plans/*.md file, or wants Codex to orchestrate allowed evidence while implementing a plan.
 ---
 
 ## Research
@@ -25,7 +25,7 @@ Append existing --plan, --diff, --target, and repeatable --dependency paths when
 
 # CCG Executor
 
-You are the Codex-side orchestrator for CCG workflow plans. Plans are produced by `/ccg:plan` under `.codex/ccg/plans/`. Codex owns orchestration, final code edits, verification, and delivery. The provider for each workflow role comes from CCG role routing, while Codex remains the only final workspace owner.
+You are the Codex-side orchestrator for CCG workflow plans. With `.trellis/`, use the selected task's canonical plan; otherwise plans are produced by `/ccg:plan` under `.codex/ccg/plans/`. Codex owns orchestration, final code edits, verification, and delivery. The provider for each workflow role comes from CCG role routing, while Codex remains the only final workspace owner.
 
 ## Hard Boundaries
 
@@ -103,20 +103,66 @@ call.
 
 ## Input Handling
 
-1. Treat the command argument as either:
-   - a plan path under `.codex/ccg/plans/<task>.md`; or
-   - a direct task description.
-2. If it is a plan path, read the file and extract:
+1. Resolve the project root and apply **Plan location and authority** in
+   `../ccg-plan/SKILL.md`. With `.trellis/`, accept an explicit task directory,
+   its `implement.md`, or a task description bound to the current session;
+   read `task.json` and `prd.md`, plus existing or required `design.md` and
+   `implement.md` from that task.
+   A standalone CCG plan supplied in a Trellis project is evidence only; resolve
+   its canonical task before execution. Without Trellis, accept a plan path
+   under `.codex/ccg/plans/<task>.md` or a direct task description.
+2. Read the canonical artifacts or standalone plan and extract:
    - title and task type;
    - implementation steps;
    - key files and expected operations;
    - acceptance criteria and test commands;
    - any `CODEX_SESSION` / `GEMINI_SESSION` notes, for context only.
-3. If it is a direct task description and no clear plan exists, ask for the plan path unless the user explicitly says to execute without a plan.
+3. In Trellis mode, apply **Trellis approval handoff** before implementation.
+   Missing required artifacts or approval return to the project's planning flow; an
+   execute-without-plan request does not bypass its required gates. In
+   standalone mode, if no clear plan exists, ask for the plan path unless the
+   user explicitly says to execute without a plan.
 4. Resolve the provider for every role used by the plan before delegating that
    slice. The selected provider supplies bounded evidence or a prototype before
    Codex implements it when the plan requires external assistance.
 5. If the plan involves costly ML training, GPU jobs, destructive data writes, or production deployment, implement code and smoke tests only; do not start expensive or destructive runs without explicit confirmation.
+
+## Trellis approval handoff
+
+Follow the project's `.trellis/workflow.md#shared-plan-approval` (**Shared plan
+approval**). The current Codex coordinator checks the actual user source and
+the canonical artifacts, rather than trusting task metadata alone:
+
+- The user must have reviewed the complete final version and explicitly
+  approved this task's implementation scope. Check `task.json.meta.planApproval`
+  for `status`, `taskId`, `version`, `reviewedArtifacts` (`file`/`sha256`),
+  `scope`, `actions`, `source` (quote and message reference/source thread), and
+  `recordedAtUtc`, retaining the original provenance when reusing approval.
+  Only record approval after a real user reply; do not create another ledger
+  or let CCG runtime write Trellis lifecycle state.
+- A bare `approved` field, task-creation consent, or an ambiguous continue
+  request is not evidence of final-plan approval. Missing or unverifiable
+  sources, any status other than `approved` (including pending, rejected, withdrawn, superseded),
+  mismatched versions, or uncovered scope, risks, and actions stop the
+  corresponding implementation in planning.
+- When the same task, version, scope, risks, and actions remain covered,
+  CCG-to-Trellis, Trellis-to-CCG, resume, and continue reuse that approval;
+  do not ask again merely for another entry point or a restated summary.
+  Proceed through Trellis 1.4/start after its document/context gates, or resume
+  an already active task. `task.py start` does not itself validate approval;
+  these are coordinator workflow rules, not a new mechanical approval engine.
+- SHA256 identifies reviewed bytes; a changed hash alone does not require
+  approval. Compare the reviewed content and visible differences: formatting, typos, line endings, checklist progress,
+  path display, and equivalent summaries do not invalidate covered approval.
+  A substantive change to requirements, scope, design, implementation strategy,
+  risk, or acceptance needs an updated version, an explanation of the changes,
+  and approval of the changed plan. If the reviewed content or coverage cannot
+  be established, stop and explain the gap. Separable covered work may continue.
+- Ordinary plan approval cannot answer a current PM presentation-bound gate:
+  preserve its exact review, presentation revision, and fresh explicit user response.
+  Provider/network/paid calls, installation/sync, commit, push, PR, merge,
+  publication, and destructive actions still require their own applicable
+  authorization source and scope. Preserve all quality/security/test gates.
 
 ## Provider Delegation Policy
 
@@ -276,6 +322,27 @@ Report in Chinese with:
 - changed files;
 - verification commands and results;
 - any blockers, residual risks, or manual follow-up.
+- a mandatory original CCG-style completion scorecard:
+
+```markdown
+### 完成度评分
+| Dimension | Score | Evidence |
+| --- | ---: | --- |
+| Plan Coverage | XX/20 | <计划项完成证据> |
+| Implementation Coverage | XX/20 | <代码/diff 证据> |
+| Verification | XX/20 | <测试/检查命令结果> |
+| Review Findings | XX/20 | <Critical/Warning/Info 状态> |
+| Residual Risk | XX/20 | <遗留风险> |
+| **TOTAL SCORE** | **XX/100** | <Ready / Needs Follow-up / Blocked> |
+```
+
+Scoring rules:
+
+- Score only from visible evidence: plan items, diff/code references, verification output, review findings, and stated residual risks.
+- If no real verification command was run, `Verification` must be at most `10/20`.
+- If any Critical blocker remains, the `TOTAL SCORE` status must be `Blocked`.
+- Use `Ready` only when the implementation is verified and no blocking risk remains; use `Needs Follow-up` for incomplete or warning-heavy work.
+- Scores report completion evidence and do not authorize execution or Provider calls.
 
 Do not commit unless the user asks.
 

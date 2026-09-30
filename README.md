@@ -224,6 +224,22 @@ When your message mentions security, caching, RAG, Kubernetes, etc., the relevan
 | `/ccg:gptpro-review` | Automated GPT Pro sidebar final review with canonical Grok provenance |
 -->
 
+### Scorecard Output Contracts
+
+The Codex CCG command families include these mandatory outputs:
+
+| Command family | Required score output |
+| --- | --- |
+| `/ccg:plan`, `/ccg:gptpro-plan` | `需求完整性评分（0-10）` with `目标明确性（0-3）`, `预期结果（0-3）`, `边界范围（0-2）`, `约束条件（0-2）`, and `判定：>=7 继续；<7 停止并提出补充问题`; GPT Pro planning also requires `Requirement Completeness` and `Planning Readiness Scorecard`. |
+| `/ccg:execute`, `/ccg:codex-exec`, `/ccg:excute` | Final `完成度评分` with five 20-point dimensions, `TOTAL SCORE` out of 100, and `Ready / Needs Follow-up / Blocked`. |
+| `/ccg:review`, `/ccg:gptpro-review` | `VALIDATION REPORT` and `TOTAL SCORE: XX/100`; frontend/UI-heavy reviews also require `FRONTEND VALIDATION REPORT`. |
+| `/ccg:gptpro-exc` | Mandatory `Implementation Readiness Scorecard` as read-only advisory second-opinion evidence; Codex decides final implementation and verification. |
+| `/ccg:spec-review`, `/ccg:team-review` | `Summary Scorecard`, `CRITICAL / WARNING / SUGGESTION`, and `Final Assessment`. |
+
+Requirement completeness below 7 stops plan creation or revision until missing details are supplied; 7 or above continues planning only. Completion scoring caps `Verification` at `10/20` when no real verification command ran, and any remaining Critical blocker makes the final status `Blocked`.
+
+Scores cite visible evidence and decrease when evidence is missing. GPT Pro uses the existing automated sidebar and ordinary routed evidence, with Gemini included only when it actually ran. Codex uses the more conservative score and blocker judgment when evidence disagrees. Scores do not authorize execution or Provider calls.
+
 ### OpenSpec Integration
 
 | Command | Description |

@@ -1,6 +1,6 @@
 ---
 name: execute
-description: Execute a CCG plan with Codex as orchestrator and independently configured role providers. Use when the user invokes /ccg:execute or asks Codex to execute a .codex/ccg/plans/*.md file.
+description: Execute a canonical Trellis task plan or standalone CCG plan with Codex as orchestrator and independently configured role providers. Use when the user invokes /ccg:execute or asks Codex to execute a task directory, its implement.md, or a .codex/ccg/plans/*.md file.
 ---
 
 ## Research
@@ -27,8 +27,10 @@ Append existing --plan, --diff, --target, and repeatable --dependency paths when
 
 Load and follow `skills/ccg-executor/SKILL.md`.
 
-Treat the user argument as a CCG plan path or task description. Plans from
-`/ccg:plan` live under `.codex/ccg/plans/*.md`. Resolve each needed role through
+Apply the executor's **Input Handling** and **Trellis approval handoff** to a
+task directory, its `implement.md`, a CCG plan path, or task description. With
+Trellis, reuse the selected canonical task plan and its covered approval;
+standalone plans live under `.codex/ccg/plans/*.md`. Resolve each needed role through
 `ccg routing get <role> --json`; Codex owns context gathering, final code edits,
 verification, review synthesis, and Chinese delivery.
 

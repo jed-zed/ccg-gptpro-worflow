@@ -1,6 +1,6 @@
 ---
 name: feat
-description: Implement a feature with configured role providers and Codex as final workspace owner. Use when the user invokes /ccg:feat or asks CCG to add a feature without a separate plan file.
+description: Implement a feature with configured role providers and Codex as final workspace owner. Use when the user invokes /ccg:feat or asks CCG to add a feature using the canonical Trellis task plan, or without a separate plan file in standalone mode.
 ---
 
 ## Research
@@ -31,8 +31,9 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:feat` command.
 
 ## Behavior
 
-- Treat the user argument as a feature request.
-- If the request is broad or ambiguous, create a short in-chat implementation outline before editing. For high-impact ambiguity, ask a concise Chinese question.
+- Treat the user argument as a feature request or an existing task directory/`implement.md`.
+- With `.trellis/`, apply the executor's **Input Handling** and **Trellis approval handoff**; reuse the canonical task plan and covered approval. Missing approval or substantive changes return to Trellis planning. An in-chat outline cannot replace required canonical artifacts.
+- In standalone mode, if the request is broad or ambiguous, create a short in-chat implementation outline before editing. For high-impact ambiguity in either mode, ask a concise Chinese question.
 - Gather context according to the current project's `AGENTS.md`. Use `rg` for
   known identifiers and targeted reads otherwise. Third-party search tools are
   optional, require explicit user approval, and must never be installed,

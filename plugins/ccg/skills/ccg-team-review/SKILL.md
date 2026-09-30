@@ -40,3 +40,18 @@ Review team results before delivery.
 Follow the shared **Companion Role Contract** for the second-pass review:
 frontend or backend evaluates advisory search and the mapped
 product-manager gate. Codex delivers final judgment in Chinese.
+
+## Output Contract
+
+Every review must include:
+
+```markdown
+### Summary Scorecard
+| Dimension | Status |
+| --- | --- |
+| Completeness | X/Y tasks |
+| Correctness | M/N acceptance criteria covered |
+| Coherence | Followed / Issues |
+```
+
+Then group findings as `CRITICAL`, `WARNING`, and `SUGGESTION`, and finish with `Final Assessment`. Critical findings must block delivery until resolved.

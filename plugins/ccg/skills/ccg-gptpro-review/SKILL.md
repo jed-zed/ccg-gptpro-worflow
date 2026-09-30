@@ -55,6 +55,36 @@ Run this potentially long route with the host's tool-managed background executio
 - Ask GPT Pro to focus on hidden bugs, security risks, compatibility risks, edge cases, test gaps,
   ordinary-model false positives, and missed findings.
 - Require output sections: `Critical`, `Major`, `Minor`, `False Positives`, `Required Tests`.
+- Require GPT Pro to cross-score the ordinary Codex review and available routed provider evidence with `VALIDATION REPORT` and, for frontend/UI-heavy reviews, `FRONTEND VALIDATION REPORT` as mandatory parts of `Required Tests` in the same response. Gemini evidence is included only when it actually exists.
+- Codex adopts the more conservative score and blocker judgment when the available evidence disagrees. Missing evidence lowers scores rather than being guessed.
+- Required code review score block:
+
+```text
+VALIDATION REPORT
+=================
+Task / Root Cause Coverage: XX/20 - [reason]
+Code Quality: XX/20 - [reason]
+Side Effects: XX/20 - [reason]
+Edge Cases: XX/20 - [reason]
+Test Coverage: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
+- Required frontend/UI score block when applicable:
+
+```text
+FRONTEND VALIDATION REPORT
+==========================
+User Experience: XX/20 - [reason]
+Visual Consistency: XX/20 - [reason]
+Accessibility: XX/20 - [reason]
+Performance: XX/20 - [reason]
+Browser Compatibility: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
 - Build a single-round review prompt by default.
 - Expected questions: 1.
 - Additional sequential follow-up questions have no fixed bridge limit.
@@ -66,6 +96,7 @@ Run this potentially long route with the host's tool-managed background executio
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
 - After the sidebar response import succeeds, classify Critical/Major/Minor findings, false positives, required tests,
   and Codex actions.
+- Include `TOTAL SCORE: XX/100` in the final synthesis and explain scores lowered by missing evidence or unresolved blockers. Scores do not authorize execution or Provider calls.
 <!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Report in Chinese and synthesize validated Grok external intelligence when that external-fact path ran, ordinary review evidence,
   optional Gemini evidence when present, and GPT Pro findings.

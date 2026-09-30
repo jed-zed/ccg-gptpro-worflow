@@ -78,6 +78,8 @@ Run this potentially long route with the host's tool-managed background executio
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
 - GPT Pro output must use sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
   `Required Tests`, `Verification`.
+- Require `Implementation Readiness Scorecard` as a mandatory part of `Verification` in the same response, even for weak-evidence input: plan fit, implementation completeness, verification readiness, risk handling, and adoption recommendation, each out of 20 with evidence and `TOTAL SCORE` out of 100.
+- Missing evidence lowers scores; disagreements use the more conservative score and blocker judgment. The scorecard remains read-only advisory second-opinion evidence and does not authorize execution or Provider calls or decide final implementation.
 <!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Report in Chinese and synthesize validated Grok external intelligence, ordinary execute evidence,
   Gemini frontend evidence when present, and GPT Pro sidebar second opinion. If Gemini frontend

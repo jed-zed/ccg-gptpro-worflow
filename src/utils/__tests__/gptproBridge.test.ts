@@ -367,6 +367,87 @@ afterAll(async () => {
 })
 
 describe('GPT Pro sidebar bridge', () => {
+  maybeIt.each([BRIDGE, PLUGIN_BRIDGE].flatMap(bridge => ['plan', 'review', 'exc'].map(mode => ({ bridge, mode }))))(
+    'prints the assembled $mode scorecard as UTF-8 under cp1252 stdout ($bridge)',
+    ({ bridge, mode }) => {
+      const root = join(TMP_ROOT, `scorecard-${mode}-${bridge === BRIDGE ? 'engine' : 'plugin'}`)
+      fs.ensureDirSync(root)
+      const routingFile = join(root, 'routing.md')
+      const routing = [
+        `ordinary /ccg:${mode} fixture`,
+        'current orchestrator: codex',
+        'routed models: codex local fixture only; no external Provider invoked',
+        'searchStatus: not_applicable',
+        'productManagerStatus: authorization_required',
+      ].join('\n')
+      writeFileSync(routingFile, routing, 'utf-8')
+      const input = '本地评分回归：保留路由证据与审批边界。'
+      const output = execFileSync(PYTHON!.command, [
+        ...PYTHON!.prefixArgs,
+        bridge,
+        '--mode',
+        mode,
+        '--workdir',
+        root,
+        '--output-root',
+        join(root, 'sessions'),
+        '--slug',
+        'scorecard-utf8',
+        '--prompt',
+        input,
+        '--gemini-policy',
+        'none',
+        '--routing-evidence-file',
+        routingFile,
+        '--require-routing-evidence',
+        '--print-prompt',
+      ], {
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, PYTHONIOENCODING: 'cp1252' },
+      })
+      const prompt = readFileSync(parseOutputPath(output, 'CCG_GPTPRO_PROMPT_FILE'), 'utf-8').replaceAll('\r\n', '\n')
+      expect(output.replaceAll('\r\n', '\n')).toContain(`CCG_GPTPRO_PROMPT_BEGIN\n${prompt}`)
+      expect(output).toContain('CCG_GPTPRO_PROMPT_END')
+      expect(prompt).toContain(input)
+      expect(prompt).toContain(`Routing evidence SHA-256: ${sha256(routing)}`)
+      expect(prompt).toContain('productManagerStatus: authorization_required')
+      expect(output).toContain('CCG_GPTPRO_MANUAL_BRIDGE=0')
+      expect(output).toContain('CCG_GPTPRO_SIDEBAR_TRANSPORT=1')
+      expect(prompt).toContain('XX/100')
+      if (mode === 'plan') {
+        expect(prompt).toContain('需求完整性评分（0-10）')
+        expect(prompt).toContain('Planning Readiness Scorecard')
+        expect(prompt).toContain('Plan-only boundary: Do not execute implementation.')
+      }
+      else if (mode === 'review') {
+        expect(prompt).toContain('VALIDATION REPORT')
+        expect(prompt).toContain('FRONTEND VALIDATION REPORT')
+        expect(prompt).toContain('more conservative score')
+      }
+      else {
+        expect(prompt).toContain('Implementation Readiness Scorecard')
+        expect(prompt).toContain('advisory / illustrative')
+      }
+    },
+  )
+
+  maybeIt.each([BRIDGE, PLUGIN_BRIDGE])('prints Unicode argument errors as UTF-8 under cp1252 stderr (%s)', (bridge) => {
+    try {
+      execFileSync(PYTHON!.command, [...PYTHON!.prefixArgs, bridge, '--mode', '无效模式'], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, PYTHONIOENCODING: 'cp1252' },
+      })
+      throw new Error('Expected argparse to reject the invalid mode')
+    }
+    catch (error: any) {
+      expect(error.status).toBe(2)
+      expect(String(error.stderr)).toContain('无效模式')
+    }
+  })
+
   maybeIt('passes Python syntax compilation', () => {
     runPython(PYTHON!, ['-m', 'py_compile', BRIDGE])
     runPython(PYTHON!, ['-m', 'py_compile', PLUGIN_BRIDGE])

@@ -96,6 +96,16 @@ do not require a Grok receipt, waiver, or external-intelligence flags.
 Preserve the existing required/waived Grok external-intelligence flags and provenance.
 -->
 
+## Scorecard Output Contracts
+
+Every mode must include mandatory scoring in the same sidebar response while preserving its existing output sections:
+
+- `plan`: `Requirement Completeness` using `需求完整性评分（0-10）` with `目标明确性（0-3）`, `预期结果（0-3）`, `边界范围（0-2）`, `约束条件（0-2）`, and `总分：X/10`; also include `Planning Readiness Scorecard`. If completeness is `<7`, Codex asks for missing details instead of creating or revising a plan; `>=7` continues planning only.
+- `review`: `VALIDATION REPORT` with five 20-point dimensions and `TOTAL SCORE: XX/100`; frontend/UI-heavy reviews also require `FRONTEND VALIDATION REPORT`. Cross-score the ordinary Codex review and routed provider evidence that actually exists, including Gemini only when present, and use the more conservative score and blocker judgment.
+- `exc`: `Implementation Readiness Scorecard` with five 20-point dimensions for plan fit, implementation completeness, verification readiness, risk handling, and adoption recommendation. It remains a read-only advisory second opinion; Codex owns final implementation and verification.
+
+Scores must cite visible task context, routing evidence, diffs, verification results, and explicit uncertainty. Missing evidence lowers scores instead of being guessed. A score never authorizes execution or Provider calls, supplies missing role evidence, or bypasses the Plan-only Boundary or product-manager authorization gate.
+
 ## Automated Workflow
 
 <!-- Legacy automatic external-intelligence arguments; inactive.

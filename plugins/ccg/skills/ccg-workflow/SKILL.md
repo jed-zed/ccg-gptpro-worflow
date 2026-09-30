@@ -39,4 +39,7 @@ Explain in Chinese:
 - Gemini browser preview is automatic whenever a role selects Gemini.
   Provider-specific commands still use their named provider directly.
 
-If the user supplies a plan path or task, route it to `/ccg:execute`.
+If the user supplies a task directory, its `implement.md`, a plan path, or task
+description, route it to `/ccg:execute` using the executor's **Input Handling**
+and **Trellis approval handoff**. Reuse the selected Trellis task's canonical
+plan when present; standalone plans keep `.codex/ccg/plans/*.md`.

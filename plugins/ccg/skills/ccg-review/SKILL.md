@@ -70,3 +70,35 @@ otherwise report it as missing.
 Claude may be explicitly selected for `frontend`, `backend`, or
 `product-manager`. It is not eligible for `search`; defaults and no-fallback
 behavior remain unchanged.
+
+## Scorecard Output Contract
+
+Every `/ccg:review` result must include:
+
+```text
+VALIDATION REPORT
+=================
+Task / Root Cause Coverage: XX/20 - [reason]
+Code Quality: XX/20 - [reason]
+Side Effects: XX/20 - [reason]
+Edge Cases: XX/20 - [reason]
+Test Coverage: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
+For frontend/UI-heavy reviews, also include:
+
+```text
+FRONTEND VALIDATION REPORT
+==========================
+User Experience: XX/20 - [reason]
+Visual Consistency: XX/20 - [reason]
+Accessibility: XX/20 - [reason]
+Performance: XX/20 - [reason]
+Browser Compatibility: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
+Scores must reference concrete evidence; missing evidence lowers the score. If a blocking issue remains, say so before the score and keep the final judgment conservative. A score does not authorize execution or Provider calls.
