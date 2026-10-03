@@ -11,7 +11,7 @@
 - Explicit legacy Grok commands retain their own implementation and validation; they are not automatic steps or fallbacks. Archived instructions are reference only.
 
 <!-- Legacy search routing and evidence guidance; inactive in ordinary research.
-- For generic external lookup, resolve `ccg routing get search --json`; an
+- For generic external lookup, resolve `ccg-codex routing get search --json`; an
   explicitly named search command still uses its named provider.
 - Prefer official sources or at least two independent sources for important factual claims.
 - If sources conflict, compare authority and date; if uncertainty remains, state it clearly.

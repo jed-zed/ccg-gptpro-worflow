@@ -1,3 +1,5 @@
+> **Codex-only personal candidate.** This build installs `@jed-zed/ccg-codex-workflow` with the `ccg-codex` executable. Read [HOST_ISOLATION.md](./HOST_ISOLATION.md) first. Claude retains upstream CCG; its GPTPro support is the independent `plugins/ccg-gptpro-bridge` addon. Legacy Claude setup examples below are historical and unavailable in this build.
+
 # CCG - Claude + Codex + Gemini Multi-Model Collaboration
 
 <div align="center">

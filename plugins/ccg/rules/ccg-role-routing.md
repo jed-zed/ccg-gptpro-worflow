@@ -2,6 +2,15 @@
 
 CCG has four formal top-level routing roles:
 
+Subagent MCP contract: keep the existing approved MCP inheritance for execution,
+search, documentation, or browser-tool tasks; `--with-mcp` makes that choice
+explicit. Only an explicitly local Gemini Go-wrapper task may use
+`--without-mcp` (parallel header `mcp: off`). It restricts configured child
+servers only; the controller and GPTPro browser bridge retain their tools.
+Parallel `mcp: inherit` overrides an invocation opt-out. Unsupported backend
+opt-outs fail before startup. Never add an opt-out globally or infer it from
+task keywords. The Gemini preview helper keeps its existing behavior.
+
 - `frontend`
 - `backend`
 - `search`
@@ -20,11 +29,11 @@ They are not independently configurable provider roles.
 Inspect or change exactly one role:
 
 ```text
-ccg routing get frontend --json
-ccg routing get backend --json
-ccg routing get search --json
-ccg routing get product-manager --json
-ccg routing set <role> <provider>
+ccg-codex routing get frontend --json
+ccg-codex routing get backend --json
+ccg-codex routing get search --json
+ccg-codex routing get product-manager --json
+ccg-codex routing set <role> <provider>
 ```
 
 The registered providers are `codex`, `gemini`, `claude`, `antigravity`,
@@ -38,7 +47,7 @@ provider:
 | `search` | `codex`, `grok` |
 | `product-manager` | `codex`, `gemini`, `claude` |
 
-Use `ccg wrapper --backend <provider> --progress - "<workdir>"` for managed
+Use `ccg-codex wrapper --backend <provider> --progress - "<workdir>"` for managed
 Claude, Antigravity, Grok, or Pi delegation. Pass the prompt through stdin.
 Do not add `--lite`; the launcher keeps the wrapper Web UI enabled. When a role
 resolves to Gemini, run the bundled `ccg-executor/scripts/invoke_gemini_preview.py`

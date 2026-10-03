@@ -16,10 +16,18 @@ implementation owner, or lifecycle authority.
 ## Required Transport
 
 Resolve and follow the active `chatgpt-pro-sidebar/SKILL.md` before any ChatGPT interaction.
-Prefer the approved project copy at `<project-root>/.agents/skills/chatgpt-pro-sidebar/SKILL.md`;
-fall back to `~/.codex/skills/chatgpt-pro-sidebar/SKILL.md` only when no project copy exists.
+Resolve these candidates in order:
 
-- Fail closed if neither installed Skill location or its scripts are available.
+1. `<project-root>/.agents/skills/chatgpt-pro-sidebar/SKILL.md`
+2. `~/.codex/skills/chatgpt-pro-sidebar/SKILL.md`
+3. `~/.agents/skills/chatgpt-pro-sidebar/SKILL.md`
+
+When `CODEX_HOME` is configured, use `<CODEX_HOME>/skills/chatgpt-pro-sidebar/` for the second candidate.
+Continue to the next candidate only when `SKILL.md` is absent. An existing but unreadable Skill,
+an incomplete installation, or unavailable scripts must fail closed. Derive both scripts from the
+same resolved Skill directory; never combine files from different installations.
+
+- Fail closed if no installed Skill location or its scripts are available.
 - Use `chatgpt-pro-sidebar.ps1` as the only ChatGPT browser entry point; its active transport must be
   `agent-browser-cli-v2`.
 - Use `chatgpt-pro-sidebar-watch.ps1 run-root` for the atomic send and local RootWait lifecycle.

@@ -16,9 +16,9 @@ wait for its gates, or require its manifests and hash packages.
 
 Before ordinary work, run the shared route once from the controller:
 
-`ccg route --workflow execute --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+`ccg-codex route --workflow execute --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
 
 Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 -->
@@ -75,10 +75,10 @@ follow its **Companion Role Contract**. Classify each task slice and resolve the
 top-level roles needed:
 
 ```text
-ccg routing get frontend --json
-ccg routing get backend --json
-ccg routing get search --json
-ccg routing get product-manager --json
+ccg-codex routing get frontend --json
+ccg-codex routing get backend --json
+ccg-codex routing get search --json
+ccg-codex routing get product-manager --json
 ```
 
 Analysis, planning, implementation drafting, and review are phases inside the
@@ -170,7 +170,7 @@ Use the configured role provider as a helper, not as the executor of record.
 When the selected provider is Gemini, every call must use the bundled preview
 helper and should open the browser preview automatically unless the user asked
 for headless execution. For `claude`, `antigravity`, `grok`, or `pi`, use
-`ccg wrapper --backend <provider> --progress - "<workdir>"` and
+`ccg-codex wrapper --backend <provider> --progress - "<workdir>"` and
 pass the prompt through stdin. Do not add `--lite`; this managed launcher
 validates the pinned wrapper and preserves its default Web UI. A standalone
 Claude role call remains bounded evidence and is not a product-manager call.

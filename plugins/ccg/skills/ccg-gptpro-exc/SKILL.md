@@ -25,9 +25,9 @@ wait for its gates, or require its manifests and hash packages.
 
 <!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Before ordinary execution or any Gemini or GPT Pro handoff, write the bounded subject and run
-  `ccg route --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`.
+  `ccg-codex route --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`.
 
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
   Let the current orchestrator add a semantic mode/reason whenever current external facts materially
   affect the route, even if search was not requested. When required, the shared route runs Grok for the
   exact plan and dependency baseline, require its canonical artifact, manifest, hashes, and active-task

@@ -1,3 +1,5 @@
+> **个人版 Codex 专用候选。** 此构建使用独立包 `@jed-zed/ccg-codex-workflow` 和命令 `ccg-codex`。先阅读 [HOST_ISOLATION.md](./HOST_ISOLATION.md)。Claude 保留原作者 CCG，只增独立 `plugins/ccg-gptpro-bridge`。下方旧 Claude 初始化示例保留历史出处，此构建不提供这些入口。
+
 # CCG - Claude + Codex + Gemini 多模型协作
 
 <div align="center">

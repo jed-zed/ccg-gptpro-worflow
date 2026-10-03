@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { setImmediate } from 'node:timers/promises'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
 
 function findPackageRoot(): string {
@@ -359,6 +360,11 @@ const PLUGIN_BRIDGE = join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro
 const TMP_ROOT = join(tmpdir(), `ccg-gptpro-bridge-${Date.now()}`)
 const PYTHON = findPython()
 const maybeIt = PYTHON ? it : it.skip
+
+// Consecutive synchronous Python fixtures can block the worker's IPC responses
+// past Vitest's RPC deadline on Windows. Yield after each case without changing
+// fixture assertions or suppressing runner errors.
+afterEach(() => setImmediate())
 
 afterAll(async () => {
   await fs.remove(TMP_ROOT)
@@ -918,7 +924,7 @@ describe('GPT Pro sidebar bridge', () => {
     expect(content).toContain('resend or deletion of idempotency and target claims')
   })
 
-  it('resolves the project sidebar Skill before the global fallback', () => {
+  it('resolves all supported sidebar locations in order without bypassing a broken installation', () => {
     for (const relativePath of [
       'docs/gptpro-manual-bridge.md',
       'plugins/ccg/skills/ccg-gptpro-bridge/SKILL.md',
@@ -926,9 +932,15 @@ describe('GPT Pro sidebar bridge', () => {
       const content = readFileSync(join(PACKAGE_ROOT, ...relativePath.split('/')), 'utf-8')
       const projectSkill = '<project-root>/.agents/skills/chatgpt-pro-sidebar/'
       const globalSkill = '~/.codex/skills/chatgpt-pro-sidebar/'
+      const agentsSkill = '~/.agents/skills/chatgpt-pro-sidebar/'
       expect(content, relativePath).toContain(projectSkill)
       expect(content, relativePath).toContain(globalSkill)
+      expect(content, relativePath).toContain(agentsSkill)
       expect(content.indexOf(projectSkill), relativePath).toBeLessThan(content.indexOf(globalSkill))
+      expect(content.indexOf(globalSkill), relativePath).toBeLessThan(content.indexOf(agentsSkill))
+      expect(content, relativePath).toContain('Continue to the next candidate only when `SKILL.md` is absent.')
+      expect(content, relativePath).toMatch(/unreadable Skill,[\s\S]*unavailable scripts must fail closed/)
+      expect(content, relativePath).toContain('never combine files from different installations')
     }
   })
 

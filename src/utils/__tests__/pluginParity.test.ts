@@ -13,7 +13,8 @@ describe('Codex plugin release parity', () => {
     const packageVersion = readJson(join(root, 'package.json')).version
     const pluginVersion = readJson(join(root, 'plugins', 'ccg', '.codex-plugin', 'plugin.json')).version
     const codexMarketplaceVersion = readJson(join(root, '.codex-plugin', 'marketplace.json')).plugins[0].version
-    const claudeMarketplaceVersion = readJson(join(root, '.claude-plugin', 'marketplace.json')).plugins[0].version
+    const claudeMarketplace = readJson(join(root, '.claude-plugin', 'marketplace.json'))
+    const bridgeVersion = readJson(join(root, 'plugins', 'ccg-gptpro-bridge', '.claude-plugin', 'plugin.json')).version
     const configTemplate = fs.readFileSync(join(root, 'templates', 'codex', 'ccg-config.toml'), 'utf8')
     const configTemplateVersion = configTemplate.match(/^version = "([^"]+)"$/m)?.[1]
 
@@ -22,7 +23,9 @@ describe('Codex plugin release parity', () => {
       new RegExp(`^${packageVersion.replaceAll('.', '\\.')}\\+codex\\.[a-z0-9-]+$`),
     )
     expect(codexMarketplaceVersion).toBe(packageVersion)
-    expect(claudeMarketplaceVersion).toBe(packageVersion)
+    expect(claudeMarketplace.plugins.map((plugin: any) => plugin.name)).toEqual(['ccg-gptpro-bridge'])
+    expect(claudeMarketplace.plugins[0].source).toBe('./plugins/ccg-gptpro-bridge')
+    expect(claudeMarketplace.plugins[0].version).toBe(bridgeVersion)
     expect(configTemplateVersion).toBe(packageVersion)
   })
 
@@ -45,7 +48,7 @@ describe('Codex plugin release parity', () => {
   })
 
   it('pins external providers to the native-permission non-lite wrapper launch contract', () => {
-    const contract = 'ccg wrapper --backend <provider> --progress - "<workdir>"'
+    const contract = 'ccg-codex wrapper --backend <provider> --progress - "<workdir>"'
     const surfaces = [
       join(root, 'plugins', 'ccg', 'rules', 'ccg-role-routing.md'),
       ...['ccg-executor', 'ccg-plan', 'ccg-execute', 'ccg-analyze', 'ccg-frontend', 'ccg-backend']

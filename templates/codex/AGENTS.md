@@ -6,13 +6,13 @@
 - CCG runtime configuration lives at `~/.codex/ccg/config.toml`.
 - The four top-level CCG roles (`frontend`, `backend`, `search`, and
   `product-manager`) resolve through unified routing. Read one role with
-  `ccg routing get <role> --json` and change only that role with
-  `ccg routing set <role> <provider>`.
+  `ccg-codex routing get <role> --json` and change only that role with
+  `ccg-codex routing set <role> <provider>`.
 - Third-party Skills, plugins, and MCP servers are unselected by default and
   require the user's explicit approval before a Harness or project initializer
   installs them.
 <!-- Legacy Grok CLI/ACP routing; inactive in ordinary research.
-- External-intelligence routing uses `ccg route`; it is disabled by default.
+- External-intelligence routing uses `ccg-codex route`; it is disabled by default.
 -->
 - Search actively with existing independent research agents and grok-search MCP.
   Match key conclusions to original sources; check code versions/licenses when
