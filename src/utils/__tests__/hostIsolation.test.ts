@@ -125,6 +125,21 @@ afterEach(() => {
 })
 
 describe('personal built CLI cannot take ownership of Claude CCG', () => {
+  it('keeps legacy Grok CLI actions blocked when an executable Claude manager exists', () => {
+    const fixture = createFixture()
+    writeFixtureFile(fixture.home, '.claude/.ccg/engine/tools/grok-intelligence/manage.mjs',      'process.stderr.write("LEGACY_CLAUDE_MANAGER_EXECUTED\\n"); process.exit(97)\n')
+    const before = protectedBytes(fixture)
+    const result = runCli(fixture, ['grok', 'status', '--json'], {
+      LOCALAPPDATA: path.join(fixture.root, 'localappdata'),
+      GROK_HOME: path.join(fixture.root, 'dedicated-grok-home'),
+    })
+    expect(result.error, combinedOutput(result)).toBeUndefined()
+    expect(result.status, combinedOutput(result)).toBe(1)
+    expect(combinedOutput(result)).not.toContain('LEGACY_CLAUDE_MANAGER_EXECUTED')
+    expect(combinedOutput(result)).toMatch(explicitGuardFailure)
+    expect(protectedBytes(fixture)).toEqual(before)
+  })
+
   it.each([
     ['init'],
     ['i'],

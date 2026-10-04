@@ -167,9 +167,7 @@ function execFileCaptured(command: string, args: string[], timeout = 60_000): Ca
   }
 }
 
-async function grokManagerPath(): Promise<string> {
-  const installed = join(homedir(), '.claude', '.ccg', 'engine', 'tools', 'grok-intelligence', 'manage.mjs')
-  if (await fs.pathExists(installed)) return installed
+function grokManagerPath(): string {
   return join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'grok-intelligence', 'manage.mjs')
 }
 

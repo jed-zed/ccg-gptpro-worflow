@@ -25,15 +25,16 @@ Only the controller or team leader runs this gate. Teammates reuse the persisted
 
 # CCG Team Exec
 
-Execute scoped worker plans conservatively.
+Execute scoped work packages as soon as their dependencies are ready.
 
 ## Behavior
 
-- Read `.codex/ccg/team/<task>/plan.md` when provided.
-- Run `../ccg-team/scripts/team_plan_checker.js validate .codex/ccg/team/<task>/plan.md --json` before dispatch so `status.json` is refreshed.
-- Refuse to dispatch when `can_execute=false`, including when multiple workers own the same file without an explicit merge strategy.
+- Reuse the canonical Trellis plan when present; read `.codex/ccg/team/<task>/plan.md` when provided as its execution view, not a second plan authority.
+- Follow `../ccg-team/references/native-workers.md`, including the root loop and actual native-tool calls. For formal team plans run `../ccg-team/scripts/team_plan_checker.js validate <plan.md> --json`; validation must not erase real execution state.
+- Repair missing presentation metadata locally. Unknown authority or unsafe writes block the affected branch; independent authorized work continues. A merge paragraph does not authorize concurrent writers. Zero workers is valid for simple/serial work.
+- Use `../ccg-team/scripts/worker_dispatch.mjs` when dependency/file coordination is needed. Record actual tool handles, use early fixed deliveries, and dispatch newly ready work without a whole-batch barrier. The helper does not launch agents or add permissions.
 - Tell every worker they are not alone in the codebase and must not revert others' edits.
-- Maintain `.codex/ccg/team/<task>/status.json` as the execution evidence artifact.
+- Maintain root-owned runtime evidence under `.codex/ccg/team/<task>/`; plan validation status is not evidence of a native spawn. Only the coordinator writes canonical lifecycle state.
 - Codex applies or reconciles final changes, reviews the diff, runs verification, and reports in Chinese.
 
 Follow the shared **Companion Role Contract** for routed evidence: frontend or

@@ -27,6 +27,15 @@ Append existing --plan, --diff, --target, and repeatable --dependency paths when
 
 You are the Codex-side orchestrator for CCG workflow plans. With `.trellis/`, use the selected task's canonical plan; otherwise plans are produced by `/ccg:plan` under `.codex/ccg/plans/`. Codex owns orchestration, final code edits, verification, and delivery. The provider for each workflow role comes from CCG role routing, while Codex remains the only final workspace owner.
 
+For independent ready work, follow `../ccg-team/references/native-workers.md`.
+Dispatch bounded native research/implementation leaves early, including under
+Trellis inline coordination; keep canonical state, shared files, final integration
+and verification in the root. Ordinary helpers do not require a formal team plan.
+The coordinator must call the host's actual native tools; the local dispatch
+helper supplies ready work and ownership checks, not model execution. Missing
+metadata is recoverable, zero workers is valid, and existing authorization,
+provider boundaries and model/effort settings remain unchanged.
+
 ## Hard Boundaries
 
 - Do not install, repair, or modify provider CLIs from an ordinary CCG workflow.

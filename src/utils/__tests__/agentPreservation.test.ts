@@ -284,6 +284,10 @@ describe('explicit additive user agent preservation', () => {
 
   it('doctor verifies preserved user bytes and the immutable original provenance without repairing it', async () => {
     const f = await fixture()
+    // Doctor validates the shipped bytes. Git archives may use LF while a
+    // Windows checkout uses CRLF; retain the other fixtures' CRLF migration cases.
+    for (const name of roles)
+      await fs.copy(join(process.cwd(), 'templates', 'codex', 'agents', name), join(f.templateDir, 'agents', name))
     await f.writePlan()
     expect((await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })).success).toBe(true)
     vi.stubEnv('CODEX_HOME', f.codexHome)

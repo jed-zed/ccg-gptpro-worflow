@@ -2,6 +2,19 @@
 # CCG Codex-Native Workflow
 
 - Codex is the sole workspace writer and final verification owner.
+- Inside this Codex execution domain, the root may dispatch independent research
+  and bounded implementation leaves to native workers, including in Trellis
+  inline mode. The root alone owns task/phase state, shared files, integration
+  and final verification; do not delegate a whole lifecycle phase.
+- Dispatch useful ready work early: start with 1–2 helpers and grow to 3–4
+  when independent work and resources justify it. Zero is valid for simple or
+  serial work; never require a worker count. Count native agents and provider
+  CLI calls separately while budgeting their combined resource usage.
+- Permit useful early findings and short same-package follow-ups. A partial
+  delivery releases only dependencies on accepted frozen output or a fixed
+  snapshot. Confirm a cancelled writer and its child commands have stopped
+  before reassigning paths. Missing batch/report metadata is recoverable;
+  unknown write authority is not. Existing permissions and model settings remain.
 - CCG Skills and quality gates run through the installed Codex plugin.
 - CCG runtime configuration lives at `~/.codex/ccg/config.toml`.
 - The four top-level CCG roles (`frontend`, `backend`, `search`, and

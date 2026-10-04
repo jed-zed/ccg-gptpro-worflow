@@ -25,24 +25,28 @@ Only the controller or team leader runs this gate. Teammates reuse the persisted
 
 # CCG Team Plan
 
-Create `.codex/ccg/team/<task>/plan.md`.
+Reuse the current Trellis plan when available. A formal team execution view may
+live at `.codex/ccg/team/<task>/plan.md`; it does not become a second plan authority.
+Follow `../ccg-team/references/native-workers.md`. Ordinary independent helpers
+do not need this formal plan. Zero workers is valid when root can finish directly.
 
 ## Required Structure
 
 ```markdown
 ## Workers
-| Worker | Scope | Files | Constraints |
-|--------|-------|-------|-------------|
+| Worker | Scope | Reads | Writes | Constraints |
+|--------|-------|-------|--------|-------------|
 
 ## Merge Strategy
 ## Verification Strategy
 ## Conflict Risks
 ```
 
-Detect same-file ownership conflicts before recommending execution. Write the plan in Chinese by default.
+Distinguish shared reads from write ownership. Serialize writer/writer and
+writer/reader conflicts or give readers a fixed copy. Write the plan in Chinese.
 
 ## Required Helper Flow
 
 - Validate the plan structure with `../ccg-team/scripts/team_plan_checker.js summarize <plan.md> --json`.
 - Run `../ccg-team/scripts/team_plan_checker.js validate <plan.md> --json` before recommending `/ccg:team-exec`.
-- Keep the plan executable by ensuring every same-file conflict is paired with an explicit merge strategy, not a generic promise to reconcile later.
+- Keep the plan executable with explicit dependencies and serialization for conflicting access; a merge promise alone never allows simultaneous writing. Batch/report labels are recoverable metadata, not new stop gates.
