@@ -86,7 +86,7 @@ export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.f
   'codeagent-wrapper-darwin-arm64': '1d8396f5d366d0ed67d0dd99e1108c23a0050530ec1bbd02d23e8bc507b3144a',
   'codeagent-wrapper-linux-amd64': '5df62166e87f5472e73cc7cc6b2c4a7b4c373900bd0f230d6a017f9ee564d5c8',
   'codeagent-wrapper-linux-arm64': '8237c59cd669c0434b289bdf5f7003c895ff7fb0b1d6c9995c5833ac6f0d422c',
-  'codeagent-wrapper-windows-amd64.exe': '8c8d67672b144c81d875e504443db8b799df66f129b1b9ae8c73b66c64c322c3',
+  'codeagent-wrapper-windows-amd64.exe': 'a5e95212e83117f0c17cb54d7b1a55c58a07590bd3ede0ceac774f4d7b321f1b',
   'codeagent-wrapper-windows-arm64.exe': '91bbf77642964294aba1bdaf5c51e9d4c81d34422cabaa8ec1b0de9a9dc6a21b',
 })
 
