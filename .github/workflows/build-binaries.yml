@@ -8,6 +8,10 @@ on:
       - 'src/utils/installer.ts'
       - 'scripts/wrapper-release.json'
       - 'scripts/verify-wrapper-release.mjs'
+      - 'scripts/repair-wrapper-r2-core.mjs'
+      - 'scripts/repair-wrapper-r2.mjs'
+      - 'tests/repair-wrapper-r2.node-test.mjs'
+      - '.github/workflows/repair-wrapper-r2.yml'
   workflow_dispatch:
     inputs:
       publish_assets:
@@ -32,6 +36,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.2'
+
+      - name: Test R2 mirror recovery offline
+        run: node --test tests/repair-wrapper-r2.node-test.mjs
 
       - name: Verify exact source and release recipe
         run: node scripts/verify-wrapper-release.mjs
@@ -80,6 +87,9 @@ jobs:
     needs: build
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_assets == true
     runs-on: ubuntu-latest
+    concurrency:
+      group: wrapper-r2-mirror-writer
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -148,7 +158,7 @@ jobs:
 
       - name: Install wrangler
         if: steps.r2.outputs.enabled == 'true'
-        run: npm i -g wrangler@latest
+        run: npm i -g wrangler@4.148.0
 
       - name: Sync assets to the matching Cloudflare R2 path
         if: steps.r2.outputs.enabled == 'true'
