@@ -49,6 +49,9 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
+      - name: Build
+        run: pnpm build
+
       - name: Run tests with coverage
         run: pnpm test -- --coverage
 
@@ -57,9 +60,6 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Build
-        run: pnpm build
 
       - name: Clean Codex install acceptance
         if: matrix.node-version == 22
@@ -112,4 +112,7 @@ jobs:
 
       - name: Go test
         working-directory: codeagent-wrapper
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: go test -short ./...

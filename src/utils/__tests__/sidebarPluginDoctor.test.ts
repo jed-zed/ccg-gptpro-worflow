@@ -1,13 +1,14 @@
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SIDEBAR_REQUIRED_FILES, sidebarSkillDirectories } from '../sidebar-skill'
 
 const powershell = process.platform === 'win32'
   ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-  : 'pwsh'
+  : process.env.PATH?.split(delimiter).map(directory => join(directory, 'pwsh')).find(existsSync) || 'pwsh'
 const powershellAvailable = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { windowsHide: true, timeout: 10_000 }).status === 0
 const doctorScript = join(process.cwd(), 'plugins', 'ccg', 'scripts', 'doctor.ps1')
 const pluginRoot = join(process.cwd(), 'plugins', 'ccg')
