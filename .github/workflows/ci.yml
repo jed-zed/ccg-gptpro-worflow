@@ -52,6 +52,13 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Verify npm package contents and worker dispatch
+        if: matrix.node-version == 22
+        run: |
+          pnpm test:package
+          pnpm test:workers
+          pnpm check:package
+
       - name: Run tests with coverage
         run: pnpm test -- --coverage
 
