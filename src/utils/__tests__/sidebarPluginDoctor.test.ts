@@ -79,7 +79,10 @@ describe.skipIf(!powershellAvailable)('PowerShell sidebar file doctor', () => {
       await install(directory)
     const { exitCode, report } = runDoctor()
     expect(exitCode).toBe(0)
-    expect(report.checks[0]).toMatchObject({ status: 'PASS', detail: expect.stringContaining(`installed: Installed local files: ${directories[selected]}`) })
+    expect(report.checks[0]).toMatchObject({ status: 'PASS', detail: expect.stringContaining('installed: Installed local files: ') })
+    const installedPath = /installed: Installed local files: (.*?); browser connection/.exec(report.checks[0].detail)?.[1]
+    expect(installedPath).toBeTruthy()
+    expect(await fs.realpath(installedPath!)).toBe(await fs.realpath(directories[selected]))
     expect(report.checks[0].detail).toContain('browser connection and login were not checked')
   })
 
