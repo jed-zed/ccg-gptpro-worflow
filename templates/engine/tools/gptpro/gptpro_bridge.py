@@ -85,17 +85,15 @@ def locked_file(path: Path, timeout_seconds: float = 30.0):
     """Hold one cross-process byte lock; the lock file itself is durable."""
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("a+b")
+    handle.seek(0, os.SEEK_END)
+    if handle.tell() == 0:
+        handle.write(b"\0")
+        handle.flush()
     deadline = time.monotonic() + timeout_seconds
     acquired = False
     try:
         while not acquired:
             try:
-                # Another process may lock byte zero while this file is still empty.
-                # Retry the initialization write along with lock acquisition.
-                handle.seek(0, os.SEEK_END)
-                if handle.tell() == 0:
-                    handle.write(b"\0")
-                    handle.flush()
                 handle.seek(0)
                 if os.name == "nt":
                     import msvcrt

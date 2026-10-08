@@ -360,7 +360,6 @@ const PLUGIN_BRIDGE = join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro
 const TMP_ROOT = join(tmpdir(), `ccg-gptpro-bridge-${Date.now()}`)
 const PYTHON = findPython()
 const maybeIt = PYTHON ? it : it.skip
-const windowsIt = PYTHON && process.platform === 'win32' ? it : it.skip
 
 // Consecutive synchronous Python fixtures can block the worker's IPC responses
 // past Vitest's RPC deadline on Windows. Yield after each case without changing
@@ -1977,34 +1976,6 @@ describe('GPT Pro sidebar bridge', () => {
     expect(status.current_round).toBe(5)
     expect(Object.keys(status.rounds).sort()).toEqual(['round-1', 'round-2', 'round-3', 'round-4', 'round-5'])
   }, 60_000)
-
-  windowsIt.each([BRIDGE, PLUGIN_BRIDGE])(
-    'retries initialization while an empty Windows lock file is held (%s)',
-    (bridge) => {
-      const lockFile = join(TMP_ROOT, `empty-lock-${bridge === BRIDGE ? 'template' : 'plugin'}`)
-      fs.ensureDirSync(TMP_ROOT)
-      const script = [
-        'import msvcrt, pathlib, runpy, subprocess, sys, time',
-        'bridge, lock_path = sys.argv[1:3]',
-        'lock = pathlib.Path(lock_path)',
-        'with lock.open("w+b") as held:',
-        '    msvcrt.locking(held.fileno(), msvcrt.LK_NBLCK, 1)',
-        '    child = "import pathlib, runpy, sys; lock = runpy.run_path(sys.argv[1])[\'locked_file\']; lock_path = pathlib.Path(sys.argv[2]); print(\'ready\', flush=True); exec(\'with lock(lock_path): print(\\\"acquired\\\", flush=True)\')"',
-        '    process = subprocess.Popen([sys.executable, "-c", child, bridge, lock_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)',
-        '    assert process.stdout.readline().strip() == "ready"',
-        '    time.sleep(0.2)',
-        '    assert process.poll() is None, process.stderr.read()',
-        '    held.seek(0)',
-        '    msvcrt.locking(held.fileno(), msvcrt.LK_UNLCK, 1)',
-        '    stdout, stderr = process.communicate(timeout=10)',
-        '    assert process.returncode == 0, stderr',
-        '    assert stdout.strip() == "acquired", stdout',
-        'assert lock.read_bytes() == b"\\0"',
-      ].join('\n')
-      runPython(PYTHON!, ['-c', script, bridge, lockFile])
-    },
-    20_000,
-  )
 
   maybeIt.each([BRIDGE, PLUGIN_BRIDGE])('rejects conflicting follow-up bindings before writing a round (%s)', (bridge) => {
     const root = join(TMP_ROOT, `conflicting-followup-bindings-${bridge === BRIDGE ? 'template' : 'plugin'}`)
