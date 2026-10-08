@@ -331,7 +331,7 @@ describe('explicit additive user agent preservation', () => {
     expect(missingPlan.status).not.toBe(0)
     expect(missingPlan.stderr).toContain('plan and its exact reviewed SHA-256 together')
     await f.writePlan()
-    const wrongDigest = run(['install', '--agent-preservation-plan', f.planPath, '--agent-preservation-plan-sha256', 'a'.repeat(64)])
+    const wrongDigest = run(['install', '--agent-preservation-plan', f.planPath, '--agent-preservation-plan-sha256', `sha256:${'0'.repeat(64)}`])
     expect(wrongDigest.status).not.toBe(0)
     expect(wrongDigest.stderr).toContain('Agent preservation plan SHA-256 differs')
     expect(await snapshot(f.codexHome)).toEqual(before)
