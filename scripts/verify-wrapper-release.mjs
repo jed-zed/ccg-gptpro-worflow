@@ -33,7 +33,7 @@ expect(
   'Installer binary version disagrees with recipe',
 )
 expect(
-  installer.includes('const RELEASE_TAG = `wrapper-${EXPECTED_BINARY_VERSION}`'),
+  /const RELEASE_TAG = `wrapper-\$\{EXPECTED_BINARY_VERSION\}`/.test(installer),
   'Installer download tag must derive from the pinned binary version',
 )
 expect(
@@ -46,7 +46,9 @@ expect(
 )
 
 const tracked = git('ls-files', '-z', '--', 'codeagent-wrapper')
-  .toString('utf8').split('\0').filter(Boolean)
+  .toString('utf8')
+  .split('\0')
+  .filter(Boolean)
 expect(tracked.length > 0, 'No tracked wrapper source files found')
 for (const name of tracked) {
   const path = join(root, name)
