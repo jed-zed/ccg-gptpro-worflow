@@ -22,7 +22,8 @@ export function readPins(recipe, installer, tag) {
   expect(recipe.schemaVersion === 1, 'Unsupported release recipe')
   expect(recipe.releaseTag === tag && tag === `wrapper-${recipe.binaryVersion}`, 'Release tag disagrees with recipe')
   expect(installer.includes(`export const EXPECTED_BINARY_VERSION = '${recipe.binaryVersion}'`), 'Installer version disagrees with recipe')
-  expect(installer.includes('const RELEASE_TAG = `wrapper-${EXPECTED_BINARY_VERSION}`'), 'Installer tag does not derive from pinned version')
+  // Escape interpolation because this check matches installer source text.
+  expect(installer.includes(`const RELEASE_TAG = \`wrapper-\${EXPECTED_BINARY_VERSION}\``), 'Installer tag does not derive from pinned version')
   const block = /export const EXPECTED_BINARY_SHA256:[\s\S]*?Object\.freeze\(\{([\s\S]*?)\n\}\)/.exec(installer)?.[1]
   expect(block, 'Installer digest table not found')
   const entries = [...block.matchAll(/^\s*'([^']+)': '([0-9a-f]{64})',?\s*$/gm)]
@@ -72,7 +73,8 @@ export async function repairMirror({ tag, pins, assetNames, assets, readObject, 
 
 // Wrangler emits this key-specific R2 error for a missing object. A generic 404,
 // bucket error, permission error, or network error cannot authorize a write.
+// The i flag covers both X and x; the anchors still require a whole error line.
 export function isMissingKeyError(output) {
   const message = stripVTControlCharacters(output)
-  return /^[ \t]*(?:[Xx✘][ \t]+)?\[ERROR\][ \t]+(?:NoSuchKey|The specified key does not exist\.)[ \t]*$/im.test(message)
+  return /^[ \t]*(?:[X✘][ \t]+)?\[ERROR\][ \t]+(?:NoSuchKey|The specified key does not exist\.)[ \t]*$/im.test(message)
 }
