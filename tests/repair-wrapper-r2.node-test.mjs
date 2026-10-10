@@ -61,7 +61,9 @@ test('lost upload acknowledgement at every index is recovered without overwritin
   }
 })
 
-function sixGets() { return targets.length }
+function sixGets() {
+  return targets.length
+}
 
 test('a wrong object at the last index prevents all writes', async () => {
   const state = fake(new Map([[targets.at(-1), Buffer.from('wrong')]]))
@@ -94,6 +96,17 @@ test('wrong tag, asset inventory, and downloaded hashes fail before any R2 acces
   const installer = `export const EXPECTED_BINARY_VERSION = '1.2.3'\nconst RELEASE_TAG = \`wrapper-\${EXPECTED_BINARY_VERSION}\`\nexport const EXPECTED_BINARY_SHA256: Record<string, string> = Object.freeze({\n${targets.map(name => `  '${name}': '${pins.get(name)}',`).join('\n')}\n})`
   assert.deepEqual(readPins(recipe, installer, tag), pins)
   assert.throws(() => readPins(recipe, installer, 'wrapper-wrong'), /tag disagrees/)
+  // Source validation requires the literal pinned-variable expression, even if a
+  // hardcoded tag would happen to equal today's recipe.
+  for (const releaseTag of [
+    "const RELEASE_TAG = 'wrapper-1.2.3'",
+    'const RELEASE_TAG = `wrapper-1.2.3`',
+    `const RELEASE_TAG = \`wrapper-\${OTHER_BINARY_VERSION}\``,
+    `const RELEASE_TAG = \`wrapper-\${EXPECTED_BINARY_VERSION.trim()}\``,
+  ]) {
+    const altered = installer.replace(`const RELEASE_TAG = \`wrapper-\${EXPECTED_BINARY_VERSION}\``, releaseTag)
+    assert.throws(() => readPins(recipe, altered, tag), /tag does not derive from pinned version/)
+  }
   assert.throws(() => validateAssets([...names, 'extra'], assets, pins), /exactly six/)
   const corrupted = new Map(assets)
   corrupted.set(targets[0], Buffer.from('wrong'))
@@ -105,13 +118,36 @@ test('wrong tag, asset inventory, and downloaded hashes fail before any R2 acces
 test('unknown get errors and generic 404 never count as missing', async () => {
   assert.equal(isMissingKeyError('✘ [ERROR] The specified key does not exist.\n'), true)
   assert.equal(isMissingKeyError('X [ERROR] The specified key does not exist.\n'), true)
-  assert.equal(isMissingKeyError('\x1b[31mX \x1b[41;31m[\x1b[41;97mERROR\x1b[41;31m]\x1b[0m \x1b[1mThe specified key does not exist.\x1b[0m\n\n'), true)
+  assert.equal(isMissingKeyError('x [ERROR] The specified key does not exist.\n'), true)
+  assert.equal(isMissingKeyError('\x1B[31mX \x1B[41;31m[\x1B[41;97mERROR\x1B[41;31m]\x1B[0m \x1B[1mThe specified key does not exist.\x1B[0m\n\n'), true)
   assert.equal(isMissingKeyError('[ERROR] NoSuchKey\n'), true)
-  for (const error of ['HTTP 404', '[ERROR] Bucket not found', '[ERROR] Unauthorized', 'network timeout']) {
+  assert.equal(isMissingKeyError('\tX\t[error]\tnosuchkey\t\r\n'), true)
+  // A key-error phrase inside another error must not authorize an upload.
+  for (const error of [
+    'HTTP 404',
+    '[ERROR] Bucket not found',
+    '[ERROR] Unauthorized',
+    'network timeout',
+    'NoSuchKey',
+    'HTTP 404 [ERROR] NoSuchKey',
+    '[ERROR] NoSuchKey: access denied',
+    '[ERROR] The specified key does not exist. Retry later',
+    '[ERROR] The specified key does not exist',
+    'Y [ERROR] NoSuchKey',
+  ]) {
     assert.equal(isMissingKeyError(error), false)
   }
   const state = fake()
-  await assert.rejects(repairMirror({ tag, pins, assetNames: names, assets, readObject: async () => { throw new Error('network timeout') }, putObject: state.putObject }), /network timeout/)
+  await assert.rejects(repairMirror({
+    tag,
+    pins,
+    assetNames: names,
+    assets,
+    readObject: async () => {
+      throw new Error('network timeout')
+    },
+    putObject: state.putObject,
+  }), /network timeout/)
   assert.deepEqual(state.events, [])
 })
 
