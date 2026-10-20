@@ -13,6 +13,34 @@ Codex remains the final owner. Ordinary CCG roles use their configured providers
 GPT Pro step. GPT Pro is untrusted, read-only helper evidence; it never becomes a workspace writer,
 implementation owner, or lifecycle authority.
 
+## Optional scoped MCPX production
+
+Ordinary routing remains unchanged. Explicit opt-in budget requests may use the existing MCPX
+connection for scoped code production. Read [the setup tutorial](../../../../README.zh-CN.md#mcpx-setup)
+and [RUNTIME_CONTRACT.md](./RUNTIME_CONTRACT.md) first. MCPX must already be installed, configured,
+connected and verified; these helpers never install services, change authentication or create tunnels.
+
+Use `scripts/gptpro_budget.py configure` with one canonical task state, its actual Codex thread ID,
+`--evidence-access mcpx`, a controller-owned scope and a fresh successful existing-tool preflight.
+`prepare` validates that scope without sending. New scopes default to bounded read/write/execute,
+requiring explicit authorization, exact task/output paths and exact argv with `shell: false`.
+Explicit read-only scopes remain supported. Server privileges remain unchanged. Summary-only code
+drafting needs no MCPX: select `--evidence-access summary` and label missing direct workspace access.
+
+Only the budget-bound production request permits the webpage to use its exact authorized MCPX
+write/execute tools. All other bridge calls retain the read-only evidence boundary. Codex retains
+independent code review, local verification and final acceptance. Capability rounds read only the
+entrypoint; each strength/profile/workspace needs its own validated capability. Use
+`--thinking-mode Pro` with the source sidebar baseline; other strengths require a separately capable
+installed sidebar and fail closed when unsupported.
+
+Bind the returned brief and `bridgeArgs` through this existing bridge and the installed RootWait
+transport. Never replace uncertain identities. `record` additionally requires independent complete
+structured history and current input revisions; a completed confirmation round is linked using
+`--mcpx-confirmation-dir`, preserves blocked `resultHistory`, exact argv, binding and original deadline.
+A pending confirmation is not execution success. `--reextraction-file` accepts only an immutable
+sibling receipt from the original completed reply; it never overwrites the original artifacts.
+
 ## Required Transport
 
 Resolve and follow the active `chatgpt-pro-sidebar/SKILL.md` before any ChatGPT interaction.
