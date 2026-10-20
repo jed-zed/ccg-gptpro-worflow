@@ -155,17 +155,19 @@ CCG 控制端应从成功的现有 MCPX 工具结果生成私有 preflight JSON�
 
 只有用户确已授权该目标、这些输出和命令后才能写 `authorizationConfirmed: true`。省略 `permissionMode` 对新 scope 默认 `read-write-execute`；仅分析任务应明确写 `"permissionMode": "read-only"`，并移除写入和执行字段。输入与输出都须在 `taskDirectory` 下。执行工作目录固定为已登记工作区根目录，不能把 argv 悄悄改成 shell/script/task 方式。生产权限需真实 owner/editor 角色及 workspace/session/runtime_read/read/edit/execute/observe/progress 能力，CCG 不会提高服务端权限。
 
-从此源码 checkout 运行示例；安装后请从同一个完整插件根目录解析脚本，勿混用缓存版本：
+从此源码 checkout 先解析 helper 的绝对路径，然后切到已登记的实际项目根目录运行；安装后请从同一个完整插件根目录解析脚本，勿混用缓存版本。`--workdir`、job 输入、scope/preflight 和任务账本必须对应同一项目：
 
 ```powershell
 $bridgeScripts = Join-Path (Get-Location) 'plugins\ccg\skills\ccg-gptpro-bridge\scripts'
 $budget = Join-Path $bridgeScripts 'gptpro_budget.py'
+$workspaceRoot = 'D:\Projects\ccg-demo'
+Set-Location -LiteralPath $workspaceRoot
 $stateFile = '.ccg/tasks/demo/advice-budget.json'
 python $budget configure --state $stateFile --mode save-codex `
   --codex-thread-id '<当前真实 thread UUID>' --evidence-access mcpx `
   --mcpx-scope-file '.private/demo-scope.json' `
   --mcpx-preflight-file '.private/demo-preflight.json'
-python $budget prepare --state $stateFile --workdir '.' `
+python $budget prepare --state $stateFile --workdir $workspaceRoot `
   --job-file '.private/demo-job.json' --context-file '.private/demo-context.md' `
   --thinking-mode Pro
 ```
@@ -214,7 +216,7 @@ CCG 无 MCPX 回退必须由用户显式选择：
 
 ```powershell
 python $budget configure --state $stateFile --mode save-codex --evidence-access summary
-python $budget prepare --state $stateFile --workdir '.' `
+python $budget prepare --state $stateFile --workdir $workspaceRoot `
   --job-file '.private/demo-job.json' --context-file '.private/demo-summary.md' `
   --thinking-mode Pro
 ```
