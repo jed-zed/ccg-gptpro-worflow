@@ -730,6 +730,11 @@ describe('GPT Pro sidebar bridge', () => {
       },
       () => {
         const value = structuredClone(originalBatch)
+        value.items[1].thinkingMode = 'High'
+        fs.writeJsonSync(batchFile, value)
+      },
+      () => {
+        const value = structuredClone(originalBatch)
         value.batchId = 'tampered-batch-id'
         fs.writeJsonSync(batchFile, value)
       },
