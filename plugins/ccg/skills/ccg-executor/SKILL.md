@@ -3,6 +3,20 @@ name: executor
 description: Run the CCG workflow inside Codex. Use when the user invokes /ccg, /ccg:workflow, /ccg:execute, /ccg:excute, /ccg:codex-exec, asks Codex to execute a Trellis task directory, its implement.md, or a standalone .codex/ccg/plans/*.md file, or wants Codex to orchestrate allowed evidence while implementing a plan.
 ---
 
+## Optional analysis allocation
+
+When the user explicitly requests --orchestration save-codex, /ccg:save-codex on, or quota-saving
+orchestration, load skills/ccg-save-codex/SKILL.md and enable it only for the canonical current task.
+If that task's advice-budget.json already says mode=save-codex, follow that Skill before dispatching
+analysis. --orchestration standard or /ccg:save-codex off disables it while preserving evidence.
+Absent/disabled state keeps all ordinary defaults. In this opt-in mode, bounded low-risk analysis
+uses webpage Extra High, critical decisions use webpage Pro, and Codex/native workers concentrate
+on bounded evidence, code application and verification; avoid duplicate optional native deep-analysis
+leaves. Required authorization, provider evidence, local correctness and safety checks remain.
+A mode/limit failure pauses its external advice route and must never silently invoke expensive
+Codex reasoning. Explicit user webpage strength wins over the allocation rule.
+
+
 ## Research
 
 Use existing independent research agents with grok-search MCP. Search actively and

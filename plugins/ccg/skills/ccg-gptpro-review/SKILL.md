@@ -83,3 +83,7 @@ conclusion depends on it.
 - Continue only after `run-root` returns completed evidence for the exact Codex task.
 - Import completed sidebar evidence with the exact Codex task binding; never ask the user to copy or
   save the response.
+
+Webpage strength: preserve an explicit user choice through shared bridge --thinking-mode and Skill
+-ThinkingMode on status/new-chat/run-root. Default Pro only when unspecified; 极高 is Extra High.
+This does not change --mode review workflow semantics or Codex reasoning effort.
