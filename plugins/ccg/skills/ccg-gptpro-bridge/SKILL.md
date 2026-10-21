@@ -83,9 +83,13 @@ bridge `status.json` records only GPT Pro evidence state.
 ## Question And Conversation Guidance
 
 - Expected questions per independent task: 1.
-- Sequential follow-up rounds in the same conversation have no fixed bridge limit.
-- Follow-up rounds are only for blocker re-check, revised-plan comparison, applied-diff review, or another
-  high-risk follow-up.
+- Sequential follow-up rounds in the same conversation remain available for
+  task-relevant questions; the bridge has no fixed conversation-round limit.
+- PR reviews follow `../ccg-gptpro-review/SKILL.md`: normally one complete review
+  plus one focused re-review after fixes as a soft budget. Further rounds need
+  a concrete blocker or changed risk, not an automatic repeat loop. Unresolved
+  blockers remain incomplete; a round count never grants approval. This review
+  budget does not cap ordinary user-requested conversation follow-ups.
 - Decompose independent complex workstreams into separate bridge sessions and separate ChatGPT Pro
   conversations.
 - When multiple connected external Chrome tabs are available, bind each conversation to its exact
@@ -101,10 +105,6 @@ Routing Evidence containing:
 
 - the current orchestrator and command semantics;
 - routed frontend/backend/search evidence that actually exists;
-<!-- Legacy mandatory search status; inactive in ordinary research.
-- `searchStatus`: `invoked`, `failed`, or `not_applicable`; the last state is
-  forbidden when frontend or backend participated;
--->
 - `searchStatus`: `invoked`, `failed`, or `not_applicable`; use the last state
   when external research would not materially help;
 - `productManagerStatus`: `authorization_required`, `authorized`, `declined`,
@@ -128,27 +128,18 @@ Use existing research agents and grok-search MCP when external sources help.
 Include useful findings and original links in the prompt; ordinary bridge calls
 do not require a Grok receipt, waiver, or external-intelligence flags.
 
-<!-- Legacy Grok gate coupling; inactive in ordinary research.
-Preserve the existing required/waived Grok external-intelligence flags and provenance.
--->
+## Mode output
 
-## Scorecard Output Contracts
-
-Every mode must include mandatory scoring in the same sidebar response while preserving its existing output sections:
-
-- `plan`: `Requirement Completeness` using `需求完整性评分（0-10）` with `目标明确性（0-3）`, `预期结果（0-3）`, `边界范围（0-2）`, `约束条件（0-2）`, and `总分：X/10`; also include `Planning Readiness Scorecard`. If completeness is `<7`, Codex asks for missing details instead of creating or revising a plan; `>=7` continues planning only.
-- `review`: `VALIDATION REPORT` with five 20-point dimensions and `TOTAL SCORE: XX/100`; frontend/UI-heavy reviews also require `FRONTEND VALIDATION REPORT`. Cross-score the ordinary Codex review and routed provider evidence that actually exists, including Gemini only when present, and use the more conservative score and blocker judgment.
-- `exc`: `Implementation Readiness Scorecard` with five 20-point dimensions for plan fit, implementation completeness, verification readiness, risk handling, and adoption recommendation. It remains a read-only advisory second opinion; Codex owns final implementation and verification.
-
-Scores must cite visible task context, routing evidence, diffs, verification results, and explicit uncertainty. Missing evidence lowers scores instead of being guessed. A score never authorizes execution or Provider calls, supplies missing role evidence, or bypasses the Plan-only Boundary or product-manager authorization gate.
+Use the current mode's prompt for its requested content; the shared bridge adds
+no universal scoring or section gate. Review reports verified findings (or zero),
+verification limits and the next action without mandatory numerical scores.
+Optional suggestions do not become requirements, and missing evidence is stated
+explicitly. Preserve the current plan/exc prompt contracts, Plan-only Boundary
+and product-manager authorization gate. No review opinion or score authorizes
+execution, supplies absent Provider evidence or changes Codex's ownership.
 
 ## Automated Workflow
 
-<!-- Legacy automatic external-intelligence arguments; inactive.
-1. Create one bridge session with `scripts/gptpro_bridge.py --mode <plan|review|exc>` plus task,
-   routing, optional Gemini, and required external-intelligence arguments. Do not pass
-   `--detach-preview`, `--open-preview`, or `--open-chatgpt`.
--->
 1. Create one bridge session with `scripts/gptpro_bridge.py --mode <plan|review|exc>` plus task,
    routing and optional Gemini arguments. Do not pass `--detach-preview`, `--open-preview`,
    or `--open-chatgpt`. Keep the explicit legacy external-intelligence validator available
