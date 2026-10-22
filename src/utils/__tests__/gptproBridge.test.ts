@@ -375,7 +375,7 @@ afterAll(async () => {
 
 describe('GPT Pro sidebar bridge', () => {
   maybeIt.each([BRIDGE, PLUGIN_BRIDGE].flatMap(bridge => ['plan', 'review', 'exc'].map(mode => ({ bridge, mode }))))(
-    'prints the assembled $mode scorecard as UTF-8 under cp1252 stdout ($bridge)',
+    'prints the assembled $mode prompt as UTF-8 under cp1252 stdout ($bridge)',
     ({ bridge, mode }) => {
       const root = join(TMP_ROOT, `scorecard-${mode}-${bridge === BRIDGE ? 'engine' : 'plugin'}`)
       fs.ensureDirSync(root)
@@ -422,16 +422,24 @@ describe('GPT Pro sidebar bridge', () => {
       expect(prompt).toContain('productManagerStatus: authorization_required')
       expect(output).toContain('CCG_GPTPRO_MANUAL_BRIDGE=0')
       expect(output).toContain('CCG_GPTPRO_SIDEBAR_TRANSPORT=1')
-      expect(prompt).toContain('XX/100')
+      if (mode !== 'review' || bridge === BRIDGE)
+        expect(prompt).toContain('XX/100')
       if (mode === 'plan') {
         expect(prompt).toContain('需求完整性评分（0-10）')
         expect(prompt).toContain('Planning Readiness Scorecard')
         expect(prompt).toContain('Plan-only boundary: Do not execute implementation.')
       }
       else if (mode === 'review') {
-        expect(prompt).toContain('VALIDATION REPORT')
-        expect(prompt).toContain('FRONTEND VALIDATION REPORT')
-        expect(prompt).toContain('more conservative score')
+        if (bridge === PLUGIN_BRIDGE) {
+          expect(prompt).toContain('Zero findings is valid.')
+          expect(prompt).toContain('Keep optional suggestions separate; they do not become requirements.')
+          expect(prompt).not.toMatch(/TOTAL SCORE|VALIDATION REPORT|XX\/20/)
+        }
+        else {
+          expect(prompt).toContain('VALIDATION REPORT')
+          expect(prompt).toContain('FRONTEND VALIDATION REPORT')
+          expect(prompt).toContain('more conservative score')
+        }
       }
       else {
         expect(prompt).toContain('Implementation Readiness Scorecard')
@@ -726,6 +734,11 @@ describe('GPT Pro sidebar bridge', () => {
       () => {
         const value = structuredClone(originalBatch)
         value.items[1].batchBinding.freshConversation = true
+        fs.writeJsonSync(batchFile, value)
+      },
+      () => {
+        const value = structuredClone(originalBatch)
+        value.items[1].thinkingMode = 'High'
         fs.writeJsonSync(batchFile, value)
       },
       () => {
@@ -1371,7 +1384,7 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
-  it('archives conditional Grok evidence while ordinary GPT Pro workflows use MCP research', () => {
+  it('keeps legacy command archives separate from current review guidance', () => {
     const surfaces = [
       ['templates/commands/gptpro-plan.md', 'Run the Grok intelligence decision', 'Then run ordinary `/ccg:plan`'],
       ['templates/commands/gptpro-exc.md', 'Run the Grok intelligence decision', 'Then run ordinary'],
@@ -1381,7 +1394,6 @@ describe('GPT Pro sidebar bridge', () => {
       ['plugins/ccg/commands/gptpro-review.md', 'Only when a conclusion depends on a current external fact', 'Then run ordinary `/ccg:review`'],
       ['plugins/ccg/skills/ccg-gptpro-plan/SKILL.md', 'Before ordinary planning', 'Run ordinary `/ccg:plan`'],
       ['plugins/ccg/skills/ccg-gptpro-exc/SKILL.md', 'Before ordinary execution', 'Preserve the current CCG orchestrator'],
-      ['plugins/ccg/skills/ccg-gptpro-review/SKILL.md', 'Only when a conclusion depends on a current external fact', 'Run ordinary `/ccg:review`'],
     ] as const
 
     for (const [relativePath, grokMarker, ordinaryMarker] of surfaces) {
@@ -1403,6 +1415,16 @@ describe('GPT Pro sidebar bridge', () => {
       expect(active, relativePath).not.toContain('--expected-intelligence-mode')
       expect(active, relativePath).not.toContain('--expected-intelligence-depth')
     }
+
+    const review = readFileSync(join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro-review', 'SKILL.md'), 'utf8')
+    expect(review).toMatch(/pure local code review/i)
+    expect(review).toContain('do not run external-intelligence')
+    expect(review).toContain('grok-search MCP')
+    expect(review).toContain('Run ordinary `/ccg:review`')
+    expect(review).toContain('--require-routing-evidence')
+    expect(review).not.toContain('--require-external-intelligence')
+    expect(review).not.toContain('--expected-intelligence-mode')
+    expect(review).not.toContain('--expected-intelligence-depth')
   })
 
   maybeIt('accepts a canonical unverified Grok receipt and forwards only concise evidence to GPT Pro', () => {

@@ -17,14 +17,14 @@ import { planAgentPreservationAt } from './utils/codex-mode'
 
 function customizeHelp(sections: any[]): any[] {
   sections.unshift({ title: '', body: ansis.cyan.bold(`Personal CCG for Codex v${version}`) })
-  sections.push({ title: 'Host isolation', body: 'Personal runtime: Codex only. Claude uses upstream CCG and the separate ccg-gptpro-bridge plugin.\nLegacy Claude init, menu, MCP configuration and uninstall are unavailable here.' })
+  sections.push({ title: 'Host isolation', body: 'Personal runtime manages Codex-owned paths only. Claude uses upstream CCG and the separate ccg-gptpro-bridge plugin.\nLegacy Claude init, menu, MCP configuration and uninstall are unavailable here.' })
   return sections
 }
 
-export function assertPersonalCliRequest(args: readonly string[], environment: NodeJS.ProcessEnv = process.env): void {
+// Isolation is by target, not caller: legacy Claude commands stay disabled and
+// managed writes reject Claude configuration paths on every host.
+export function assertPersonalCliRequest(args: readonly string[]): void {
   const command = args[0] || ''
-  if (environment.CCG_HOST === 'claude' || environment.CLAUDECODE === '1')
-    throw new Error('Personal CCG is Codex-only. Use upstream CCG in Claude and the separate ccg-gptpro-bridge plugin.')
   if (['init', 'i', 'uninstall', 'config', 'diagnose-mcp', 'fix-mcp', 'grok'].includes(command))
     throw new Error(`Legacy Claude command "${command}" is disabled in the Codex-only personal CLI. Use ccg-codex codex-mode for managed Codex lifecycle; upstream CCG owns Claude.`)
   if (command === 'doctor' && args.some((arg, index) => arg === '--platform=claude' || (arg === '--platform' && args[index + 1] === 'claude')))
