@@ -61,7 +61,9 @@ test('lost upload acknowledgement at every index is recovered without overwritin
   }
 })
 
-function sixGets() { return targets.length }
+function sixGets() {
+  return targets.length
+}
 
 test('a wrong object at the last index prevents all writes', async () => {
   const state = fake(new Map([[targets.at(-1), Buffer.from('wrong')]]))
@@ -105,13 +107,16 @@ test('wrong tag, asset inventory, and downloaded hashes fail before any R2 acces
 test('unknown get errors and generic 404 never count as missing', async () => {
   assert.equal(isMissingKeyError('✘ [ERROR] The specified key does not exist.\n'), true)
   assert.equal(isMissingKeyError('X [ERROR] The specified key does not exist.\n'), true)
-  assert.equal(isMissingKeyError('\x1b[31mX \x1b[41;31m[\x1b[41;97mERROR\x1b[41;31m]\x1b[0m \x1b[1mThe specified key does not exist.\x1b[0m\n\n'), true)
+  assert.equal(isMissingKeyError('\x1B[31mX \x1B[41;31m[\x1B[41;97mERROR\x1B[41;31m]\x1B[0m \x1B[1mThe specified key does not exist.\x1B[0m\n\n'), true)
   assert.equal(isMissingKeyError('[ERROR] NoSuchKey\n'), true)
   for (const error of ['HTTP 404', '[ERROR] Bucket not found', '[ERROR] Unauthorized', 'network timeout']) {
     assert.equal(isMissingKeyError(error), false)
   }
   const state = fake()
-  await assert.rejects(repairMirror({ tag, pins, assetNames: names, assets, readObject: async () => { throw new Error('network timeout') }, putObject: state.putObject }), /network timeout/)
+  const failingRead = async () => {
+    throw new Error('network timeout')
+  }
+  await assert.rejects(repairMirror({ tag, pins, assetNames: names, assets, readObject: failingRead, putObject: state.putObject }), /network timeout/)
   assert.deepEqual(state.events, [])
 })
 
