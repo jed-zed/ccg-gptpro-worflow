@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -40,6 +41,16 @@ class BudgetTests(unittest.TestCase):
   self.enable(maxRequests=1);self.prepare();self.job['snapshot']='new';self.assertEqual(self.prepare()['action'],'pause')
   b.configure(self.state,'save-codex',limits={'maxRequests':8,'maxConcurrency':1});self.assertEqual(self.prepare()['action'],'queue')
   b.configure(self.state,'save-codex',limits={'maxConcurrency':3,'maxProRequests':0});self.assertEqual(self.prepare(explicit='Pro')['action'],'pause')
+ def test_documented_limit_flags_configure_bounded_limits(self):
+  skill=(Path(__file__).parents[2]/'ccg-save-codex'/'SKILL.md').read_text(encoding='utf-8')
+  self.assertEqual(sorted(set(re.findall(r'--max-[a-z-]+',skill))),['--max-concurrency','--max-pre-invoke-retries','--max-pro-requests','--max-requests','--max-web-attempts'])
+  base=['configure','--state',str(self.state),'--mode','save-codex','--codex-thread-id',THREAD]
+  out=io.StringIO()
+  with contextlib.redirect_stdout(out):self.assertEqual(b.main([*base,'--max-requests','5','--max-pro-requests','1','--max-web-attempts','10','--max-concurrency','3','--max-pre-invoke-retries','2']),0)
+  self.assertEqual(json.loads(out.getvalue())['limits'],{'maxRequests':5,'maxProRequests':1,'maxWebAttempts':10,'maxConcurrency':3,'maxPreInvokeRetries':2})
+  for flag,value in [('--max-concurrency','4'),('--max-concurrency','0'),('--max-pre-invoke-retries','3'),('--max-requests','0'),('--max-pro-requests','-1')]:
+   with contextlib.redirect_stderr(io.StringIO()):self.assertEqual(b.main([*base,flag,value]),2,flag+' '+value)
+  self.assertEqual(b.load(self.state)['limits']['maxConcurrency'],3)
  def test_input_change_invalidates_reuse_key(self):
   self.enable(maxConcurrency=3);f=self.root/'input.txt';f.write_text('v1');self.job['inputs']=['input.txt'];a=self.prepare();f.write_text('v2');d=self.prepare();self.assertNotEqual(a['requestId'],d['requestId'])
  def test_quota_pauses_without_silent_downgrade_and_preserves_unknown_tokens(self):
