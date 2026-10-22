@@ -16,6 +16,9 @@ owned runtime. Existing transaction journals, drift checks, and backup rules
 remain in force. `ccg-codex doctor` and `status` inspect Codex. Legacy Claude
 initialization, menu, MCP configuration, Grok management, and uninstall are
 unavailable; use upstream CCG for those actions.
+Isolation is by target, not caller: host markers such as `CLAUDECODE=1` or
+`CCG_HOST=claude` do not block `ccg-codex`; the package name, Codex-owned
+paths, Claude-path overlap checks and the disabled legacy commands do.
 
 For the two existing agents with additive user model overrides, first run
 `ccg-codex codex-mode plan-agent-preservation --baseline-dir <verified-old-agents> --agent-model gpt-6.1-sol --agent-reasoning xhigh --json`.
