@@ -181,12 +181,14 @@ describe('Grok workflow routing behavior', () => {
       for (const relativePath of entry.surfaces) {
         const routeCommand = routeCommandForSurface(relativePath)
         const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
-        expect(content, relativePath).toContain(routeCommand)
-        expect(content, relativePath).toContain(`--workflow ${entry.id}`)
-        expect(content, relativePath).toContain('--state-file')
-        expect(content, relativePath).toMatch(/exit (?:code )?`?2(?:`, `3`, or `4|\/3\/4)/i)
-        expect(content, relativePath).toContain('tool-managed background execution and wait mechanism')
-        expect(content, relativePath).toContain(`${routeCommand} recover --state-file`)
+        // An archived legacy route reference may be removed; when kept it stays complete.
+        if (content.includes(routeCommand)) {
+          expect(content, relativePath).toContain(`--workflow ${entry.id}`)
+          expect(content, relativePath).toContain('--state-file')
+          expect(content, relativePath).toMatch(/exit (?:code )?`?2(?:`, `3`, or `4|\/3\/4)/i)
+          expect(content, relativePath).toContain('tool-managed background execution and wait mechanism')
+          expect(content, relativePath).toContain(`${routeCommand} recover --state-file`)
+        }
         const active = content.replace(/<!--[\s\S]*?-->/g, '')
         expect(active, relativePath).toContain('grok-search MCP')
         expect(active, relativePath).not.toContain(routeCommand)
@@ -397,7 +399,12 @@ describe('Grok workflow routing behavior', () => {
       const active = content.replace(/<!--[\s\S]*?-->/g, '')
       expect(active, relativePath).not.toContain('Bootstrap contract:')
       expect(active, relativePath).not.toContain('intelligence-request.md')
+      // Active steps must not depend on the archived Phase -1 output.
+      expect(active, relativePath).not.toContain('Phase -1')
     }
+    const goActive = readFileSync(join(packageRoot, 'templates', 'commands', 'go.md'), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+    expect(goActive).toMatch(/生成或复用一个只含 `\[a-z0-9-\]` 的安全 `<task-id>`/)
+    expect(goActive).toContain('不得再生成第二个任务 ID')
   })
 
   it('keeps preferred X optional in every mode', () => {
