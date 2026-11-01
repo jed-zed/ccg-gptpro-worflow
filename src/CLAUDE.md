@@ -2,11 +2,15 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-08-18 (v3.4.15)
+**Last Updated**: 2026-11-01 (v3.4.16-localarchive.7)
 
 ---
 
 ## 变更记录
+
+### 2026-10-21 (v3.4.16-localarchive.7)
+- 宿主隔离改为按目标路径判断；`doctor` 新增只读的上游 CCG 重叠检查。
+- 同版本后续合入：移除未使用的 Cloudflare R2 镜像，恢复 Codex agent 保留计划的 SHA-256 绑定；安装器期望的 wrapper 版本为 5.12.14-personal.20261022.1。
 
 ### 2026-08-18 (v3.4.15)
 - Antigravity 支持通过非空 `ANTIGRAVITY_MODEL` 传入 `--model`；未设置或空白时保持 CLI 默认值。
@@ -186,7 +190,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.13'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.14-personal.20261022.1'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [
