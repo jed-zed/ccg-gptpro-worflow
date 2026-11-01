@@ -2,15 +2,23 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-08-18 (v3.4.15)
+**Last Updated**: 2026-11-01 (v3.4.16-localarchive.7)
 
-> 本文档已同步 v3.4.15 的 Antigravity 可配置默认模型，并保留 Provider 原生默认、非阻塞伴随搜索、Grok 缓存锁恢复与 GPT Pro URL-first 恢复；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.16-localarchive.7 的显式网页思考强度、受限 MCPX 证据、按目标路径的宿主隔离与 R2 镜像移除，并保留 Provider 原生默认、非阻塞伴随搜索、Grok 缓存锁恢复与 GPT Pro URL-first 恢复；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-10-21 (v3.4.16-localarchive.7)
+
+- GPT Pro 支持显式网页思考强度、预算化的 `/ccg:save-codex` 建议分配，以及带确认记录的受限 MCPX 读写执行证据。
+- `ccg-codex doctor` 新增只读的上游 CCG 重叠检查；`/ccg:go` 改为在任务步骤创建或复用安全任务 ID。
+- 规则简化为按风险分级的质量关卡、已验证的审查结论、软性 GPT Pro 审查预算和自然中文汇报；agent 模板固定 `gpt-6.1-sol`。
+- 宿主隔离改为按目标路径判断：Claude 宿主标记不再阻止 `ccg-codex` 和 Grok 引擎，保留 Claude 路径重叠检查、独立包与可执行文件，以及禁用的旧 Claude 命令。
+- 同版本后续合入：移除未使用的 Cloudflare R2 镜像，恢复 Codex agent 保留计划的 SHA-256 绑定；wrapper 当前为 v5.12.14-personal.20261022.1。
 
 ### 2026-08-18 (v3.4.15)
 
@@ -389,7 +397,7 @@
 |--------|------|------|
 | TypeScript CLI 源码 | [src/CLAUDE.md](./src/CLAUDE.md) | CLI 主入口、命令实现、安装器、i18n、工具链 |
 | 模板文件 | [templates/CLAUDE.md](./templates/CLAUDE.md) | 斜杠命令、提示词、子智能体、技能、规则模板 |
-| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.13 |
+| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.14-personal.20261022.1 |
 
 ---
 
@@ -421,7 +429,7 @@ npx ccg-workflow menu
 ### codeagent-wrapper 入口
 
 - **主入口**：`codeagent-wrapper/main.go`
-- **当前版本**：v5.12.13
+- **当前版本**：v5.12.14-personal.20261022.1
 - **调用语法**：
   ```bash
   codeagent-wrapper --backend <codex|gemini|claude> - [工作目录] <<'EOF'
@@ -733,7 +741,7 @@ graph TD
     Init --> Agents["~/.claude/agents/ccg/<br/>7 个子智能体"]
     Init --> Skills["~/.claude/skills/ccg/<br/>100+ 技能文件"]
     Init --> Prompts["~/.claude/.ccg/prompts/<br/>36 个专家提示词"]
-    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.13"]
+    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.14-personal.20261022.1"]
     Init --> MCP["~/.claude.json<br/>MCP 配置（可选）"]
 
     User2["Claude Code 用户"] --> SlashCmd["/ccg:workflow<br/>/ccg:frontend<br/>..."]
